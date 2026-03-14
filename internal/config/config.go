@@ -45,6 +45,12 @@ type Config struct {
 	WebhookURL    string
 	WebhookEvents []string
 
+	// Discord
+	DiscordBotToken    string
+	DiscordChannelID   string
+	DiscordGuildID     string
+	DiscordDefaultRepo string
+
 	// Database
 	DBPath string
 
@@ -77,6 +83,10 @@ func Load() (*Config, error) {
 		DefaultMaxTurns:   envInt("BACKFLOW_DEFAULT_MAX_TURNS", 200),
 		GitHubToken:       os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:        os.Getenv("BACKFLOW_WEBHOOK_URL"),
+		DiscordBotToken:   os.Getenv("DISCORD_BOT_TOKEN"),
+		DiscordChannelID:  os.Getenv("DISCORD_CHANNEL_ID"),
+		DiscordGuildID:    os.Getenv("DISCORD_GUILD_ID"),
+		DiscordDefaultRepo: os.Getenv("DISCORD_DEFAULT_REPO"),
 		DBPath:            envOr("BACKFLOW_DB_PATH", "backflow.db"),
 		PollInterval:      time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}

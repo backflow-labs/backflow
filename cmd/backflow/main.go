@@ -13,6 +13,7 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/api"
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/discord"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/orchestrator"
 	"github.com/backflow-labs/backflow/internal/store"
@@ -33,12 +34,32 @@ func main() {
 	}
 	defer db.Close()
 
-	var notifier notify.Notifier
+	// Build notifier list
+	var notifiers []notify.Notifier
 	if cfg.WebhookURL != "" {
-		notifier = notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents)
+		notifiers = append(notifiers, notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents))
 		log.Info().Str("url", cfg.WebhookURL).Msg("webhook notifications enabled")
-	} else {
+	}
+
+	var discordBot *discord.Bot
+	if cfg.DiscordBotToken != "" {
+		var err error
+		discordBot, err = discord.New(db, cfg)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to create discord bot")
+		}
+		notifiers = append(notifiers, discordBot.Notifier())
+		log.Info().Msg("discord notifications enabled")
+	}
+
+	var notifier notify.Notifier
+	switch len(notifiers) {
+	case 0:
 		notifier = notify.NoopNotifier{}
+	case 1:
+		notifier = notifiers[0]
+	default:
+		notifier = notify.NewMultiNotifier(notifiers...)
 	}
 
 	orch := orchestrator.New(db, cfg, notifier)
@@ -53,6 +74,13 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start Discord bot if configured
+	if discordBot != nil {
+		if err := discordBot.Start(ctx); err != nil {
+			log.Fatal().Err(err).Msg("failed to start discord bot")
+		}
+	}
 
 	// Start orchestrator in background
 	go orch.Start(ctx)
@@ -72,6 +100,9 @@ func main() {
 
 	log.Info().Msg("shutting down...")
 	cancel()
+	if discordBot != nil {
+		discordBot.Stop()
+	}
 	orch.Stop()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
