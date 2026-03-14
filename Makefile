@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-push lint
+.PHONY: build run test clean docker-build docker-push docker-server-build docker-server-up docker-server-down lint
 
 BINARY := backflow
 PKG := github.com/backflow-labs/backflow
@@ -33,6 +33,15 @@ docker-push:
 	@echo "Usage: make docker-push REGISTRY=<ecr-uri>"
 	docker tag backflow-agent $(REGISTRY):latest
 	docker push $(REGISTRY):latest
+
+docker-server-build:
+	docker build -t backflow-server .
+
+docker-server-up:
+	docker compose up --build -d
+
+docker-server-down:
+	docker compose down
 
 setup-aws:
 	bash scripts/setup-aws.sh
