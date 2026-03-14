@@ -104,5 +104,12 @@ func (r *CreateTaskRequest) Validate() error {
 	if r.MaxRuntimeMin < 0 {
 		return fmt.Errorf("max_runtime_min must be non-negative")
 	}
+	if r.Effort != "" {
+		switch r.Effort {
+		case "low", "medium", "high", "xhigh":
+		default:
+			return fmt.Errorf("effort must be low, medium, high, or xhigh")
+		}
+	}
 	return nil
 }
