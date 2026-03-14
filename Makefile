@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint db-status setup-aws deps
+.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint db-status setup-aws deps server-image-build server-image-push server-image-deploy compose-up compose-down
 
 BINARY := backflow
 PKG := github.com/backflow-labs/backflow
@@ -60,3 +60,32 @@ setup-aws:
 
 deps:
 	go mod tidy
+
+# ── Server container ──────────────────────────────────────────────────────────
+
+server-image-build:
+	$(DOCKER) build -t backflow-server .
+
+server-image-push:
+	@echo "Usage: make server-image-push REGISTRY=<registry-uri>"
+	$(DOCKER) tag backflow-server $(REGISTRY):latest
+	$(DOCKER) push $(REGISTRY):latest
+
+server-image-deploy:
+	@$(ENV); \
+	ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text) && \
+	REGION=$${AWS_REGION:-us-east-1} && \
+	ECR=$$ACCOUNT_ID.dkr.ecr.$$REGION.amazonaws.com && \
+	aws ecr get-login-password --region $$REGION | $(DOCKER) login --username AWS --password-stdin $$ECR && \
+	$(DOCKER) buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t $$ECR/backflow-server:latest \
+		--push \
+		. && \
+	echo "Pushed to $$ECR/backflow-server:latest"
+
+compose-up:
+	$(DOCKER) compose up --build -d
+
+compose-down:
+	$(DOCKER) compose down
