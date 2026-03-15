@@ -18,6 +18,10 @@ const (
 	TaskStatusCancelled    TaskStatus = "cancelled"
 )
 
+// IsTerminal reports whether the status represents a final state.
+// Interrupted is terminal because the container has already exited and
+// resources have been freed; a new task should be created instead of
+// attempting to resume.
 func (s TaskStatus) IsTerminal() bool {
 	return s == TaskStatusCompleted || s == TaskStatusFailed || s == TaskStatusCancelled || s == TaskStatusInterrupted
 }

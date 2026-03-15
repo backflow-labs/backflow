@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -38,7 +39,7 @@ func (n *DiscordNotifier) Notify(event notify.Event) error {
 
 	// Handle completion: fetch PR URL from store and update embed if available
 	if event.Type == notify.EventTaskCompleted {
-		task, err := n.bot.store.GetTask(n.bot.ctx, event.TaskID)
+		task, err := n.bot.store.GetTask(context.Background(), event.TaskID)
 		if err == nil && task != nil && task.PRURL != "" && event.Message == "" {
 			_, _ = n.bot.session.ChannelMessageSendEmbed(ti.ThreadID, &discordgo.MessageEmbed{
 				Title:       "Pull Request",

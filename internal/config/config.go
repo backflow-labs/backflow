@@ -106,6 +106,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("ANTHROPIC_API_KEY is required when BACKFLOW_AUTH_MODE=api_key")
 	}
 
+	if c.DiscordBotToken != "" {
+		if c.DiscordGuildID == "" || c.DiscordChannelID == "" {
+			return nil, fmt.Errorf("DISCORD_GUILD_ID and DISCORD_CHANNEL_ID are required when DISCORD_BOT_TOKEN is set")
+		}
+	}
+
 	return c, nil
 }
 

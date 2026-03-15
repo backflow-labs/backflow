@@ -70,3 +70,4 @@ The orchestrator communicates with containers indirectly by reading a `status.js
 - SSM instead of SSH for EC2 communication (no key management)
 - ULID-based task IDs with `bf_` prefix
 - Zerolog for structured logging
+- **Do not store `context.Context` on structs.** Pass contexts through function parameters when called from a context-bearing caller (e.g. HTTP handlers, `Start(ctx)`). For callbacks invoked by external libraries without a context (e.g. discordgo event handlers), use `context.Background()`.
