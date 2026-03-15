@@ -3,10 +3,12 @@ set -euo pipefail
 
 # --- Configuration from environment ---
 REPO_URL="${REPO_URL:?REPO_URL is required}"
-PROMPT="${PROMPT:?PROMPT is required}"
+TASK_MODE="${TASK_MODE:-code}"
 AUTH_MODE="${AUTH_MODE:-api_key}"
 BRANCH="${BRANCH:-backflow/${TASK_ID:-$(date +%s)}}"
 TARGET_BRANCH="${TARGET_BRANCH:-main}"
+REVIEW_PR_NUMBER="${REVIEW_PR_NUMBER:-0}"
+PROMPT="${PROMPT:-}"
 MODEL="${MODEL:-claude-sonnet-4-6}"
 EFFORT="${EFFORT:-high}"
 MAX_BUDGET_USD="${MAX_BUDGET_USD:-10}"
@@ -41,6 +43,135 @@ write_status() {
 }
 STATUSEOF
 }
+
+# --- GitHub auth ---
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null || true
+    gh auth setup-git 2>/dev/null || true
+fi
+
+# --- Auth mode setup ---
+echo "==> Auth mode: ${AUTH_MODE}"
+echo "==> Model: ${MODEL}, effort: ${EFFORT}"
+if [ "$AUTH_MODE" = "api_key" ]; then
+    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+        echo "ERROR: ANTHROPIC_API_KEY is required in api_key mode" >&2
+        exit 1
+    fi
+elif [ "$AUTH_MODE" = "max_subscription" ]; then
+    if [ ! -d "$HOME/.claude" ]; then
+        echo "ERROR: ~/.claude credentials not mounted (required for max_subscription mode)" >&2
+        exit 1
+    fi
+    echo "==> Using Max subscription credentials from ~/.claude"
+else
+    echo "ERROR: Unknown AUTH_MODE: ${AUTH_MODE}" >&2
+    exit 1
+fi
+
+# =============================================================================
+# REVIEW MODE — review an existing PR and post feedback
+# =============================================================================
+if [ "$TASK_MODE" = "review" ]; then
+    echo "==> PR Review mode: reviewing PR #${REVIEW_PR_NUMBER}"
+
+    # Clone repo (needed for gh CLI context)
+    echo "==> Cloning ${REPO_URL} (depth 1)..."
+    git clone --depth 1 "$REPO_URL" "$WORKSPACE"
+    cd "$WORKSPACE"
+
+    # Build review prompt
+    REVIEW_PROMPT="${PROMPT}"
+    if [ -z "$REVIEW_PROMPT" ]; then
+        REVIEW_PROMPT="Review this pull request thoroughly and provide constructive feedback."
+    fi
+
+    if [ -n "$TASK_CONTEXT" ]; then
+        REVIEW_PROMPT="Context: ${TASK_CONTEXT}
+
+${REVIEW_PROMPT}"
+    fi
+
+    FULL_REVIEW_PROMPT="You are reviewing pull request #${REVIEW_PR_NUMBER} in this repository.
+
+${REVIEW_PROMPT}
+
+Steps:
+1. Read the PR description: gh pr view ${REVIEW_PR_NUMBER}
+2. Read the full diff: gh pr diff ${REVIEW_PR_NUMBER}
+3. If needed, check out the PR branch to inspect specific files: gh pr checkout ${REVIEW_PR_NUMBER}
+4. Post your review using: gh pr review ${REVIEW_PR_NUMBER} --comment --body '<your review>'
+
+Focus on:
+- Bugs and logic errors
+- Security issues
+- Missing error handling that could cause failures
+- Correctness of the implementation vs the PR description
+- Edge cases and potential regressions
+
+Do NOT comment on:
+- Code style or formatting preferences
+- Minor naming preferences
+- Things that are working correctly
+
+You MUST post your review as a comment on the PR using the gh CLI. Do not just print your review to stdout."
+
+    # Inject CLAUDE.md if provided
+    if [ -n "$CLAUDE_MD" ]; then
+        echo "==> Injecting CLAUDE.md content..."
+        if [ -f CLAUDE.md ]; then
+            echo "" >> CLAUDE.md
+            echo "$CLAUDE_MD" >> CLAUDE.md
+        else
+            echo "$CLAUDE_MD" > CLAUDE.md
+        fi
+    fi
+
+    CLAUDE_ARGS=(
+        -p "$FULL_REVIEW_PROMPT"
+        --dangerously-skip-permissions
+        --model "$MODEL"
+        --effort "$EFFORT"
+        --max-turns "$MAX_TURNS"
+        --output-format stream-json
+        --verbose
+    )
+    if [ "$AUTH_MODE" = "api_key" ]; then
+        CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
+    fi
+
+    CLAUDE_LOG="${WORKSPACE}/claude_output.log"
+    set +e
+    claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$CLAUDE_LOG"
+    CLAUDE_EXIT=${PIPESTATUS[0]}
+    CLAUDE_OUTPUT=$(cat "$CLAUDE_LOG")
+    set -e
+
+    COMPLETE=false
+    ERROR_MSG=""
+    if [ $CLAUDE_EXIT -eq 0 ]; then
+        COMPLETE=true
+        echo "==> PR review completed successfully"
+    else
+        ERROR_MSG=$(echo "$CLAUDE_OUTPUT" | tail -5)
+        echo "==> PR review failed (exit code: ${CLAUDE_EXIT})"
+    fi
+
+    # Look up PR URL for status
+    PR_URL=$(gh pr view "$REVIEW_PR_NUMBER" --json url --jq '.url' 2>/dev/null || true)
+
+    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL"
+    echo "==> Done (exit code: ${CLAUDE_EXIT})"
+    exit $CLAUDE_EXIT
+fi
+
+# =============================================================================
+# CODE MODE (default) — clone, code, commit, push, optionally create PR
+# =============================================================================
+if [ -z "$PROMPT" ]; then
+    echo "ERROR: PROMPT is required in code mode" >&2
+    exit 1
+fi
 
 # --- Clone ---
 echo "==> Cloning ${REPO_URL} (depth 50)..."
@@ -111,31 +242,6 @@ Do NOT skip the PR creation step. The PR must exist on GitHub when you are done.
 fi
 
 FULL_PROMPT="${FULL_PROMPT}${GIT_INSTRUCTIONS}"
-
-# --- GitHub auth ---
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-    echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null || true
-    gh auth setup-git 2>/dev/null || true
-fi
-
-# --- Auth mode setup ---
-echo "==> Auth mode: ${AUTH_MODE}"
-echo "==> Model: ${MODEL}, effort: ${EFFORT}"
-if [ "$AUTH_MODE" = "api_key" ]; then
-    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-        echo "ERROR: ANTHROPIC_API_KEY is required in api_key mode" >&2
-        exit 1
-    fi
-elif [ "$AUTH_MODE" = "max_subscription" ]; then
-    if [ ! -d "$HOME/.claude" ]; then
-        echo "ERROR: ~/.claude credentials not mounted (required for max_subscription mode)" >&2
-        exit 1
-    fi
-    echo "==> Using Max subscription credentials from ~/.claude"
-else
-    echo "ERROR: Unknown AUTH_MODE: ${AUTH_MODE}" >&2
-    exit 1
-fi
 
 # --- Build claude command args ---
 CLAUDE_ARGS=(

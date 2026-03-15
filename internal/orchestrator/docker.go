@@ -111,9 +111,11 @@ func (m *DockerManager) buildRunCommand(task *models.Task) string {
 func (m *DockerManager) buildEnvFlags(task *models.Task) []string {
 	flags := []string{
 		envFlag("TASK_ID", task.ID),
+		envFlag("TASK_MODE", shellEscape(task.TaskMode)),
 		envFlag("REPO_URL", shellEscape(task.RepoURL)),
 		envFlag("BRANCH", shellEscape(task.Branch)),
 		envFlag("TARGET_BRANCH", shellEscape(task.TargetBranch)),
+		fmt.Sprintf("-e REVIEW_PR_NUMBER=%d", task.ReviewPRNumber),
 		envFlag("PROMPT", shellEscape(task.Prompt)),
 		envFlag("MODEL", shellEscape(task.Model)),
 		envFlag("EFFORT", shellEscape(task.Effort)),

@@ -1,43 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Create a task via the Backflow API
+# Review an existing PR via the Backflow API
 #
 # Usage:
-#   ./scripts/create-task.sh <repo_url> <prompt> [options]
-#   ./scripts/create-task.sh <repo_url> --plan <file> [options]
+#   ./scripts/review-pr.sh <repo_url> <pr_number> [options]
 #
 # Examples:
-#   ./scripts/create-task.sh https://github.com/org/repo "Fix the login bug"
-#   ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" --model claude-sonnet-4-6
-#   ./scripts/create-task.sh https://github.com/org/repo "Refactor auth" --pr-title "Refactor auth module" --budget 20
-#   ./scripts/create-task.sh https://github.com/org/repo "Fix bug" --no-pr --effort low
-#   ./scripts/create-task.sh https://github.com/org/repo --plan plan.md --self-review
-#
-# For PR reviews, use ./scripts/review-pr.sh instead.
+#   ./scripts/review-pr.sh https://github.com/org/repo 42
+#   ./scripts/review-pr.sh https://github.com/org/repo 42 --model claude-sonnet-4-6
+#   ./scripts/review-pr.sh https://github.com/org/repo 42 --prompt "Focus on security issues"
+#   ./scripts/review-pr.sh https://github.com/org/repo 42 --budget 5 --effort low
 
 BACKFLOW_URL="${BACKFLOW_URL:-http://localhost:8080}"
 
 usage() {
     cat <<USAGE
-Usage: $(basename "$0") <repo_url> <prompt> [options]
-       $(basename "$0") <repo_url> --plan <file> [options]
+Usage: $(basename "$0") <repo_url> <pr_number> [options]
 
 Options:
-  --plan <file>           Read prompt from a file (use instead of <prompt> arg)
-  --branch <name>         Working branch name
-  --target-branch <name>  Target branch (default: main)
+  --prompt <text>         Custom review instructions
   --model <model>         Claude model to use (default: claude-opus-4-6)
   --effort <level>        Reasoning effort: low, medium, high (default: high)
   --budget <usd>          Max budget in USD
   --runtime <min>         Max runtime in minutes
   --turns <n>             Max conversation turns
-  --no-pr                 Skip pull request creation (PR is created by default)
-  --pr-title <title>      PR title
-  --pr-body <body>        PR body
   --claude-md <text>      Extra CLAUDE.md content to inject
-  --context <text>        Additional context for the prompt
-  --self-review           Enable self-review after PR creation
+  --context <text>        Additional context for the review
   --env <KEY=VALUE>       Environment variable (can repeat)
 USAGE
     exit 1
@@ -48,53 +37,33 @@ if [ $# -lt 2 ]; then
 fi
 
 REPO_URL="$1"
-shift 1
+PR_NUMBER="$2"
+shift 2
 
-# If the next argument is a flag (starts with --), prompt must come from --plan
-if [[ "$1" == --* ]]; then
-    PROMPT=""
-else
-    PROMPT="$1"
-    shift 1
+if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer, got '$PR_NUMBER'" >&2
+    exit 1
 fi
 
 # Defaults
-BRANCH=""
-TARGET_BRANCH=""
+PROMPT=""
 MODEL="claude-opus-4-6"
 EFFORT="high"
 BUDGET=""
 RUNTIME=""
 TURNS=""
-CREATE_PR=true
-SELF_REVIEW=false
-PR_TITLE=""
-PR_BODY=""
 CLAUDE_MD=""
 CONTEXT=""
 declare -a ENV_VARS=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --plan)
-            if [ ! -f "$2" ]; then
-                echo "Error: plan file not found: $2" >&2
-                exit 1
-            fi
-            PROMPT=$(cat "$2")
-            shift 2
-            ;;
-        --branch)       BRANCH="$2"; shift 2 ;;
-        --target-branch) TARGET_BRANCH="$2"; shift 2 ;;
+        --prompt)       PROMPT="$2"; shift 2 ;;
         --model)        MODEL="$2"; shift 2 ;;
         --effort)       EFFORT="$2"; shift 2 ;;
         --budget)       BUDGET="$2"; shift 2 ;;
         --runtime)      RUNTIME="$2"; shift 2 ;;
         --turns)        TURNS="$2"; shift 2 ;;
-        --no-pr)        CREATE_PR=false; shift ;;
-        --self-review)  SELF_REVIEW=true; shift ;;
-        --pr-title)     PR_TITLE="$2"; shift 2 ;;
-        --pr-body)      PR_BODY="$2"; shift 2 ;;
         --claude-md)    CLAUDE_MD="$2"; shift 2 ;;
         --context)      CONTEXT="$2"; shift 2 ;;
         --env)          ENV_VARS+=("$2"); shift 2 ;;
@@ -102,44 +71,31 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Validate that a prompt was provided
-if [ -z "$PROMPT" ]; then
-    echo "Error: no prompt provided. Pass a prompt argument or use --plan <file>." >&2
-    exit 1
-fi
-
 # Build JSON payload
 JSON=$(jq -n \
     --arg repo_url "$REPO_URL" \
+    --argjson pr_number "$PR_NUMBER" \
     --arg prompt "$PROMPT" \
-    --arg branch "$BRANCH" \
-    --arg target_branch "$TARGET_BRANCH" \
     --arg model "$MODEL" \
     --arg effort "$EFFORT" \
     --arg budget "$BUDGET" \
     --arg runtime "$RUNTIME" \
     --arg turns "$TURNS" \
-    --argjson create_pr "$CREATE_PR" \
-    --argjson self_review "$SELF_REVIEW" \
-    --arg pr_title "$PR_TITLE" \
-    --arg pr_body "$PR_BODY" \
     --arg claude_md "$CLAUDE_MD" \
     --arg context "$CONTEXT" \
     '{
+        task_mode: "review",
         repo_url: $repo_url,
-        prompt: $prompt,
-        create_pr: $create_pr,
-        self_review: $self_review
+        review_pr_number: $pr_number,
+        create_pr: false,
+        self_review: false
     }
-    + if $branch != "" then {branch: $branch} else {} end
-    + if $target_branch != "" then {target_branch: $target_branch} else {} end
+    + if $prompt != "" then {prompt: $prompt} else {} end
     + if $model != "" then {model: $model} else {} end
     + if $effort != "" then {effort: $effort} else {} end
     + if $budget != "" then {max_budget_usd: ($budget | tonumber)} else {} end
     + if $runtime != "" then {max_runtime_min: ($runtime | tonumber)} else {} end
     + if $turns != "" then {max_turns: ($turns | tonumber)} else {} end
-    + if $pr_title != "" then {pr_title: $pr_title} else {} end
-    + if $pr_body != "" then {pr_body: $pr_body} else {} end
     + if $claude_md != "" then {claude_md: $claude_md} else {} end
     + if $context != "" then {context: $context} else {} end
     ')
@@ -174,9 +130,6 @@ if [ "$HTTP_CODE" = "201" ]; then
     echo ""
     echo "  # Stream logs"
     echo "  curl -s ${BACKFLOW_URL}/api/v1/tasks/${TASK_ID}/logs"
-    echo ""
-    echo "  # Stream logs (last 50 lines)"
-    echo "  curl -s '${BACKFLOW_URL}/api/v1/tasks/${TASK_ID}/logs?tail=50'"
     echo ""
     echo "  # Cancel task"
     echo "  curl -s -X DELETE ${BACKFLOW_URL}/api/v1/tasks/${TASK_ID} | jq ."

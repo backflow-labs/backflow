@@ -9,8 +9,13 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "valid",
+			name:    "valid code mode",
 			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo", Prompt: "Fix bug"},
+			wantErr: false,
+		},
+		{
+			name:    "valid code mode explicit",
+			req:     CreateTaskRequest{TaskMode: "code", RepoURL: "https://github.com/test/repo", Prompt: "Fix bug"},
 			wantErr: false,
 		},
 		{
@@ -19,13 +24,38 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "missing prompt",
+			name:    "missing prompt in code mode",
 			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo"},
 			wantErr: true,
 		},
 		{
 			name:    "negative budget",
 			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo", Prompt: "Fix", MaxBudgetUSD: -1},
+			wantErr: true,
+		},
+		{
+			name:    "valid review mode",
+			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo", ReviewPRNumber: 42},
+			wantErr: false,
+		},
+		{
+			name:    "review mode with optional prompt",
+			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo", ReviewPRNumber: 10, Prompt: "Focus on security"},
+			wantErr: false,
+		},
+		{
+			name:    "review mode missing pr number",
+			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo"},
+			wantErr: true,
+		},
+		{
+			name:    "review mode negative pr number",
+			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo", ReviewPRNumber: -1},
+			wantErr: true,
+		},
+		{
+			name:    "invalid task mode",
+			req:     CreateTaskRequest{TaskMode: "deploy", RepoURL: "https://github.com/test/repo", Prompt: "Fix"},
 			wantErr: true,
 		},
 	}
