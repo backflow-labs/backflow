@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 )
@@ -303,7 +304,7 @@ func TestKillTask(t *testing.T) {
 	}
 }
 
-func TestRequeueTask(t *testing.T) {
+func TestRequeueTask_EC2Mode(t *testing.T) {
 	s := newMockStore()
 	now := time.Now().UTC()
 
@@ -325,7 +326,9 @@ func TestRequeueTask(t *testing.T) {
 	})
 
 	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	o := newTestOrchestrator(s, n, func(o *Orchestrator) {
+		o.config.Mode = config.ModeEC2
+	})
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_requeue")
@@ -351,10 +354,53 @@ func TestRequeueTask(t *testing.T) {
 		t.Errorf("running = %d, want 0", o.running)
 	}
 
-	// Instance should be marked terminated
+	// Instance should be marked terminated in EC2 mode
 	inst, _ := s.GetInstance(context.Background(), "i-abc")
 	if inst.Status != models.InstanceStatusTerminated {
 		t.Errorf("instance status = %q, want terminated", inst.Status)
+	}
+}
+
+func TestRequeueTask_LocalMode(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_requeue_local",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "requeue me",
+		InstanceID:  "local",
+		ContainerID: "cont_rq",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n) // defaults to ModeLocal
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_requeue_local")
+	o.requeueTask(context.Background(), task, "container gone")
+
+	task, _ = s.GetTask(context.Background(), "bf_requeue_local")
+	if task.Status != models.TaskStatusPending {
+		t.Errorf("status = %q, want pending", task.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+
+	// Instance should NOT be terminated in local mode
+	inst, _ := s.GetInstance(context.Background(), "local")
+	if inst.Status != models.InstanceStatusRunning {
+		t.Errorf("instance status = %q, want running (local mode should not terminate)", inst.Status)
 	}
 }
 
