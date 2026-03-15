@@ -136,7 +136,7 @@ echo "    Security group: ${SG_ID}"
 
 # --- Launch Template ---
 echo "==> Creating launch template..."
-USER_DATA=$(base64 -w0 scripts/user-data.sh)
+USER_DATA=$(base64 < scripts/user-data.sh | tr -d '\n')
 
 if aws ec2 describe-launch-templates \
     --launch-template-names "$LT_NAME" \
