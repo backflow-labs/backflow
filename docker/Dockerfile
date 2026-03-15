@@ -15,8 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go
-RUN GOARCH=$([ "$TARGETARCH" = "amd64" ] && echo "amd64" || echo "arm64") \
-    && curl -fsSL "https://go.dev/dl/go1.24.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
+RUN GOARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
+    && echo "==> Installing Go for ${GOARCH}" \
+    && curl -fsSL "https://go.dev/dl/go1.24.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz \
+    && /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install GitHub CLI
