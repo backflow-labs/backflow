@@ -76,7 +76,7 @@ Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → che
 
 ## Database
 
-SQLite with WAL mode. Schema auto-migrates on startup via `CREATE TABLE IF NOT EXISTS` in `internal/store/sqlite.go:migrate()`. No separate migration files — add new columns with `ALTER TABLE` idempotently in the same function.
+SQLite with WAL mode. Schema is initialized on startup via `CREATE TABLE IF NOT EXISTS` in `internal/store/sqlite.go:ensureSchema()`. No separate migration files — define new columns directly in the table creation SQL and update the related CRUD code in the same file.
 
 ## Documentation
 

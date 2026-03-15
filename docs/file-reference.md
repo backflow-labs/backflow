@@ -79,7 +79,7 @@ Persistence layer.
 | File | Description |
 |------|-------------|
 | `store.go` | `Store` interface defining CRUD operations for tasks (`Create`, `Get`, `List`, `Update`, `Delete`) and instances (`Create`, `Get`, `List`, `Update`), plus `Close()`. `TaskFilter` struct for list queries with status filter, limit, and offset. |
-| `sqlite.go` | SQLite implementation of `Store`. Opens the database in WAL mode with busy timeout and foreign keys. `migrate()` creates the `tasks` and `instances` tables with indexes on status and created_at. Implements all CRUD operations with full field scanning, JSON serialization for `allowed_tools` and `env_vars`, and RFC3339 timestamp handling. |
+| `sqlite.go` | SQLite implementation of `Store`. Opens the database in WAL mode with busy timeout and foreign keys. `ensureSchema()` creates the `tasks` and `instances` tables with their full column sets plus indexes on status and created_at. Implements all CRUD operations with full field scanning, JSON serialization for `allowed_tools` and `env_vars`, and RFC3339 timestamp handling. |
 | `sqlite_test.go` | Tests for SQLite store — full task CRUD cycle (create, get, update, list with filter, delete), not-found handling, and instance CRUD (create, get, update, list by status). Uses temp DB files with cleanup. |
 
 ## `docker/`

@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,4 +224,90 @@ func TestReviewTaskCRUD(t *testing.T) {
 	if got.Prompt != "Focus on security" {
 		t.Errorf("Prompt = %q, want %q", got.Prompt, "Focus on security")
 	}
+}
+
+func TestSchemaIncludesAllTaskColumns(t *testing.T) {
+	s := testStore(t)
+
+	rows, err := s.db.Query(`PRAGMA table_info(tasks)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(tasks): %v", err)
+	}
+	defer rows.Close()
+
+	var (
+		cid        int
+		name       string
+		columnType string
+		notNull    int
+		defaultVal any
+		pk         int
+	)
+	var columns []string
+	for rows.Next() {
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			t.Fatalf("scan PRAGMA row: %v", err)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate PRAGMA rows: %v", err)
+	}
+
+	expected := []string{
+		"id",
+		"status",
+		"task_mode",
+		"repo_url",
+		"branch",
+		"target_branch",
+		"review_pr_number",
+		"prompt",
+		"context",
+		"model",
+		"effort",
+		"max_budget_usd",
+		"max_runtime_min",
+		"max_turns",
+		"create_pr",
+		"self_review",
+		"pr_title",
+		"pr_body",
+		"pr_url",
+		"allowed_tools",
+		"claude_md",
+		"env_vars",
+		"instance_id",
+		"container_id",
+		"retry_count",
+		"cost_usd",
+		"error",
+		"created_at",
+		"updated_at",
+		"started_at",
+		"completed_at",
+	}
+
+	if len(columns) != len(expected) {
+		t.Fatalf("tasks column count = %d, want %d (%v)", len(columns), len(expected), columns)
+	}
+	for i := range expected {
+		if columns[i] != expected[i] {
+			t.Fatalf("tasks column %d = %q, want %q; full schema: %v", i, columns[i], expected[i], columns)
+		}
+	}
+
+	var createSQL string
+	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`).Scan(&createSQL); err != nil {
+		t.Fatalf("read tasks schema from sqlite_master: %v", err)
+	}
+	for _, column := range []string{"task_mode", "review_pr_number"} {
+		if !containsColumnDDL(createSQL, column) {
+			t.Fatalf("tasks create statement is missing %q: %s", column, createSQL)
+		}
+	}
+}
+
+func containsColumnDDL(createSQL, column string) bool {
+	return strings.Contains(createSQL, fmt.Sprintf("%s ", column))
 }

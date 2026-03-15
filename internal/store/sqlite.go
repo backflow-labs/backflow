@@ -23,9 +23,9 @@ func NewSQLite(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	s := &SQLiteStore{db: db}
-	if err := s.migrate(); err != nil {
+	if err := s.ensureSchema(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, fmt.Errorf("ensure schema: %w", err)
 	}
 	return s, nil
 }
@@ -34,14 +34,16 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *SQLiteStore) migrate() error {
+func (s *SQLiteStore) ensureSchema() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS tasks (
 		id              TEXT PRIMARY KEY,
 		status          TEXT NOT NULL DEFAULT 'pending',
+		task_mode       TEXT NOT NULL DEFAULT 'code',
 		repo_url        TEXT NOT NULL,
 		branch          TEXT NOT NULL DEFAULT '',
 		target_branch   TEXT NOT NULL DEFAULT '',
+		review_pr_number INTEGER NOT NULL DEFAULT 0,
 		prompt          TEXT NOT NULL,
 		context         TEXT NOT NULL DEFAULT '',
 		model           TEXT NOT NULL DEFAULT '',
@@ -87,15 +89,6 @@ func (s *SQLiteStore) migrate() error {
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
-	}
-
-	// Idempotent migrations for new columns
-	migrations := []string{
-		"ALTER TABLE tasks ADD COLUMN task_mode TEXT NOT NULL DEFAULT 'code'",
-		"ALTER TABLE tasks ADD COLUMN review_pr_number INTEGER NOT NULL DEFAULT 0",
-	}
-	for _, m := range migrations {
-		s.db.Exec(m) // ignore "duplicate column" errors
 	}
 	return nil
 }

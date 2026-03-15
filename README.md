@@ -60,11 +60,11 @@ Two tables: `tasks` and `instances`. See `internal/store/sqlite.go` for the full
 
 ### Migrations
 
-There are no separate migration files. Schema is managed in `internal/store/sqlite.go` in the `migrate()` method. All DDL uses `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`, so it's safe to run on every startup.
+There are no separate migration files. Schema is managed in `internal/store/sqlite.go` in the `ensureSchema()` method. All columns are declared directly in the `CREATE TABLE IF NOT EXISTS` statements, and indexes use `CREATE INDEX IF NOT EXISTS`, so startup schema creation is idempotent for a fresh database.
 
 **To add a new column:**
 
-1. Add an `ALTER TABLE ... ADD COLUMN` statement to `migrate()` in `internal/store/sqlite.go`, wrapped in an idempotent check (SQLite will error if the column already exists, so ignore the error or check `pragma table_info` first).
+1. Add the column definition to the appropriate `CREATE TABLE IF NOT EXISTS` statement in `ensureSchema()` in `internal/store/sqlite.go`.
 2. Update the `INSERT`, `UPDATE`, and `SELECT` statements in the same file.
 3. Update the model struct in `internal/models/`.
 
