@@ -240,34 +240,11 @@ if [ "$SELF_REVIEW" = "true" ] && [ -n "$PR_URL" ]; then
     # Cap review budget at 20% of coding budget (minimum $2)
     REVIEW_BUDGET=$(echo "$MAX_BUDGET_USD" | awk '{b = $1 * 0.2; print (b < 2) ? 2 : b}')
 
-    REVIEW_PROMPT="You are reviewing a pull request that you (a different instance) just created.
-
-PR URL: ${PR_URL}
-
-Review the PR by:
-1. Read the full diff with: gh pr diff ${PR_URL}
-2. Look at the PR description with: gh pr view ${PR_URL}
-3. Post a review using: gh pr review ${PR_URL} --approve, --request-changes, or --comment
-   Include a body with your review summarizing your findings.
-
-Focus on:
-- Bugs and logic errors
-- Security issues
-- Missing error handling that could cause failures
-- Correctness of the implementation vs the PR description
-
-Do NOT comment on:
-- Code style or formatting
-- Minor naming preferences
-- Things that are working correctly
-
-If everything looks good, approve the PR. If there are real issues, request changes and explain what needs fixing."
-
+    # Use Claude Code's built-in /review-pr command
     REVIEW_ARGS=(
-        -p "$REVIEW_PROMPT"
+        -p "/review-pr"
         --dangerously-skip-permissions
         --model "$MODEL"
-        --max-turns 3
         --output-format json
         --verbose
     )
@@ -282,6 +259,18 @@ If everything looks good, approve the PR. If there are real issues, request chan
 
     if [ $REVIEW_EXIT -eq 0 ]; then
         echo "==> Self-review completed successfully"
+
+        # Extract review text from JSON output and post as PR comment
+        REVIEW_TEXT=$(echo "$REVIEW_OUTPUT" | jq -r '.result // empty' 2>/dev/null)
+        if [ -n "$REVIEW_TEXT" ]; then
+            echo "==> Posting review feedback as PR comment..."
+            COMMENT_BODY="## Self-Review (automated)
+
+${REVIEW_TEXT}"
+            gh pr comment "$PR_URL" --body "$COMMENT_BODY" 2>/dev/null || echo "==> Failed to post review comment"
+        else
+            echo "==> No review text to post"
+        fi
     else
         echo "==> Self-review failed (exit code: ${REVIEW_EXIT}), continuing anyway"
     fi
