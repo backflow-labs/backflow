@@ -266,6 +266,7 @@ build_claude_args() {
 build_codex_args() {
     local prompt="$1"
     CODEX_ARGS=(
+        exec
         --model "$MODEL"
         -c "model_reasoning_effort=${EFFORT}"
         --full-auto
