@@ -52,9 +52,16 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 # --- Auth mode setup ---
-echo "==> Auth mode: ${AUTH_MODE}"
+echo "==> Harness: ${HARNESS}, auth mode: ${AUTH_MODE}"
 echo "==> Model: ${MODEL}, effort: ${EFFORT}"
-if [ "$AUTH_MODE" = "api_key" ]; then
+if [ "$HARNESS" = "codex" ]; then
+    if [ -z "${OPENAI_API_KEY:-}" ]; then
+        echo "ERROR: OPENAI_API_KEY is required for codex harness" >&2
+        exit 1
+    fi
+    echo "==> Logging in to codex with API key..."
+    echo "$OPENAI_API_KEY" | codex login --with-api-key
+elif [ "$AUTH_MODE" = "api_key" ]; then
     if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         echo "ERROR: ANTHROPIC_API_KEY is required in api_key mode" >&2
         exit 1
