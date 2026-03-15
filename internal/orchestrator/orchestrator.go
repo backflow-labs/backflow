@@ -562,13 +562,21 @@ func (o *Orchestrator) monitorRecovering(ctx context.Context) {
 		if err != nil {
 			if isInstanceGone(err) {
 				log.Warn().Str("task_id", task.ID).Msg("recovery: instance gone, re-queuing")
+				delete(o.inspectFailures, task.ID)
 				o.requeueRecoveringTask(ctx, task, "instance gone", true)
 				continue
 			}
-			log.Warn().Err(err).Str("task_id", task.ID).Msg("recovery: inspect failed, re-queuing")
-			o.requeueRecoveringTask(ctx, task, fmt.Sprintf("inspect error: %v", err), true)
+			o.inspectFailures[task.ID]++
+			count := o.inspectFailures[task.ID]
+			log.Warn().Err(err).Str("task_id", task.ID).Int("consecutive_failures", count).Msg("recovery: inspect failed")
+			if count >= 3 {
+				delete(o.inspectFailures, task.ID)
+				o.requeueRecoveringTask(ctx, task, fmt.Sprintf("inspect error after %d failures: %v", count, err), true)
+			}
 			continue
 		}
+
+		delete(o.inspectFailures, task.ID)
 
 		if status.Done {
 			log.Info().Str("task_id", task.ID).Msg("recovery: container exited, handling completion")
