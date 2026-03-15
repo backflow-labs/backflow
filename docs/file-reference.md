@@ -13,6 +13,7 @@ Complete mapping of every file in the Backflow repository.
 | `.gitignore` | Ignores `bin/`, `.db` files, `.env`, and `mise.toml` |
 | `go.mod` | Go module definition (`github.com/backflow-labs/backflow`, Go 1.24.1) with dependencies |
 | `go.sum` | Go module checksums |
+| `prompts.md` | Example prompts — completed enhancements and future task ideas |
 
 ## `cmd/backflow/`
 
@@ -67,7 +68,7 @@ Core orchestration loop and infrastructure management.
 |------|-------------|
 | `orchestrator.go` | Main orchestrator. `New()` initializes sub-components based on mode (EC2 vs local). `Start()` runs the poll loop on a configurable interval. Each `tick()` calls `monitorRunning()` (check container status, detect timeouts, handle completions), `dispatchPending()` (find pending tasks, assign to instances, start containers), and `scaler.Evaluate()`. Handles task completion, failure, cancellation, and container kill with instance container count tracking. |
 | `scaler.go` | EC2 instance auto-scaling. Defines the `scaler` interface (`Evaluate`, `RequestScaleUp`). `Scaler` implements it for EC2 mode: launches spot instances when capacity is needed, waits for SSM + Docker readiness before marking instances as running, detects externally terminated instances, and terminates idle instances after 5 minutes. |
-| `docker.go` | Container lifecycle management via SSM (EC2 mode) or local shell (local mode). `RunAgent()` builds `docker run` commands with environment variables for task config, auth credentials, and GitHub token. `InspectContainer()` checks container state and reads `status.json`. `StopContainer()` and `GetLogs()` wrap Docker commands. `runSSMCommand()` executes commands on remote EC2 instances via AWS SSM `SendCommand`. |
+| `docker.go` | Container lifecycle management via SSM (EC2 mode) or local shell (local mode). `RunAgent()` builds `docker run` commands with resource limits (`--cpus=1 --memory=3g`), environment variables for task config (including self-review flag), auth credentials, and GitHub token. Validates container IDs are hex strings to reject error output. `InspectContainer()` checks container state and reads `status.json`. `StopContainer()` and `GetLogs()` wrap Docker commands. `runSSMCommand()` executes commands on remote EC2 instances via AWS SSM `SendCommand`. |
 | `ec2.go` | EC2 API wrapper. `LaunchSpotInstance()` creates one-time spot instances using either a launch template or AMI + instance type. `TerminateInstance()` and `DescribeInstance()` wrap the corresponding EC2 API calls. Lazy-initializes the AWS EC2 client. |
 | `local.go` | No-op `localScaler` struct that satisfies the `scaler` interface. Used in local mode where no EC2 instances need management. |
 | `spot.go` | Spot interruption handler. `CheckInterruptions()` polls running instances for termination signals. `handleInterruption()` marks the instance as draining and re-queues all running tasks on that instance back to `pending` with an incremented retry count. |
@@ -89,7 +90,7 @@ Agent container image.
 | File | Description |
 |------|-------------|
 | `Dockerfile` | Multi-arch Docker image based on `node:20-slim`. Installs git, curl, jq, Python 3, GitHub CLI, and Claude Code CLI (`@anthropic-ai/claude-code`). Creates an `agent` user, configures git defaults, and copies the entrypoint script. |
-| `entrypoint.sh` | Agent lifecycle script run inside each container. Clones the repo (depth 50), checks out the target branch, creates a working branch, optionally injects CLAUDE.md content, runs Claude Code with retries (up to 3 attempts), parses stream-json output for completion/needs-input/error status, writes `status.json`, commits remaining changes, pushes the branch, and optionally creates a PR via `gh`. |
+| `entrypoint.sh` | Agent lifecycle script run inside each container. Clones the repo (depth 50), checks out the target branch, creates a working branch, optionally injects CLAUDE.md content, runs Claude Code with retries (up to 3 attempts), parses stream-json output for completion/needs-input/error status, writes `status.json`. On success: extracts PR URL via `gh pr list`, commits agent output log to `.backflow/` and pushes, comments the original prompt on the PR. Optionally runs a self-review phase with a reduced budget (20% of coding budget, minimum $2) and posts review findings as a PR comment. Generates PR title via Claude when none is provided. |
 
 ## `scripts/`
 
@@ -98,7 +99,7 @@ Operational and development helper scripts.
 | File | Description |
 |------|-------------|
 | `build-agent-image.sh` | Builds and pushes the multi-arch agent Docker image to ECR. Authenticates with ECR, creates a buildx builder, and pushes with `linux/amd64,linux/arm64` platforms. |
-| `create-task.sh` | CLI helper to submit tasks via the REST API. Accepts repo URL and prompt as positional args, plus flags for branch, model, effort, budget, runtime, turns, PR options, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `jq` and posts to the API with `curl`. |
+| `create-task.sh` | CLI helper to submit tasks via the REST API. Accepts repo URL and prompt as positional args, plus flags for branch, target branch, model, effort, budget, runtime, turns, PR options (enabled by default), self-review, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `jq` and posts to the API with `curl`. Prints task ID and useful follow-up commands on success. |
 | `db-status.sh` | Dumps the SQLite database state. Shows all tasks, task status summary, all instances, and instance status summary using `sqlite3` queries. |
 | `setup-aws.sh` | One-time AWS infrastructure setup. Creates an ECR repository, IAM role with SSM and ECR policies, instance profile, security group (outbound-only), and launch template with user-data. Outputs the launch template ID for `.env` configuration. |
 | `user-data.sh` | EC2 instance bootstrap script (run via launch template user-data). Installs Docker and SSM agent, authenticates with ECR using IMDSv2, and pulls the `backflow-agent` image. |
