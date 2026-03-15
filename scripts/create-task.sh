@@ -63,7 +63,7 @@ fi
 HARNESS=""
 BRANCH=""
 TARGET_BRANCH=""
-MODEL="claude-opus-4-6"
+MODEL=""
 EFFORT="high"
 BUDGET=""
 RUNTIME=""
