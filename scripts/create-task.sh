@@ -9,10 +9,12 @@ set -euo pipefail
 #
 # Examples:
 #   ./scripts/create-task.sh https://github.com/org/repo "Fix the login bug"
-#   ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" --pr --model claude-sonnet-4-6
-#   ./scripts/create-task.sh https://github.com/org/repo "Refactor auth" --pr --pr-title "Refactor auth module" --budget 20
-#   ./scripts/create-task.sh https://github.com/org/repo "Fix bug" --effort low --model claude-sonnet-4-6
-#   ./scripts/create-task.sh https://github.com/org/repo --plan plan.md --pr
+#   ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" --model claude-sonnet-4-6
+#   ./scripts/create-task.sh https://github.com/org/repo "Refactor auth" --pr-title "Refactor auth module" --budget 20
+#   ./scripts/create-task.sh https://github.com/org/repo "Fix bug" --no-pr --effort low
+#   ./scripts/create-task.sh https://github.com/org/repo --plan plan.md --self-review
+#
+# For PR reviews, use ./scripts/review-pr.sh instead.
 
 BACKFLOW_URL="${BACKFLOW_URL:-http://localhost:8080}"
 
@@ -30,7 +32,7 @@ Options:
   --budget <usd>          Max budget in USD
   --runtime <min>         Max runtime in minutes
   --turns <n>             Max conversation turns
-  --pr                    Create a pull request
+  --no-pr                 Skip pull request creation (PR is created by default)
   --pr-title <title>      PR title
   --pr-body <body>        PR body
   --claude-md <text>      Extra CLAUDE.md content to inject
@@ -89,7 +91,7 @@ while [ $# -gt 0 ]; do
         --budget)       BUDGET="$2"; shift 2 ;;
         --runtime)      RUNTIME="$2"; shift 2 ;;
         --turns)        TURNS="$2"; shift 2 ;;
-        --pr)           CREATE_PR=true; shift ;;
+        --no-pr)        CREATE_PR=false; shift ;;
         --self-review)  SELF_REVIEW=true; shift ;;
         --pr-title)     PR_TITLE="$2"; shift 2 ;;
         --pr-body)      PR_BODY="$2"; shift 2 ;;
