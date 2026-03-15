@@ -8,9 +8,10 @@ import (
 
 // TaskFilter controls listing behavior.
 type TaskFilter struct {
-	Status *models.TaskStatus
-	Limit  int
-	Offset int
+	Status      *models.TaskStatus
+	NonTerminal bool // only return tasks in non-terminal statuses
+	Limit       int
+	Offset      int
 }
 
 // Store is the persistence interface for tasks and instances.

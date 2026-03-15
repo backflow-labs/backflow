@@ -29,14 +29,16 @@ type ThreadInfo struct {
 
 // Bot manages the Discord bot lifecycle and slash command handling.
 type Bot struct {
-	session    *discordgo.Session
-	store      store.Store
-	config     *config.Config
-	threads    *sync.Map // taskID -> *ThreadInfo
-	waitingFor *sync.Map // threadID -> *ThreadInfo (awaiting user reply)
-	notifier   *DiscordNotifier
-	guildID    string
-	registered []*discordgo.ApplicationCommand
+	session     *discordgo.Session
+	store       store.Store
+	config      *config.Config
+	taskThreads *sync.Map // taskID -> *ThreadInfo
+	threadIndex *sync.Map // threadID -> *ThreadInfo (latest task for this thread)
+	waitingFor  *sync.Map // threadID -> *ThreadInfo (awaiting user reply)
+	notifier    *DiscordNotifier
+	guildID     string
+	registered  []*discordgo.ApplicationCommand
+	ctx         context.Context
 }
 
 // New creates a new Discord bot. Call Start() to connect.
@@ -49,12 +51,13 @@ func New(s store.Store, cfg *config.Config) (*Bot, error) {
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages
 
 	bot := &Bot{
-		session:    session,
-		store:      s,
-		config:     cfg,
-		threads:    &sync.Map{},
-		waitingFor: &sync.Map{},
-		guildID:    cfg.DiscordGuildID,
+		session:     session,
+		store:       s,
+		config:      cfg,
+		taskThreads: &sync.Map{},
+		threadIndex: &sync.Map{},
+		waitingFor:  &sync.Map{},
+		guildID:     cfg.DiscordGuildID,
 	}
 	bot.notifier = &DiscordNotifier{bot: bot}
 
@@ -71,6 +74,8 @@ func (b *Bot) Notifier() notify.Notifier {
 
 // Start connects to Discord and registers slash commands.
 func (b *Bot) Start(ctx context.Context) error {
+	b.ctx = ctx
+
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("open discord websocket: %w", err)
 	}
@@ -82,15 +87,15 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 	b.registered = registered
 
-	b.restoreThreads(ctx)
+	b.restoreThreads()
 
 	log.Info().Str("guild_id", b.guildID).Int("commands", len(registered)).Msg("discord bot started")
 	return nil
 }
 
 // restoreThreads reloads thread mappings from the database for non-terminal tasks.
-func (b *Bot) restoreThreads(ctx context.Context) {
-	tasks, err := b.store.ListTasks(ctx, store.TaskFilter{})
+func (b *Bot) restoreThreads() {
+	tasks, err := b.store.ListTasks(b.ctx, store.TaskFilter{NonTerminal: true})
 	if err != nil {
 		log.Error().Err(err).Msg("discord: failed to restore thread mappings")
 		return
@@ -98,7 +103,7 @@ func (b *Bot) restoreThreads(ctx context.Context) {
 
 	restored := 0
 	for _, task := range tasks {
-		if task.DiscordThreadID == "" || task.Status.IsTerminal() {
+		if task.DiscordThreadID == "" {
 			continue
 		}
 		ti := &ThreadInfo{
@@ -109,7 +114,7 @@ func (b *Bot) restoreThreads(ctx context.Context) {
 			Prompt:    task.Prompt,
 			Branch:    task.Branch,
 		}
-		b.threads.Store(task.ID, ti)
+		b.storeThread(task.ID, ti)
 		restored++
 	}
 	if restored > 0 {
@@ -214,7 +219,7 @@ func (b *Bot) handleRun(s *discordgo.Session, i *discordgo.InteractionCreate, op
 		UpdatedAt:     now,
 	}
 
-	if err := b.store.CreateTask(context.Background(), task); err != nil {
+	if err := b.store.CreateTask(b.ctx, task); err != nil {
 		log.Error().Err(err).Msg("discord: failed to create task")
 		b.editResponse(s, i, "Failed to create task: "+err.Error())
 		return
@@ -235,7 +240,7 @@ func (b *Bot) handleRun(s *discordgo.Session, i *discordgo.InteractionCreate, op
 
 	// Persist thread ID on the task
 	task.DiscordThreadID = thread.ID
-	if err := b.store.UpdateTask(context.Background(), task); err != nil {
+	if err := b.store.UpdateTask(b.ctx, task); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("discord: failed to save thread ID")
 	}
 
@@ -247,7 +252,7 @@ func (b *Bot) handleRun(s *discordgo.Session, i *discordgo.InteractionCreate, op
 		Prompt:    prompt,
 		Branch:    branch,
 	}
-	b.threads.Store(task.ID, ti)
+	b.storeThread(task.ID, ti)
 
 	// Post confirmation embed in thread
 	_, _ = s.ChannelMessageSendEmbed(thread.ID, formatEvent(notify.Event{
@@ -299,9 +304,10 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	}
 }
 
-// handleCancel cancels or deletes the task.
+// handleCancel marks the task as cancelled in the database.
+// The orchestrator's poll loop will detect the status change and stop the container.
 func (b *Bot) handleCancel(s *discordgo.Session, m *discordgo.MessageCreate, ti *ThreadInfo) {
-	task, err := b.store.GetTask(context.Background(), ti.TaskID)
+	task, err := b.store.GetTask(b.ctx, ti.TaskID)
 	if err != nil || task == nil {
 		_, _ = s.ChannelMessageSend(m.ChannelID, "Could not find task.")
 		return
@@ -315,7 +321,7 @@ func (b *Bot) handleCancel(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 	task.Status = models.TaskStatusCancelled
 	now := time.Now().UTC()
 	task.CompletedAt = &now
-	if err := b.store.UpdateTask(context.Background(), task); err != nil {
+	if err := b.store.UpdateTask(b.ctx, task); err != nil {
 		_, _ = s.ChannelMessageSend(m.ChannelID, "Failed to cancel task: "+err.Error())
 		return
 	}
@@ -328,7 +334,7 @@ func (b *Bot) handleCancel(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 
 // handleStatus posts the current task status.
 func (b *Bot) handleStatus(s *discordgo.Session, m *discordgo.MessageCreate, ti *ThreadInfo) {
-	task, err := b.store.GetTask(context.Background(), ti.TaskID)
+	task, err := b.store.GetTask(b.ctx, ti.TaskID)
 	if err != nil || task == nil {
 		_, _ = s.ChannelMessageSend(m.ChannelID, "Could not find task.")
 		return
@@ -373,7 +379,7 @@ func (b *Bot) handleStatus(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 
 // handleInfo posts task and container info.
 func (b *Bot) handleInfo(s *discordgo.Session, m *discordgo.MessageCreate, ti *ThreadInfo) {
-	task, err := b.store.GetTask(context.Background(), ti.TaskID)
+	task, err := b.store.GetTask(b.ctx, ti.TaskID)
 	if err != nil || task == nil {
 		_, _ = s.ChannelMessageSend(m.ChannelID, "Could not find task.")
 		return
@@ -398,7 +404,7 @@ func (b *Bot) handleAnswer(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 	b.waitingFor.Delete(m.ChannelID)
 
 	// Look up original task to inherit settings
-	originalTask, err := b.store.GetTask(context.Background(), ti.TaskID)
+	originalTask, err := b.store.GetTask(b.ctx, ti.TaskID)
 	createPR := true
 	if err == nil && originalTask != nil {
 		createPR = originalTask.CreatePR
@@ -425,13 +431,13 @@ func (b *Bot) handleAnswer(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 		UpdatedAt:       now,
 	}
 
-	if err := b.store.CreateTask(context.Background(), newTask); err != nil {
+	if err := b.store.CreateTask(b.ctx, newTask); err != nil {
 		log.Error().Err(err).Msg("discord: failed to create follow-up task")
 		_, _ = s.ChannelMessageSend(m.ChannelID, "Failed to create follow-up task: "+err.Error())
 		return
 	}
 
-	// Track new task in same thread
+	// Track new task in same thread, replacing the old task's mapping
 	newTI := &ThreadInfo{
 		ThreadID:  ti.ThreadID,
 		ChannelID: ti.ChannelID,
@@ -440,7 +446,8 @@ func (b *Bot) handleAnswer(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 		Prompt:    ti.Prompt,
 		Branch:    ti.Branch,
 	}
-	b.threads.Store(newTask.ID, newTI)
+	b.taskThreads.Delete(ti.TaskID)
+	b.storeThread(newTask.ID, newTI)
 
 	_, _ = s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
 		Title:       "Follow-up Task Created",
@@ -451,18 +458,18 @@ func (b *Bot) handleAnswer(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 	log.Info().Str("task_id", newTask.ID).Str("parent_task", ti.TaskID).Msg("discord: follow-up task created from Q&A")
 }
 
-// findThreadInfo looks up ThreadInfo by thread ID (reverse lookup).
+// storeThread saves a ThreadInfo in both the task and thread indexes.
+func (b *Bot) storeThread(taskID string, ti *ThreadInfo) {
+	b.taskThreads.Store(taskID, ti)
+	b.threadIndex.Store(ti.ThreadID, ti)
+}
+
+// findThreadInfo looks up the latest ThreadInfo for a given thread ID.
 func (b *Bot) findThreadInfo(threadID string) *ThreadInfo {
-	var found *ThreadInfo
-	b.threads.Range(func(_, value any) bool {
-		ti := value.(*ThreadInfo)
-		if ti.ThreadID == threadID {
-			found = ti
-			return false // stop iteration
-		}
-		return true
-	})
-	return found
+	if info, ok := b.threadIndex.Load(threadID); ok {
+		return info.(*ThreadInfo)
+	}
+	return nil
 }
 
 // editResponse edits the initial interaction response.

@@ -56,9 +56,9 @@ func (s *SQLiteStore) migrate() error {
 		claude_md       TEXT NOT NULL DEFAULT '',
 		env_vars        TEXT NOT NULL DEFAULT '{}',
 		instance_id     TEXT NOT NULL DEFAULT '',
-		container_id       TEXT NOT NULL DEFAULT '',
-		discord_thread_id  TEXT NOT NULL DEFAULT '',
-		retry_count        INTEGER NOT NULL DEFAULT 0,
+		container_id      TEXT NOT NULL DEFAULT '',
+		discord_thread_id TEXT NOT NULL DEFAULT '',
+		retry_count       INTEGER NOT NULL DEFAULT 0,
 		cost_usd        REAL NOT NULL DEFAULT 0,
 		error           TEXT NOT NULL DEFAULT '',
 		created_at      TEXT NOT NULL,
@@ -95,7 +95,10 @@ func (s *SQLiteStore) migrate() error {
 		"ALTER TABLE tasks ADD COLUMN discord_thread_id TEXT NOT NULL DEFAULT ''",
 	}
 	for _, m := range migrations {
-		s.db.Exec(m) // ignore "duplicate column" errors
+		_, err := s.db.Exec(m)
+		if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migration %q: %w", m, err)
+		}
 	}
 
 	return nil
@@ -145,6 +148,9 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*mode
 	if filter.Status != nil {
 		where = append(where, "status = ?")
 		args = append(args, string(*filter.Status))
+	}
+	if filter.NonTerminal {
+		where = append(where, "status NOT IN ('completed', 'failed', 'cancelled', 'interrupted')")
 	}
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")

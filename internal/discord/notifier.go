@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,7 +15,7 @@ type DiscordNotifier struct {
 }
 
 func (n *DiscordNotifier) Notify(event notify.Event) error {
-	info, ok := n.bot.threads.Load(event.TaskID)
+	info, ok := n.bot.taskThreads.Load(event.TaskID)
 	if !ok {
 		// Task wasn't created via Discord — skip
 		return nil
@@ -39,7 +38,7 @@ func (n *DiscordNotifier) Notify(event notify.Event) error {
 
 	// Handle completion: fetch PR URL from store and update embed if available
 	if event.Type == notify.EventTaskCompleted {
-		task, err := n.bot.store.GetTask(context.Background(), event.TaskID)
+		task, err := n.bot.store.GetTask(n.bot.ctx, event.TaskID)
 		if err == nil && task != nil && task.PRURL != "" && event.Message == "" {
 			_, _ = n.bot.session.ChannelMessageSendEmbed(ti.ThreadID, &discordgo.MessageEmbed{
 				Title:       "Pull Request",
