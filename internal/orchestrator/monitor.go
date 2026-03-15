@@ -204,7 +204,7 @@ func (o *Orchestrator) killTask(ctx context.Context, task *models.Task, reason s
 // requeueTask resets a running task back to pending so it will be dispatched
 // to a different instance. It also marks the old instance as terminated.
 func (o *Orchestrator) requeueTask(ctx context.Context, task *models.Task, reason string) {
-	if task.InstanceID != "" && o.config.Mode != config.ModeLocal {
+	if task.InstanceID != "" && o.config.Mode == config.ModeEC2 {
 		o.markInstanceTerminated(ctx, task.InstanceID)
 	}
 	o.decrementRunning()

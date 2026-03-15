@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Backflow is a Go service that runs coding agents (Claude Code or Codex) in ephemeral Docker containers on AWS EC2 spot instances. Tasks come in via REST API; the orchestrator provisions infrastructure, runs agents, and cleans up.
+Backflow is a Go service that runs coding agents (Claude Code or Codex) in ephemeral containers. Tasks come in via REST API; the orchestrator provisions infrastructure, runs agents, and cleans up.
 
 ## Commands
 
@@ -25,9 +25,9 @@ Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
 ## Architecture
 
-Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Two operating modes: `ec2` (default, spot instances) and `local` (Docker on local machine).
+Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Three operating modes: `ec2` (default, spot instances), `local` (Docker on local machine), and `fargate` (one ECS task per Backflow task, no instance management).
 
-**Flow:** Client → API → SQLite → Orchestrator → Docker on EC2 via SSM (or local) → Webhooks.
+**Flow:** Client → API → SQLite → Orchestrator → Docker on EC2 via SSM, local Docker, or ECS/Fargate → Webhooks.
 
 ### API endpoints (`/api/v1`)
 
@@ -41,15 +41,15 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Two
 ### Key modules (`internal/`)
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
-- **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
+- **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), Fargate ECS/CloudWatch runner (`fargate.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
 - **store/** — `Store` interface + SQLite (WAL mode, auto-migrated)
 - **models/** — `Task` and `Instance` structs with status enums
-- **config/** — Env-var config (`BACKFLOW_*` prefix), two modes (`ec2`/`local`)
+- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`
 
 ### Agent container (`docker/`)
 
-Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → checkout → inject CLAUDE.md → run agent (with retry up to 3 attempts) → commit → push → create PR → optional self-review. Supports two harnesses: `claude_code` (default, `--output-format stream-json`) and `codex` (`--full-auto --quiet`). Writes `status.json` for the orchestrator. Generates PR title via Claude when none is provided.
+Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → checkout → inject CLAUDE.md → run agent (with retry up to 3 attempts) → commit → push → create PR → optional self-review. Supports two harnesses: `claude_code` (default, `--output-format stream-json`) and `codex` (`--full-auto --quiet`). Writes `status.json` for Docker-based modes and emits a `BACKFLOW_STATUS_JSON:` line for Fargate log parsing.
 
 ### Statuses
 
@@ -73,6 +73,35 @@ PR comments include actual cost for `claude_code` (extracted from `total_cost_us
 
 - **`api_key`** — Anthropic API key via `ANTHROPIC_API_KEY`, concurrent agents (max_instances × containers_per_instance)
 - **`max_subscription`** — Claude Max credentials via `CLAUDE_CREDENTIALS_PATH` volume mount, serial (one agent at a time)
+
+`max_subscription` is not supported in `fargate` mode. Initial Fargate support assumes API-key auth only.
+
+## Fargate mode
+
+Set `BACKFLOW_MODE=fargate` to run each Backflow task as a standalone ECS task. Capacity is tracked through a synthetic `fargate` instance in SQLite; there are no EC2 instances to launch or drain.
+
+Required env vars:
+
+- `BACKFLOW_ECS_CLUSTER`
+- `BACKFLOW_ECS_TASK_DEFINITION`
+- `BACKFLOW_ECS_SUBNETS` (comma-separated)
+- `BACKFLOW_CLOUDWATCH_LOG_GROUP`
+
+Optional Fargate env vars:
+
+- `BACKFLOW_ECS_SECURITY_GROUPS` (comma-separated)
+- `BACKFLOW_ECS_LAUNCH_TYPE` (`FARGATE` or `FARGATE_SPOT`, default `FARGATE_SPOT`)
+- `BACKFLOW_ECS_CONTAINER_NAME` (default `backflow-agent`)
+- `BACKFLOW_ECS_LOG_STREAM_PREFIX` (default `ecs`)
+- `BACKFLOW_MAX_CONCURRENT_TASKS` (default `5`)
+
+ECS prerequisites:
+
+- ECS cluster with Fargate enabled and, if using `FARGATE_SPOT`, Fargate capacity providers associated to the cluster
+- Task definition whose main container name matches `BACKFLOW_ECS_CONTAINER_NAME`
+- Task definition configured with the `awslogs` log driver writing into `BACKFLOW_CLOUDWATCH_LOG_GROUP`
+- Subnets and security groups in the same VPC, with egress for git/GitHub/API traffic
+- IAM execution/task roles allowing image pull, log delivery, and whatever repository/API access the agent needs
 
 ## Design patterns
 

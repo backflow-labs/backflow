@@ -5,7 +5,9 @@ go 1.24.1
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.4
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.64.1
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.294.1
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.73.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.1
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.3
 	github.com/go-chi/chi/v5 v5.2.5

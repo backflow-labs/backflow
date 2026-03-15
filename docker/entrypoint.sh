@@ -43,6 +43,8 @@ write_status() {
   "pr_url": $(echo "$pr_url" | jq -R .)
 }
 STATUSEOF
+
+    echo "BACKFLOW_STATUS_JSON:$(jq -c . "$STATUS_FILE")"
 }
 
 # --- GitHub auth ---

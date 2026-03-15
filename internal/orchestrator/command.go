@@ -120,9 +120,9 @@ func isInstanceGone(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "InvalidInstanceId") ||
-		strings.Contains(msg, "InvalidInstanceID")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalidinstanceid") ||
+		strings.Contains(msg, "spot interruption")
 }
 
 // isHexString returns true if s is a non-empty string of hex characters (used

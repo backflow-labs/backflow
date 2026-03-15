@@ -36,21 +36,25 @@ type Orchestrator struct {
 }
 
 func New(s store.Store, cfg *config.Config, notifier notify.Notifier, s3 *S3Uploader) *Orchestrator {
-	docker := NewDockerManager(cfg)
-
 	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
 		notifier:        notifier,
-		docker:          docker,
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
 		s3:              s3,
 	}
 
-	if cfg.Mode == config.ModeLocal {
+	switch cfg.Mode {
+	case config.ModeLocal:
+		o.docker = NewDockerManager(cfg)
 		o.initLocalMode(s, cfg)
-	} else {
+	case config.ModeFargate:
+		o.docker = NewFargateManager(cfg)
+		o.initFargateMode(s, cfg)
+	default:
+		docker := NewDockerManager(cfg)
+		o.docker = docker
 		o.initEC2Mode(s, cfg, docker)
 	}
 
@@ -80,6 +84,45 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 			UpdatedAt:     now,
 		}
 		s.CreateInstance(context.Background(), inst)
+	}
+}
+
+// initFargateMode seeds a synthetic "fargate" instance so the orchestrator can
+// track capacity without managing VM lifecycle.
+func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
+	o.scaler = localScaler{}
+
+	now := time.Now().UTC()
+	inst, _ := s.GetInstance(context.Background(), "fargate")
+	if inst != nil {
+		inst.Status = models.InstanceStatusRunning
+		inst.MaxContainers = cfg.MaxConcurrentTasks
+		inst.RunningContainers = 0
+		inst.UpdatedAt = now
+		s.UpdateInstance(context.Background(), inst)
+	} else {
+		inst = &models.Instance{
+			InstanceID:    "fargate",
+			InstanceType:  "fargate",
+			Status:        models.InstanceStatusRunning,
+			MaxContainers: cfg.MaxConcurrentTasks,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		s.CreateInstance(context.Background(), inst)
+	}
+
+	instances, err := s.ListInstances(context.Background(), nil)
+	if err != nil {
+		return
+	}
+	for _, other := range instances {
+		if other.InstanceID == "fargate" || other.Status == models.InstanceStatusTerminated {
+			continue
+		}
+		other.Status = models.InstanceStatusTerminated
+		other.RunningContainers = 0
+		s.UpdateInstance(context.Background(), other)
 	}
 }
 

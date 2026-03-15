@@ -28,6 +28,11 @@ func TestIsInstanceGone(t *testing.T) {
 			fmt.Errorf("run container: %w", fmt.Errorf("ssm send command: InvalidInstanceId: not found")),
 			true,
 		},
+		{
+			"spot interruption",
+			fmt.Errorf("spot interruption: Host EC2 (spot) terminated"),
+			true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

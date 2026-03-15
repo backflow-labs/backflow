@@ -170,7 +170,7 @@ func (o *Orchestrator) handleRecoveringInspectError(ctx context.Context, task *m
 func (o *Orchestrator) requeueRecoveringTask(ctx context.Context, task *models.Task, reason string, wasRunning bool) {
 	if wasRunning {
 		// Mark the instance as terminated in EC2 mode so no new tasks go there
-		if task.InstanceID != "" && o.config.Mode != config.ModeLocal {
+		if task.InstanceID != "" && o.config.Mode == config.ModeEC2 {
 			o.markInstanceTerminated(ctx, task.InstanceID)
 		}
 		o.decrementRunning()
