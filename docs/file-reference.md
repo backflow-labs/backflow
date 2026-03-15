@@ -100,5 +100,14 @@ Operational and development helper scripts.
 | `build-agent-image.sh` | Builds and pushes the multi-arch agent Docker image to ECR. Authenticates with ECR, creates a buildx builder, and pushes with `linux/amd64,linux/arm64` platforms. |
 | `create-task.sh` | CLI helper to submit tasks via the REST API. Accepts repo URL and prompt as positional args, plus flags for branch, model, effort, budget, runtime, turns, PR options, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `jq` and posts to the API with `curl`. |
 | `db-status.sh` | Dumps the SQLite database state. Shows all tasks, task status summary, all instances, and instance status summary using `sqlite3` queries. |
+
+## `docs/`
+
+Project documentation.
+
+| File | Description |
+|------|-------------|
+| `file-reference.md` | This file. Complete mapping of every file in the repository. |
+| `schema.md` | SQLite database schema reference — table definitions, column types/defaults, indexes, status lifecycles, and storage conventions. |
 | `setup-aws.sh` | One-time AWS infrastructure setup. Creates an ECR repository, IAM role with SSM and ECR policies, instance profile, security group (outbound-only), and launch template with user-data. Outputs the launch template ID for `.env` configuration. |
 | `user-data.sh` | EC2 instance bootstrap script (run via launch template user-data). Installs Docker and SSM agent, authenticates with ECR using IMDSv2, and pulls the `backflow-agent` image. |
