@@ -85,8 +85,19 @@ func (s *SQLiteStore) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_instances_status ON instances(status);
 	`
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Idempotent migrations for new columns
+	migrations := []string{
+		"ALTER TABLE tasks ADD COLUMN task_mode TEXT NOT NULL DEFAULT 'code'",
+		"ALTER TABLE tasks ADD COLUMN review_pr_number INTEGER NOT NULL DEFAULT 0",
+	}
+	for _, m := range migrations {
+		s.db.Exec(m) // ignore "duplicate column" errors
+	}
+	return nil
 }
 
 // --- Tasks ---
@@ -94,14 +105,16 @@ func (s *SQLiteStore) migrate() error {
 func (s *SQLiteStore) CreateTask(ctx context.Context, task *models.Task) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, status, repo_url, branch, target_branch, prompt, context,
+			id, status, task_mode, repo_url, branch, target_branch, review_pr_number,
+			prompt, context,
 			model, effort, max_budget_usd, max_runtime_min, max_turns,
 			create_pr, self_review, pr_title, pr_body, pr_url,
 			allowed_tools, claude_md, env_vars,
 			instance_id, container_id, retry_count, cost_usd, error,
 			created_at, updated_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		task.ID, task.Status, task.RepoURL, task.Branch, task.TargetBranch,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		task.ID, task.Status, task.TaskMode, task.RepoURL, task.Branch, task.TargetBranch,
+		task.ReviewPRNumber,
 		task.Prompt, task.Context, task.Model, task.Effort,
 		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
 		boolToInt(task.CreatePR), boolToInt(task.SelfReview), task.PRTitle, task.PRBody, task.PRURL,
@@ -115,7 +128,8 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task *models.Task) error {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (*models.Task, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT
-		id, status, repo_url, branch, target_branch, prompt, context,
+		id, status, task_mode, repo_url, branch, target_branch, review_pr_number,
+		prompt, context,
 		model, effort, max_budget_usd, max_runtime_min, max_turns,
 		create_pr, self_review, pr_title, pr_body, pr_url,
 		allowed_tools, claude_md, env_vars,
@@ -126,7 +140,7 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (*models.Task, err
 }
 
 func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*models.Task, error) {
-	query := "SELECT id, status, repo_url, branch, target_branch, prompt, context, model, effort, max_budget_usd, max_runtime_min, max_turns, create_pr, self_review, pr_title, pr_body, pr_url, allowed_tools, claude_md, env_vars, instance_id, container_id, retry_count, cost_usd, error, created_at, updated_at, started_at, completed_at FROM tasks"
+	query := "SELECT id, status, task_mode, repo_url, branch, target_branch, review_pr_number, prompt, context, model, effort, max_budget_usd, max_runtime_min, max_turns, create_pr, self_review, pr_title, pr_body, pr_url, allowed_tools, claude_md, env_vars, instance_id, container_id, retry_count, cost_usd, error, created_at, updated_at, started_at, completed_at FROM tasks"
 	var args []any
 	var where []string
 
@@ -166,15 +180,16 @@ func (s *SQLiteStore) UpdateTask(ctx context.Context, task *models.Task) error {
 	task.UpdatedAt = time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE tasks SET
-			status=?, repo_url=?, branch=?, target_branch=?, prompt=?, context=?,
+			status=?, task_mode=?, repo_url=?, branch=?, target_branch=?,
+			review_pr_number=?, prompt=?, context=?,
 			model=?, effort=?, max_budget_usd=?, max_runtime_min=?, max_turns=?,
 			create_pr=?, self_review=?, pr_title=?, pr_body=?, pr_url=?,
 			allowed_tools=?, claude_md=?, env_vars=?,
 			instance_id=?, container_id=?, retry_count=?, cost_usd=?, error=?,
 			updated_at=?, started_at=?, completed_at=?
 		WHERE id = ?`,
-		task.Status, task.RepoURL, task.Branch, task.TargetBranch,
-		task.Prompt, task.Context, task.Model, task.Effort,
+		task.Status, task.TaskMode, task.RepoURL, task.Branch, task.TargetBranch,
+		task.ReviewPRNumber, task.Prompt, task.Context, task.Model, task.Effort,
 		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
 		boolToInt(task.CreatePR), boolToInt(task.SelfReview), task.PRTitle, task.PRBody, task.PRURL,
 		task.AllowedToolsJSON(), task.ClaudeMD, task.EnvVarsJSON(),
@@ -262,7 +277,8 @@ func scanTask(row scanner) (*models.Task, error) {
 	var startedAt, completedAt sql.NullString
 
 	err := row.Scan(
-		&t.ID, &t.Status, &t.RepoURL, &t.Branch, &t.TargetBranch,
+		&t.ID, &t.Status, &t.TaskMode, &t.RepoURL, &t.Branch, &t.TargetBranch,
+		&t.ReviewPRNumber,
 		&t.Prompt, &t.Context, &t.Model, &t.Effort,
 		&t.MaxBudgetUSD, &t.MaxRuntimeMin, &t.MaxTurns,
 		&createPR, &selfReview, &t.PRTitle, &t.PRBody, &t.PRURL,

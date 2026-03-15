@@ -34,6 +34,7 @@ func TestTaskCRUD(t *testing.T) {
 	task := &models.Task{
 		ID:           "bf_TEST001",
 		Status:       models.TaskStatusPending,
+		TaskMode:     models.TaskModeCode,
 		RepoURL:      "https://github.com/test/repo",
 		Branch:       "backflow/test",
 		TargetBranch: "main",
@@ -67,6 +68,9 @@ func TestTaskCRUD(t *testing.T) {
 	}
 	if got.Prompt != task.Prompt {
 		t.Errorf("Prompt = %q, want %q", got.Prompt, task.Prompt)
+	}
+	if got.TaskMode != models.TaskModeCode {
+		t.Errorf("TaskMode = %q, want %q", got.TaskMode, models.TaskModeCode)
 	}
 	if !got.CreatePR {
 		t.Error("CreatePR should be true")
@@ -176,5 +180,46 @@ func TestInstanceCRUD(t *testing.T) {
 	}
 	if instances[0].RunningContainers != 2 {
 		t.Errorf("RunningContainers = %d, want 2", instances[0].RunningContainers)
+	}
+}
+
+func TestReviewTaskCRUD(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	task := &models.Task{
+		ID:             "bf_REVIEW01",
+		Status:         models.TaskStatusPending,
+		TaskMode:       models.TaskModeReview,
+		RepoURL:        "https://github.com/test/repo",
+		ReviewPRNumber: 42,
+		Prompt:         "Focus on security",
+		Model:          "claude-sonnet-4-6",
+		MaxBudgetUSD:   5.0,
+		MaxTurns:       50,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	got, err := s.GetTask(ctx, "bf_REVIEW01")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetTask returned nil")
+	}
+	if got.TaskMode != models.TaskModeReview {
+		t.Errorf("TaskMode = %q, want %q", got.TaskMode, models.TaskModeReview)
+	}
+	if got.ReviewPRNumber != 42 {
+		t.Errorf("ReviewPRNumber = %d, want 42", got.ReviewPRNumber)
+	}
+	if got.Prompt != "Focus on security" {
+		t.Errorf("Prompt = %q, want %q", got.Prompt, "Focus on security")
 	}
 }

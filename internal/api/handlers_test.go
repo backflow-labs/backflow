@@ -145,6 +145,52 @@ func TestGetTaskNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateReviewTask(t *testing.T) {
+	srv := testServer(t)
+
+	body := `{"task_mode":"review","repo_url":"https://github.com/test/repo","review_pr_number":42,"prompt":"Focus on security"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			ID             string `json:"id"`
+			TaskMode       string `json:"task_mode"`
+			ReviewPRNumber int    `json:"review_pr_number"`
+		} `json:"data"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if resp.Data.TaskMode != "review" {
+		t.Errorf("task_mode = %q, want review", resp.Data.TaskMode)
+	}
+	if resp.Data.ReviewPRNumber != 42 {
+		t.Errorf("review_pr_number = %d, want 42", resp.Data.ReviewPRNumber)
+	}
+}
+
+func TestCreateReviewTaskMissingPR(t *testing.T) {
+	srv := testServer(t)
+
+	body := `{"task_mode":"review","repo_url":"https://github.com/test/repo"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
 func TestDeleteTask(t *testing.T) {
 	srv := testServer(t)
 
