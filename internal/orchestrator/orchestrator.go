@@ -155,7 +155,9 @@ func (o *Orchestrator) incrementRunning() {
 // decrementRunning safely decrements the running task counter.
 func (o *Orchestrator) decrementRunning() {
 	o.mu.Lock()
-	o.running--
+	if o.running > 0 {
+		o.running--
+	}
 	o.mu.Unlock()
 }
 
