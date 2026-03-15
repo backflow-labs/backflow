@@ -84,12 +84,18 @@ After completing the coding task, you MUST do the following git operations:
 
 # Append PR creation instructions if requested
 if [ "$CREATE_PR" = "true" ]; then
-    PR_TITLE_FINAL="${PR_TITLE:-[backflow] ${PROMPT:0:60}}"
     GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
 3. Create a pull request using the gh CLI:
    - Base branch: ${TARGET_BRANCH}
-   - Head branch: ${BRANCH}
-   - Title: ${PR_TITLE_FINAL}"
+   - Head branch: ${BRANCH}"
+
+    if [ -n "$PR_TITLE" ]; then
+        GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
+   - Title: ${PR_TITLE}"
+    else
+        GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
+   - Title: [backflow] <generate a concise, descriptive title based on the changes you made>"
+    fi
 
     if [ -n "$PR_BODY" ]; then
         GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
