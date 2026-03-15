@@ -25,7 +25,7 @@ type ContainerStatus struct {
 	Question       string
 	Error          string
 	LogTail        string
-	PullRequestURL string
+	PRURL string
 }
 
 type DockerManager struct {
@@ -162,12 +162,12 @@ func (m *DockerManager) InspectContainer(ctx context.Context, instanceID, contai
 				Question       string `json:"question"`
 				Complete       bool   `json:"complete"`
 				Error          string `json:"error"`
-				PullRequestURL string `json:"pull_request_url"`
+				PRURL string `json:"pr_url"`
 			}
 			if json.Unmarshal([]byte(statusJSON), &agentStatus) == nil {
 				status.NeedsInput = agentStatus.NeedsInput
 				status.Question = agentStatus.Question
-				status.PullRequestURL = agentStatus.PullRequestURL
+				status.PRURL = agentStatus.PRURL
 				if agentStatus.Error != "" {
 					status.Error = agentStatus.Error
 				}

@@ -36,7 +36,7 @@ write_status() {
   "needs_input": ${needs_input},
   "question": $(echo "$question" | jq -R .),
   "error": $(echo "$error_msg" | jq -R .),
-  "pull_request_url": $(echo "$pr_url" | jq -R .)
+  "pr_url": $(echo "$pr_url" | jq -R .)
 }
 STATUSEOF
 }
@@ -73,33 +73,37 @@ if [ -n "$TASK_CONTEXT" ]; then
 ${FULL_PROMPT}"
 fi
 
+# Always instruct the agent to commit and push
+GIT_INSTRUCTIONS="
+
+After completing the coding task, you MUST do the following git operations:
+
+1. Stage and commit all your changes with a descriptive commit message.
+2. Push the branch '${BRANCH}' to origin."
+
 # Append PR creation instructions if requested
 if [ "$CREATE_PR" = "true" ]; then
     PR_TITLE_FINAL="${PR_TITLE:-[backflow] ${PROMPT:0:60}}"
-    PR_INSTRUCTIONS="
-
-After completing the coding task, you MUST do the following git and PR operations:
-
-1. Stage and commit all your changes with a descriptive commit message.
-2. Push the branch '${BRANCH}' to origin.
+    GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
 3. Create a pull request using the gh CLI:
    - Base branch: ${TARGET_BRANCH}
    - Head branch: ${BRANCH}
    - Title: ${PR_TITLE_FINAL}"
 
     if [ -n "$PR_BODY" ]; then
-        PR_INSTRUCTIONS="${PR_INSTRUCTIONS}
+        GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
    - Body: ${PR_BODY}"
     else
-        PR_INSTRUCTIONS="${PR_INSTRUCTIONS}
+        GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
    - Write a clear PR description summarizing what you changed and why."
     fi
 
-    PR_INSTRUCTIONS="${PR_INSTRUCTIONS}
+    GIT_INSTRUCTIONS="${GIT_INSTRUCTIONS}
 
 Do NOT skip the PR creation step. The PR must exist on GitHub when you are done."
-    FULL_PROMPT="${FULL_PROMPT}${PR_INSTRUCTIONS}"
 fi
+
+FULL_PROMPT="${FULL_PROMPT}${GIT_INSTRUCTIONS}"
 
 # --- GitHub auth ---
 if [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -260,9 +264,8 @@ If everything looks good, approve the PR. If there are real issues, request chan
 
     REVIEW_ARGS=(
         -p "$REVIEW_PROMPT"
-        --dangerously-skip-permissions
         --model "$MODEL"
-        --max-turns 30
+        --max-turns 3
         --output-format json
         --verbose
     )

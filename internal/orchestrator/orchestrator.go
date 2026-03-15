@@ -271,7 +271,7 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	now := time.Now().UTC()
 	task.CompletedAt = &now
 
-	task.PullRequestURL = status.PullRequestURL
+	task.PRURL = status.PRURL
 
 	if status.ExitCode == 0 {
 		task.Status = models.TaskStatusCompleted
@@ -280,7 +280,7 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 			TaskID:         task.ID,
 			RepoURL:        task.RepoURL,
 			Prompt:         task.Prompt,
-			PullRequestURL: status.PullRequestURL,
+			PRURL: status.PRURL,
 			AgentLogTail:   status.LogTail,
 			Timestamp:      now,
 		})

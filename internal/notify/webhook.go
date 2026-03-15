@@ -27,7 +27,7 @@ type Event struct {
 	RepoURL        string    `json:"repo_url,omitempty"`
 	Prompt         string    `json:"prompt,omitempty"`
 	Message        string    `json:"message,omitempty"`
-	PullRequestURL string    `json:"pull_request_url,omitempty"`
+	PRURL          string    `json:"pr_url,omitempty"`
 	AgentLogTail   string    `json:"agent_log_tail,omitempty"`
 	Timestamp      time.Time `json:"timestamp"`
 }
