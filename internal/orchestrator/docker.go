@@ -19,12 +19,13 @@ import (
 )
 
 type ContainerStatus struct {
-	Done       bool
-	ExitCode   int
-	NeedsInput bool
-	Question   string
-	Error      string
-	LogTail    string
+	Done           bool
+	ExitCode       int
+	NeedsInput     bool
+	Question       string
+	Error          string
+	LogTail        string
+	PullRequestURL string
 }
 
 type DockerManager struct {
@@ -157,14 +158,16 @@ func (m *DockerManager) InspectContainer(ctx context.Context, instanceID, contai
 		statusCmd := fmt.Sprintf("docker cp %s:/home/agent/workspace/status.json /dev/stdout 2>/dev/null", containerID)
 		if statusJSON, err := m.runCommand(ctx, instanceID, statusCmd); err == nil {
 			var agentStatus struct {
-				NeedsInput bool   `json:"needs_input"`
-				Question   string `json:"question"`
-				Complete   bool   `json:"complete"`
-				Error      string `json:"error"`
+				NeedsInput     bool   `json:"needs_input"`
+				Question       string `json:"question"`
+				Complete       bool   `json:"complete"`
+				Error          string `json:"error"`
+				PullRequestURL string `json:"pull_request_url"`
 			}
 			if json.Unmarshal([]byte(statusJSON), &agentStatus) == nil {
 				status.NeedsInput = agentStatus.NeedsInput
 				status.Question = agentStatus.Question
+				status.PullRequestURL = agentStatus.PullRequestURL
 				if agentStatus.Error != "" {
 					status.Error = agentStatus.Error
 				}

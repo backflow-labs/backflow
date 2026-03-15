@@ -27,6 +27,7 @@ write_status() {
     local needs_input="$3"
     local question="$4"
     local error_msg="$5"
+    local pr_url="${6:-}"
 
     cat > "$STATUS_FILE" <<STATUSEOF
 {
@@ -34,7 +35,8 @@ write_status() {
   "complete": ${complete},
   "needs_input": ${needs_input},
   "question": $(echo "$question" | jq -R .),
-  "error": $(echo "$error_msg" | jq -R .)
+  "error": $(echo "$error_msg" | jq -R .),
+  "pull_request_url": $(echo "$pr_url" | jq -R .)
 }
 STATUSEOF
 }
@@ -69,6 +71,34 @@ if [ -n "$TASK_CONTEXT" ]; then
     FULL_PROMPT="Context: ${TASK_CONTEXT}
 
 ${FULL_PROMPT}"
+fi
+
+# Append PR creation instructions if requested
+if [ "$CREATE_PR" = "true" ]; then
+    PR_TITLE_FINAL="${PR_TITLE:-[backflow] ${PROMPT:0:60}}"
+    PR_INSTRUCTIONS="
+
+After completing the coding task, you MUST do the following git and PR operations:
+
+1. Stage and commit all your changes with a descriptive commit message.
+2. Push the branch '${BRANCH}' to origin.
+3. Create a pull request using the gh CLI:
+   - Base branch: ${TARGET_BRANCH}
+   - Head branch: ${BRANCH}
+   - Title: ${PR_TITLE_FINAL}"
+
+    if [ -n "$PR_BODY" ]; then
+        PR_INSTRUCTIONS="${PR_INSTRUCTIONS}
+   - Body: ${PR_BODY}"
+    else
+        PR_INSTRUCTIONS="${PR_INSTRUCTIONS}
+   - Write a clear PR description summarizing what you changed and why."
+    fi
+
+    PR_INSTRUCTIONS="${PR_INSTRUCTIONS}
+
+Do NOT skip the PR creation step. The PR must exist on GitHub when you are done."
+    FULL_PROMPT="${FULL_PROMPT}${PR_INSTRUCTIONS}"
 fi
 
 # --- GitHub auth ---
@@ -176,7 +206,7 @@ if [ -n "$RESULT_LINE" ]; then
     fi
 fi
 
-# --- Write status ---
+# --- Determine completion status ---
 COMPLETE=false
 if [ $CLAUDE_EXIT -eq 0 ]; then
     COMPLETE=true
@@ -185,61 +215,75 @@ ERROR_MSG=""
 if [ $CLAUDE_EXIT -ne 0 ]; then
     ERROR_MSG=$(echo "$CLAUDE_OUTPUT" | tail -5)
 fi
-write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG"
 
-# --- Commit remaining changes ---
-echo "==> Committing any remaining changes..."
-git add -A
-if ! git diff --cached --quiet; then
-    COMMIT_MSG="backflow: agent work on task ${TASK_ID:-unknown}
-
-Automated commit by backflow agent.
-Model: ${MODEL}"
-    if [ "$AUTH_MODE" = "api_key" ]; then
-        COMMIT_MSG="${COMMIT_MSG}
-Budget: \$${MAX_BUDGET_USD}"
-    fi
-    git commit -m "$COMMIT_MSG"
-fi
-
-# --- Push ---
-echo "==> Pushing branch ${BRANCH}..."
-git push origin "$BRANCH" --force-with-lease 2>/dev/null || git push origin "$BRANCH"
-
-# --- Create PR ---
-if [ "$CREATE_PR" = "true" ]; then
-    echo "==> Creating pull request..."
-    PR_TITLE_FINAL="${PR_TITLE:-[backflow] ${PROMPT:0:60}}"
-
-    if [ -z "$PR_BODY" ]; then
-        PR_BODY="## Automated PR by Backflow
-
-**Task:** ${PROMPT}
-
-**Model:** ${MODEL}"
-        if [ "$AUTH_MODE" = "api_key" ]; then
-            PR_BODY="${PR_BODY}
-**Budget:** \$${MAX_BUDGET_USD}"
-        else
-            PR_BODY="${PR_BODY}
-**Auth:** Max subscription"
-        fi
-        PR_BODY="${PR_BODY}
-
----
-*Created by [backflow](https://github.com/backflow-labs/backflow) agent*"
-    fi
-
-    PR_URL=$(gh pr create \
-        --title "$PR_TITLE_FINAL" \
-        --body "$PR_BODY" \
-        --base "$TARGET_BRANCH" \
-        --head "$BRANCH" 2>&1) || true
-
+# --- Extract PR URL ---
+PR_URL=""
+if [ "$CREATE_PR" = "true" ] && [ "$COMPLETE" = "true" ]; then
+    echo "==> Looking up PR URL..."
+    PR_URL=$(gh pr list --head "$BRANCH" --base "$TARGET_BRANCH" --json url --jq '.[0].url' 2>/dev/null || true)
     if [ -n "$PR_URL" ]; then
-        echo "==> PR created: ${PR_URL}"
+        echo "==> PR found: ${PR_URL}"
+    else
+        echo "==> No PR found for branch ${BRANCH}"
     fi
 fi
+
+# --- Self-review phase ---
+if [ -n "$PR_URL" ]; then
+    echo "==> Starting self-review phase..."
+
+    # Cap review budget at 20% of coding budget (minimum $2)
+    REVIEW_BUDGET=$(echo "$MAX_BUDGET_USD" | awk '{b = $1 * 0.2; print (b < 2) ? 2 : b}')
+
+    REVIEW_PROMPT="You are reviewing a pull request that you (a different instance) just created.
+
+PR URL: ${PR_URL}
+
+Review the PR by:
+1. Read the full diff with: gh pr diff ${PR_URL}
+2. Look at the PR description with: gh pr view ${PR_URL}
+3. Post a review using: gh pr review ${PR_URL} --approve, --request-changes, or --comment
+   Include a body with your review summarizing your findings.
+
+Focus on:
+- Bugs and logic errors
+- Security issues
+- Missing error handling that could cause failures
+- Correctness of the implementation vs the PR description
+
+Do NOT comment on:
+- Code style or formatting
+- Minor naming preferences
+- Things that are working correctly
+
+If everything looks good, approve the PR. If there are real issues, request changes and explain what needs fixing."
+
+    REVIEW_ARGS=(
+        -p "$REVIEW_PROMPT"
+        --dangerously-skip-permissions
+        --model "$MODEL"
+        --max-turns 30
+        --output-format json
+        --verbose
+    )
+    if [ "$AUTH_MODE" = "api_key" ]; then
+        REVIEW_ARGS+=(--max-budget-usd "$REVIEW_BUDGET")
+    fi
+
+    set +e
+    REVIEW_OUTPUT=$(claude "${REVIEW_ARGS[@]}" 2>&1)
+    REVIEW_EXIT=$?
+    set -e
+
+    if [ $REVIEW_EXIT -eq 0 ]; then
+        echo "==> Self-review completed successfully"
+    else
+        echo "==> Self-review failed (exit code: ${REVIEW_EXIT}), continuing anyway"
+    fi
+fi
+
+# --- Write status ---
+write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL"
 
 echo "==> Done (exit code: ${CLAUDE_EXIT})"
 exit $CLAUDE_EXIT

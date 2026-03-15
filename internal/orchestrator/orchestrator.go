@@ -271,15 +271,18 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	now := time.Now().UTC()
 	task.CompletedAt = &now
 
+	task.PullRequestURL = status.PullRequestURL
+
 	if status.ExitCode == 0 {
 		task.Status = models.TaskStatusCompleted
 		o.notifier.Notify(notify.Event{
-			Type:         notify.EventTaskCompleted,
-			TaskID:       task.ID,
-			RepoURL:      task.RepoURL,
-			Prompt:       task.Prompt,
-			AgentLogTail: status.LogTail,
-			Timestamp:    now,
+			Type:           notify.EventTaskCompleted,
+			TaskID:         task.ID,
+			RepoURL:        task.RepoURL,
+			Prompt:         task.Prompt,
+			PullRequestURL: status.PullRequestURL,
+			AgentLogTail:   status.LogTail,
+			Timestamp:      now,
 		})
 	} else if status.NeedsInput {
 		task.Status = models.TaskStatusFailed

@@ -22,13 +22,14 @@ const (
 )
 
 type Event struct {
-	Type         EventType `json:"event"`
-	TaskID       string    `json:"task_id"`
-	RepoURL      string    `json:"repo_url,omitempty"`
-	Prompt       string    `json:"prompt,omitempty"`
-	Message      string    `json:"message,omitempty"`
-	AgentLogTail string    `json:"agent_log_tail,omitempty"`
-	Timestamp    time.Time `json:"timestamp"`
+	Type           EventType `json:"event"`
+	TaskID         string    `json:"task_id"`
+	RepoURL        string    `json:"repo_url,omitempty"`
+	Prompt         string    `json:"prompt,omitempty"`
+	Message        string    `json:"message,omitempty"`
+	PullRequestURL string    `json:"pull_request_url,omitempty"`
+	AgentLogTail   string    `json:"agent_log_tail,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
 }
 
 // Notifier sends notifications for task lifecycle events.

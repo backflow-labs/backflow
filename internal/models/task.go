@@ -38,7 +38,7 @@ type Task struct {
 	CreatePR      bool       `json:"create_pr"`
 	PRTitle       string     `json:"pr_title,omitempty"`
 	PRBody        string     `json:"pr_body,omitempty"`
-	PRURL         string     `json:"pr_url,omitempty"`
+	PullRequestURL string    `json:"pull_request_url,omitempty"`
 	AllowedTools  []string   `json:"allowed_tools,omitempty"`
 	ClaudeMD      string     `json:"claude_md,omitempty"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
