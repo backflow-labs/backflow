@@ -13,6 +13,7 @@ Complete mapping of every file in the Backflow repository.
 | `.gitignore` | Ignores `bin/`, `.db` files, `.env`, and `mise.toml` |
 | `go.mod` | Go module definition (`github.com/backflow-labs/backflow`, Go 1.24.1) with dependencies |
 | `go.sum` | Go module checksums |
+| `prompts.md` | Example prompts — completed and planned task ideas for Backflow agents |
 
 ## `cmd/backflow/`
 
@@ -82,6 +83,15 @@ Persistence layer.
 | `sqlite.go` | SQLite implementation of `Store`. Opens the database in WAL mode with busy timeout and foreign keys. `migrate()` creates the `tasks` and `instances` tables with indexes on status and created_at. Implements all CRUD operations with full field scanning, JSON serialization for `allowed_tools` and `env_vars`, and RFC3339 timestamp handling. |
 | `sqlite_test.go` | Tests for SQLite store — full task CRUD cycle (create, get, update, list with filter, delete), not-found handling, and instance CRUD (create, get, update, list by status). Uses temp DB files with cleanup. |
 
+## `docs/`
+
+Project documentation.
+
+| File | Description |
+|------|-------------|
+| `file-reference.md` | This file — complete mapping of every file in the repository. |
+| `schema.md` | SQLite database schema reference — column definitions, types, defaults, indexes, and status lifecycle diagrams for the `tasks` and `instances` tables. |
+
 ## `docker/`
 
 Agent container image.
@@ -89,7 +99,7 @@ Agent container image.
 | File | Description |
 |------|-------------|
 | `Dockerfile` | Multi-arch Docker image based on `node:20-slim`. Installs git, curl, jq, Python 3, GitHub CLI, and Claude Code CLI (`@anthropic-ai/claude-code`). Creates an `agent` user, configures git defaults, and copies the entrypoint script. |
-| `entrypoint.sh` | Agent lifecycle script run inside each container. Clones the repo (depth 50), checks out the target branch, creates a working branch, optionally injects CLAUDE.md content, runs Claude Code with retries (up to 3 attempts), parses stream-json output for completion/needs-input/error status, writes `status.json`, commits remaining changes, pushes the branch, and optionally creates a PR via `gh`. |
+| `entrypoint.sh` | Agent lifecycle script run inside each container. Clones the repo (depth 50), checks out the target branch, creates a working branch, optionally injects CLAUDE.md content, runs Claude Code with `--output-format stream-json` and retries (up to 3 attempts), parses output for completion/needs-input/error status, commits agent output log to `.backflow/`, pushes the branch, optionally creates a PR via `gh`, comments the original prompt on the PR, optionally runs a self-review phase (20% of coding budget, min $2), and writes `status.json` for the orchestrator. |
 
 ## `scripts/`
 
