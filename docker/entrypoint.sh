@@ -4,6 +4,7 @@ set -euo pipefail
 # --- Configuration from environment ---
 REPO_URL="${REPO_URL:?REPO_URL is required}"
 TASK_MODE="${TASK_MODE:-code}"
+HARNESS="${HARNESS:-claude_code}"
 AUTH_MODE="${AUTH_MODE:-api_key}"
 BRANCH="${BRANCH:-backflow/${TASK_ID:-$(date +%s)}}"
 TARGET_BRANCH="${TARGET_BRANCH:-main}"
@@ -243,44 +244,64 @@ fi
 
 FULL_PROMPT="${FULL_PROMPT}${GIT_INSTRUCTIONS}"
 
-# --- Build claude command args ---
-CLAUDE_ARGS=(
-    -p "$FULL_PROMPT"
-    --dangerously-skip-permissions
-    --model "$MODEL"
-    --effort "$EFFORT"
-    --max-turns "$MAX_TURNS"
-    --output-format stream-json
-    --verbose
-)
+# --- Build command args based on harness ---
+echo "==> Harness: ${HARNESS}"
 
-# --max-budget-usd only applies to API key mode (billed per token)
-if [ "$AUTH_MODE" = "api_key" ]; then
-    CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-fi
+build_claude_args() {
+    local prompt="$1"
+    CLAUDE_ARGS=(
+        -p "$prompt"
+        --dangerously-skip-permissions
+        --model "$MODEL"
+        --effort "$EFFORT"
+        --max-turns "$MAX_TURNS"
+        --output-format stream-json
+        --verbose
+    )
+    if [ "$AUTH_MODE" = "api_key" ]; then
+        CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
+    fi
+}
 
-# --- Run Claude Code with retries ---
+build_codex_args() {
+    local prompt="$1"
+    CODEX_ARGS=(
+        --model "$MODEL"
+        --reasoning-effort "$EFFORT"
+        --full-auto
+        --quiet
+        "$prompt"
+    )
+}
+
+# --- Run agent with retries ---
 ATTEMPT=0
 CLAUDE_EXIT=1
 CLAUDE_OUTPUT=""
 
 while [ $ATTEMPT -lt "$MAX_RETRIES" ]; do
     ATTEMPT=$((ATTEMPT + 1))
-    echo "==> Running Claude Code (attempt ${ATTEMPT}/${MAX_RETRIES})..."
+    echo "==> Running ${HARNESS} (attempt ${ATTEMPT}/${MAX_RETRIES})..."
 
     CLAUDE_LOG="${WORKSPACE}/claude_output.log"
     set +e
-    claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$CLAUDE_LOG"
+    if [ "$HARNESS" = "codex" ]; then
+        build_codex_args "$FULL_PROMPT"
+        codex "${CODEX_ARGS[@]}" 2>&1 | tee "$CLAUDE_LOG"
+    else
+        build_claude_args "$FULL_PROMPT"
+        claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$CLAUDE_LOG"
+    fi
     CLAUDE_EXIT=${PIPESTATUS[0]}
     CLAUDE_OUTPUT=$(cat "$CLAUDE_LOG")
     set -e
 
     if [ $CLAUDE_EXIT -eq 0 ]; then
-        echo "==> Claude Code completed successfully"
+        echo "==> ${HARNESS} completed successfully"
         break
     fi
 
-    echo "==> Claude Code exited with code ${CLAUDE_EXIT} (attempt ${ATTEMPT})"
+    echo "==> ${HARNESS} exited with code ${CLAUDE_EXIT} (attempt ${ATTEMPT})"
     echo "$CLAUDE_OUTPUT" | tail -30
 
     if [ $ATTEMPT -lt "$MAX_RETRIES" ]; then
@@ -291,11 +312,6 @@ ${ERROR_TAIL}
 
 Please try again:
 ${PROMPT}${GIT_INSTRUCTIONS}"
-        # Rebuild args with updated prompt
-        CLAUDE_ARGS=( -p "$FULL_PROMPT" --dangerously-skip-permissions --model "$MODEL" --effort "$EFFORT" --max-turns "$MAX_TURNS" --output-format stream-json --verbose )
-        if [ "$AUTH_MODE" = "api_key" ]; then
-            CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-        fi
     fi
 done
 
@@ -305,20 +321,28 @@ RESULT_LINE=$(echo "$CLAUDE_OUTPUT" | grep '"type":"result"' | tail -1)
 NEEDS_INPUT=false
 QUESTION=""
 
-if [ -n "$RESULT_LINE" ]; then
-    RESULT_TEXT=$(echo "$RESULT_LINE" | jq -r '.result // empty' 2>/dev/null)
-    if echo "$RESULT_TEXT" | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
+if [ "$HARNESS" = "codex" ]; then
+    # Codex outputs plain text; scan for question indicators
+    if echo "$CLAUDE_OUTPUT" | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
         NEEDS_INPUT=true
-        QUESTION=$(echo "$RESULT_TEXT" | tail -5)
+        QUESTION=$(echo "$CLAUDE_OUTPUT" | tail -5)
     fi
-
-    # If claude ran out of turns without completing
-    IS_ERROR=$(echo "$RESULT_LINE" | jq -r '.is_error // false' 2>/dev/null)
-    if [ "$IS_ERROR" = "true" ]; then
-        ERROR_TYPE=$(echo "$RESULT_LINE" | jq -r '.error_type // empty' 2>/dev/null)
-        if [ "$ERROR_TYPE" = "max_turns" ]; then
+else
+    if [ -n "$RESULT_LINE" ]; then
+        RESULT_TEXT=$(echo "$RESULT_LINE" | jq -r '.result // empty' 2>/dev/null)
+        if echo "$RESULT_TEXT" | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
             NEEDS_INPUT=true
-            QUESTION="Agent ran out of turns (${MAX_TURNS}) without completing the task"
+            QUESTION=$(echo "$RESULT_TEXT" | tail -5)
+        fi
+
+        # If claude ran out of turns without completing
+        IS_ERROR=$(echo "$RESULT_LINE" | jq -r '.is_error // false' 2>/dev/null)
+        if [ "$IS_ERROR" = "true" ]; then
+            ERROR_TYPE=$(echo "$RESULT_LINE" | jq -r '.error_type // empty' 2>/dev/null)
+            if [ "$ERROR_TYPE" = "max_turns" ]; then
+                NEEDS_INPUT=true
+                QUESTION="Agent ran out of turns (${MAX_TURNS}) without completing the task"
+            fi
         fi
     fi
 fi
