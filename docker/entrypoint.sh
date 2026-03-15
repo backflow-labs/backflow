@@ -239,6 +239,28 @@ if [ "$CREATE_PR" = "true" ] && [ "$COMPLETE" = "true" ]; then
     fi
 fi
 
+# --- Commit agent output ---
+if [ "$COMPLETE" = "true" ]; then
+    echo "==> Committing agent output..."
+    OUTPUT_FILENAME=".backflow/agent_output_$(date +%s%N).log"
+    mkdir -p "$(dirname "$OUTPUT_FILENAME")"
+    cp "$CLAUDE_LOG" "$OUTPUT_FILENAME"
+    git add "$OUTPUT_FILENAME"
+    git commit -m "backflow: save agent output log" --no-verify || true
+    git push origin "$BRANCH" || true
+fi
+
+# --- Comment prompt on PR ---
+if [ -n "$PR_URL" ]; then
+    echo "==> Commenting prompt on PR..."
+    COMMENT_BODY="## Backflow Agent Prompt
+
+\`\`\`
+${PROMPT}
+\`\`\`"
+    gh pr comment "$PR_URL" --body "$COMMENT_BODY" 2>/dev/null || true
+fi
+
 # --- Self-review phase ---
 if [ "$SELF_REVIEW" = "true" ] && [ -n "$PR_URL" ]; then
     echo "==> Starting self-review phase..."
