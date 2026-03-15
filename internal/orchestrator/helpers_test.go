@@ -30,7 +30,8 @@ func newMockStore() *mockStore {
 func (s *mockStore) CreateTask(_ context.Context, task *models.Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tasks[task.ID] = task
+	cp := *task
+	s.tasks[task.ID] = &cp
 	return nil
 }
 
@@ -41,7 +42,8 @@ func (s *mockStore) GetTask(_ context.Context, id string) (*models.Task, error) 
 	if !ok {
 		return nil, nil
 	}
-	return t, nil
+	cp := *t
+	return &cp, nil
 }
 
 func (s *mockStore) ListTasks(_ context.Context, filter store.TaskFilter) ([]*models.Task, error) {
@@ -52,7 +54,8 @@ func (s *mockStore) ListTasks(_ context.Context, filter store.TaskFilter) ([]*mo
 		if filter.Status != nil && t.Status != *filter.Status {
 			continue
 		}
-		result = append(result, t)
+		cp := *t
+		result = append(result, &cp)
 	}
 	if filter.Limit > 0 && len(result) > filter.Limit {
 		result = result[:filter.Limit]
@@ -63,7 +66,8 @@ func (s *mockStore) ListTasks(_ context.Context, filter store.TaskFilter) ([]*mo
 func (s *mockStore) UpdateTask(_ context.Context, task *models.Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tasks[task.ID] = task
+	cp := *task
+	s.tasks[task.ID] = &cp
 	return nil
 }
 
@@ -77,7 +81,8 @@ func (s *mockStore) DeleteTask(_ context.Context, id string) error {
 func (s *mockStore) CreateInstance(_ context.Context, inst *models.Instance) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.instances[inst.InstanceID] = inst
+	cp := *inst
+	s.instances[inst.InstanceID] = &cp
 	return nil
 }
 
@@ -88,7 +93,8 @@ func (s *mockStore) GetInstance(_ context.Context, id string) (*models.Instance,
 	if !ok {
 		return nil, nil
 	}
-	return i, nil
+	cp := *i
+	return &cp, nil
 }
 
 func (s *mockStore) ListInstances(_ context.Context, status *models.InstanceStatus) ([]*models.Instance, error) {
@@ -99,7 +105,8 @@ func (s *mockStore) ListInstances(_ context.Context, status *models.InstanceStat
 		if status != nil && i.Status != *status {
 			continue
 		}
-		result = append(result, i)
+		cp := *i
+		result = append(result, &cp)
 	}
 	return result, nil
 }
@@ -107,7 +114,8 @@ func (s *mockStore) ListInstances(_ context.Context, status *models.InstanceStat
 func (s *mockStore) UpdateInstance(_ context.Context, inst *models.Instance) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.instances[inst.InstanceID] = inst
+	cp := *inst
+	s.instances[inst.InstanceID] = &cp
 	return nil
 }
 
