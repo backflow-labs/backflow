@@ -107,8 +107,9 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	task.PRURL = status.PRURL
 
 	switch {
-	case status.ExitCode == 0:
+	case status.Complete || (status.ExitCode == 0 && !status.NeedsInput):
 		task.Status = models.TaskStatusCompleted
+		task.Error = ""
 		o.notifier.Notify(notify.Event{
 			Type:         notify.EventTaskCompleted,
 			TaskID:       task.ID,

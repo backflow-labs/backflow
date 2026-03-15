@@ -16,6 +16,7 @@ import (
 // ContainerStatus represents the current state of an agent container.
 type ContainerStatus struct {
 	Done       bool
+	Complete   bool
 	ExitCode   int
 	NeedsInput bool
 	Question   string
@@ -240,6 +241,7 @@ func (m *DockerManager) enrichFromStatusJSON(ctx context.Context, instanceID, co
 
 	status.NeedsInput = agent.NeedsInput
 	status.Question = agent.Question
+	status.Complete = agent.Complete
 	status.PRURL = agent.PRURL
 	if agent.Error != "" {
 		status.Error = agent.Error
