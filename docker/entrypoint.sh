@@ -121,10 +121,13 @@ while [ $ATTEMPT -lt "$MAX_RETRIES" ]; do
     ATTEMPT=$((ATTEMPT + 1))
     echo "==> Running Claude Code (attempt ${ATTEMPT}/${MAX_RETRIES})..."
 
+    CLAUDE_OUTFILE=$(mktemp)
     set +e
-    CLAUDE_OUTPUT=$(claude "${CLAUDE_ARGS[@]}" 2>&1)
-    CLAUDE_EXIT=$?
+    claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$CLAUDE_OUTFILE"
+    CLAUDE_EXIT=${PIPESTATUS[0]}
     set -e
+    CLAUDE_OUTPUT=$(cat "$CLAUDE_OUTFILE")
+    rm -f "$CLAUDE_OUTFILE"
 
     if [ $CLAUDE_EXIT -eq 0 ]; then
         echo "==> Claude Code completed successfully"
