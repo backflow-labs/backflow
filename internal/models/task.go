@@ -19,7 +19,7 @@ const (
 )
 
 func (s TaskStatus) IsTerminal() bool {
-	return s == TaskStatusCompleted || s == TaskStatusFailed || s == TaskStatusCancelled
+	return s == TaskStatusCompleted || s == TaskStatusFailed || s == TaskStatusCancelled || s == TaskStatusInterrupted
 }
 
 type Task struct {
@@ -42,7 +42,8 @@ type Task struct {
 	ClaudeMD      string     `json:"claude_md,omitempty"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	InstanceID    string     `json:"instance_id,omitempty"`
-	ContainerID   string     `json:"container_id,omitempty"`
+	ContainerID      string     `json:"container_id,omitempty"`
+	DiscordThreadID  string     `json:"discord_thread_id,omitempty"`
 	RetryCount    int        `json:"retry_count"`
 	CostUSD       float64    `json:"cost_usd,omitempty"`
 	Error         string     `json:"error,omitempty"`

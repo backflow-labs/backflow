@@ -82,8 +82,39 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 	b.registered = registered
 
+	b.restoreThreads(ctx)
+
 	log.Info().Str("guild_id", b.guildID).Int("commands", len(registered)).Msg("discord bot started")
 	return nil
+}
+
+// restoreThreads reloads thread mappings from the database for non-terminal tasks.
+func (b *Bot) restoreThreads(ctx context.Context) {
+	tasks, err := b.store.ListTasks(ctx, store.TaskFilter{})
+	if err != nil {
+		log.Error().Err(err).Msg("discord: failed to restore thread mappings")
+		return
+	}
+
+	restored := 0
+	for _, task := range tasks {
+		if task.DiscordThreadID == "" || task.Status.IsTerminal() {
+			continue
+		}
+		ti := &ThreadInfo{
+			ThreadID:  task.DiscordThreadID,
+			ChannelID: b.config.DiscordChannelID,
+			TaskID:    task.ID,
+			RepoURL:   task.RepoURL,
+			Prompt:    task.Prompt,
+			Branch:    task.Branch,
+		}
+		b.threads.Store(task.ID, ti)
+		restored++
+	}
+	if restored > 0 {
+		log.Info().Int("count", restored).Msg("discord: restored thread mappings from database")
+	}
 }
 
 // Stop deregisters commands and closes the session.
@@ -202,6 +233,12 @@ func (b *Bot) handleRun(s *discordgo.Session, i *discordgo.InteractionCreate, op
 		return
 	}
 
+	// Persist thread ID on the task
+	task.DiscordThreadID = thread.ID
+	if err := b.store.UpdateTask(context.Background(), task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("discord: failed to save thread ID")
+	}
+
 	ti := &ThreadInfo{
 		ThreadID:  thread.ID,
 		ChannelID: b.config.DiscordChannelID,
@@ -250,8 +287,8 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	case "status":
 		b.handleStatus(s, m, ti)
 		return
-	case "logs":
-		b.handleLogs(s, m, ti)
+	case "info":
+		b.handleInfo(s, m, ti)
 		return
 	}
 
@@ -270,32 +307,23 @@ func (b *Bot) handleCancel(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 		return
 	}
 
-	if task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusProvisioning {
-		task.Status = models.TaskStatusCancelled
-		now := time.Now().UTC()
-		task.CompletedAt = &now
-		if err := b.store.UpdateTask(context.Background(), task); err != nil {
-			_, _ = s.ChannelMessageSend(m.ChannelID, "Failed to cancel task: "+err.Error())
-			return
-		}
-		_, _ = s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
-			Title:       "Task Cancelled",
-			Description: fmt.Sprintf("Task `%s` has been cancelled.", ti.TaskID),
-			Color:       colorRed,
-		})
-	} else if !task.Status.IsTerminal() {
-		if err := b.store.DeleteTask(context.Background(), ti.TaskID); err != nil {
-			_, _ = s.ChannelMessageSend(m.ChannelID, "Failed to delete task: "+err.Error())
-			return
-		}
-		_, _ = s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
-			Title:       "Task Deleted",
-			Description: fmt.Sprintf("Task `%s` has been deleted.", ti.TaskID),
-			Color:       colorRed,
-		})
-	} else {
+	if task.Status.IsTerminal() {
 		_, _ = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Task is already in terminal state: `%s`", task.Status))
+		return
 	}
+
+	task.Status = models.TaskStatusCancelled
+	now := time.Now().UTC()
+	task.CompletedAt = &now
+	if err := b.store.UpdateTask(context.Background(), task); err != nil {
+		_, _ = s.ChannelMessageSend(m.ChannelID, "Failed to cancel task: "+err.Error())
+		return
+	}
+	_, _ = s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
+		Title:       "Task Cancelled",
+		Description: fmt.Sprintf("Task `%s` has been cancelled.", ti.TaskID),
+		Color:       colorRed,
+	})
 }
 
 // handleStatus posts the current task status.
@@ -343,8 +371,8 @@ func (b *Bot) handleStatus(s *discordgo.Session, m *discordgo.MessageCreate, ti 
 	})
 }
 
-// handleLogs fetches and posts the last 50 lines of container logs.
-func (b *Bot) handleLogs(s *discordgo.Session, m *discordgo.MessageCreate, ti *ThreadInfo) {
+// handleInfo posts task and container info.
+func (b *Bot) handleInfo(s *discordgo.Session, m *discordgo.MessageCreate, ti *ThreadInfo) {
 	task, err := b.store.GetTask(context.Background(), ti.TaskID)
 	if err != nil || task == nil {
 		_, _ = s.ChannelMessageSend(m.ChannelID, "Could not find task.")
@@ -369,24 +397,32 @@ func (b *Bot) handleLogs(s *discordgo.Session, m *discordgo.MessageCreate, ti *T
 func (b *Bot) handleAnswer(s *discordgo.Session, m *discordgo.MessageCreate, ti *ThreadInfo, answer string) {
 	b.waitingFor.Delete(m.ChannelID)
 
+	// Look up original task to inherit settings
+	originalTask, err := b.store.GetTask(context.Background(), ti.TaskID)
+	createPR := true
+	if err == nil && originalTask != nil {
+		createPR = originalTask.CreatePR
+	}
+
 	// Create a new task with the original prompt + context containing the Q&A
 	taskContext := fmt.Sprintf("Previous agent asked:\n%s\n\nUser answered:\n%s", ti.Prompt, answer)
 
 	now := time.Now().UTC()
 	newTask := &models.Task{
-		ID:            "bf_" + ulid.Make().String(),
-		Status:        models.TaskStatusPending,
-		RepoURL:       ti.RepoURL,
-		Branch:        ti.Branch,
-		Prompt:        ti.Prompt,
-		Context:       taskContext,
-		Model:         b.config.DefaultModel,
-		MaxBudgetUSD:  b.config.DefaultMaxBudget,
-		MaxRuntimeMin: int(b.config.DefaultMaxRuntime.Minutes()),
-		MaxTurns:      b.config.DefaultMaxTurns,
-		CreatePR:      true,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:              "bf_" + ulid.Make().String(),
+		Status:          models.TaskStatusPending,
+		RepoURL:         ti.RepoURL,
+		Branch:          ti.Branch,
+		Prompt:          ti.Prompt,
+		Context:         taskContext,
+		Model:           b.config.DefaultModel,
+		MaxBudgetUSD:    b.config.DefaultMaxBudget,
+		MaxRuntimeMin:   int(b.config.DefaultMaxRuntime.Minutes()),
+		MaxTurns:        b.config.DefaultMaxTurns,
+		CreatePR:        createPR,
+		DiscordThreadID: ti.ThreadID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
 	if err := b.store.CreateTask(context.Background(), newTask); err != nil {

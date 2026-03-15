@@ -48,7 +48,7 @@ func TestMultiNotifier_FansOut(t *testing.T) {
 	}
 }
 
-func TestMultiNotifier_StopsOnError(t *testing.T) {
+func TestMultiNotifier_ContinuesOnError(t *testing.T) {
 	a := &failingNotifier{err: fmt.Errorf("boom")}
 	b := &recordingNotifier{}
 	m := NewMultiNotifier(a, b)
@@ -58,11 +58,8 @@ func TestMultiNotifier_StopsOnError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "boom" {
-		t.Fatalf("expected 'boom', got %q", err.Error())
-	}
-	if len(b.events) != 0 {
-		t.Fatalf("expected b not called after a fails, got %d events", len(b.events))
+	if len(b.events) != 1 {
+		t.Fatalf("expected b still called after a fails, got %d events", len(b.events))
 	}
 }
 
