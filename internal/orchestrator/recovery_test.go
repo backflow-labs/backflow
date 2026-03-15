@@ -507,3 +507,104 @@ func TestRequeueRecoveringTask_WasProvisioning(t *testing.T) {
 		t.Errorf("running = %d, want 0", o.running)
 	}
 }
+
+func TestMonitorCancelled_DecrementsRunning(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+
+	// A task that was running and then cancelled via the API
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_cancel_run",
+		Status:      models.TaskStatusCancelled,
+		InstanceID:  "local",
+		ContainerID: "abc123",
+		StartedAt:   &now,
+		CompletedAt: &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1 // Was counted when originally dispatched
+
+	o.monitorCancelled(context.Background())
+
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+
+	task, _ := s.GetTask(context.Background(), "bf_cancel_run")
+	if task.ContainerID != "" {
+		t.Errorf("containerID = %q, want empty (should be cleared after cleanup)", task.ContainerID)
+	}
+
+	inst, _ := s.GetInstance(context.Background(), "local")
+	if inst.RunningContainers != 0 {
+		t.Errorf("RunningContainers = %d, want 0", inst.RunningContainers)
+	}
+}
+
+func TestMonitorCancelled_IgnoresWithoutContainer(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	// A cancelled task that was provisioning (no container) — should not affect o.running
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_cancel_prov",
+		Status:      models.TaskStatusCancelled,
+		CompletedAt: &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 0
+
+	o.monitorCancelled(context.Background())
+
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+}
+
+func TestMonitorCancelled_RecoveringTaskCancelled(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+
+	// A recovering task (previously running) that was cancelled via API
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_cancel_recov",
+		Status:      models.TaskStatusCancelled,
+		InstanceID:  "local",
+		ContainerID: "def456",
+		StartedAt:   &now,
+		CompletedAt: &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1 // Was counted during recoverOnStartup
+
+	o.monitorCancelled(context.Background())
+
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+
+	task, _ := s.GetTask(context.Background(), "bf_cancel_recov")
+	if task.ContainerID != "" {
+		t.Errorf("containerID = %q, want empty", task.ContainerID)
+	}
+}

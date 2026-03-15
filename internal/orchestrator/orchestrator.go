@@ -119,6 +119,7 @@ func (o *Orchestrator) Stop() {
 }
 
 func (o *Orchestrator) tick(ctx context.Context) {
+	o.monitorCancelled(ctx)
 	o.monitorRecovering(ctx)
 	o.monitorRunning(ctx)
 	o.dispatchPending(ctx)
@@ -228,6 +229,48 @@ func (o *Orchestrator) findAvailableInstance(ctx context.Context) (*models.Insta
 	}
 
 	return nil, errNoCapacity
+}
+
+// monitorCancelled cleans up tasks that were cancelled via the API while they
+// were running or recovering. These tasks still have a container that needs
+// stopping and were counted in o.running, which needs decrementing.
+func (o *Orchestrator) monitorCancelled(ctx context.Context) {
+	cancelled := models.TaskStatusCancelled
+	tasks, err := o.store.ListTasks(ctx, store.TaskFilter{Status: &cancelled})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to list cancelled tasks")
+		return
+	}
+
+	for _, task := range tasks {
+		if task.ContainerID == "" {
+			continue
+		}
+
+		// Stop the container
+		o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID)
+
+		o.mu.Lock()
+		o.running--
+		o.mu.Unlock()
+
+		// Decrement instance container count
+		if task.InstanceID != "" {
+			if inst, err := o.store.GetInstance(ctx, task.InstanceID); err == nil && inst != nil {
+				inst.RunningContainers--
+				if inst.RunningContainers < 0 {
+					inst.RunningContainers = 0
+				}
+				o.store.UpdateInstance(ctx, inst)
+			}
+		}
+
+		// Clear ContainerID so we don't process this task again
+		task.ContainerID = ""
+		o.store.UpdateTask(ctx, task)
+
+		log.Info().Str("task_id", task.ID).Msg("cleaned up cancelled task")
+	}
 }
 
 func (o *Orchestrator) monitorRunning(ctx context.Context) {
