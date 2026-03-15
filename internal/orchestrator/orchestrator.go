@@ -423,11 +423,27 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 		provTasks = nil
 	}
 
-	if len(runningTasks) == 0 && len(provTasks) == 0 {
+	// Also check for tasks already in recovering status (from a previous restart)
+	// that had a running container — these still count toward o.running since
+	// monitorRecovering will decrement o.running when it requeues them.
+	recoveringStatus := models.TaskStatusRecovering
+	recoveringTasks, err := o.store.ListTasks(ctx, store.TaskFilter{Status: &recoveringStatus})
+	if err != nil {
+		log.Error().Err(err).Msg("recovery: failed to list recovering tasks")
+		recoveringTasks = nil
+	}
+	previouslyRunning := 0
+	for _, task := range recoveringTasks {
+		if task.ContainerID != "" {
+			previouslyRunning++
+		}
+	}
+
+	if len(runningTasks) == 0 && len(provTasks) == 0 && previouslyRunning == 0 {
 		return
 	}
 
-	log.Info().Int("running", len(runningTasks)).Int("provisioning", len(provTasks)).Msg("recovery: found orphaned tasks")
+	log.Info().Int("running", len(runningTasks)).Int("provisioning", len(provTasks)).Int("already_recovering", previouslyRunning).Msg("recovery: found orphaned tasks")
 
 	// Provisioning tasks: mark recovering, clear instance/container (dispatch never incremented o.running)
 	for _, task := range provTasks {
@@ -463,9 +479,10 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 		}
 	}
 
-	// Set o.running to the count of previously-running tasks
+	// Set o.running to the count of previously-running tasks plus any
+	// already-recovering tasks that had containers (from a prior restart).
 	o.mu.Lock()
-	o.running = len(runningTasks)
+	o.running = len(runningTasks) + previouslyRunning
 	o.mu.Unlock()
 
 	// Fix up RunningContainers for each referenced instance
