@@ -49,6 +49,9 @@ type Config struct {
 	// Database
 	DBPath string
 
+	// Docker
+	DockerImage string
+
 	// Orchestrator
 	PollInterval time.Duration
 }
@@ -79,6 +82,7 @@ func Load() (*Config, error) {
 		DefaultMaxTurns:   envInt("BACKFLOW_DEFAULT_MAX_TURNS", 200),
 		GitHubToken:       os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:        os.Getenv("BACKFLOW_WEBHOOK_URL"),
+		DockerImage:       envOr("BACKFLOW_DOCKER_IMAGE", "backflow-agent"),
 		DBPath:            envOr("BACKFLOW_DB_PATH", "backflow.db"),
 		PollInterval:      time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}

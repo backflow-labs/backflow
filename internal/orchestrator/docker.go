@@ -97,10 +97,19 @@ func (m *DockerManager) RunAgent(ctx context.Context, instance *models.Instance,
 		volumeFlags = fmt.Sprintf("-v %s:/home/agent/.claude:ro", m.config.ClaudeCredentialsPath)
 	}
 
+	image := m.config.DockerImage
+
+	// Pull the latest image before starting the container
+	pullCmd := fmt.Sprintf("docker pull %s", image)
+	if _, err := m.runSSMCommand(ctx, instance.InstanceID, pullCmd); err != nil {
+		log.Warn().Err(err).Str("image", image).Msg("failed to pull latest image, using local copy")
+	}
+
 	cmd := fmt.Sprintf(
-		"docker run -d --cpus=1 --memory=3g %s %s backflow-agent",
+		"docker run -d --cpus=1 --memory=3g %s %s %s",
 		volumeFlags,
 		strings.Join(envFlags, " "),
+		image,
 	)
 
 	output, err := m.runSSMCommand(ctx, instance.InstanceID, cmd)
