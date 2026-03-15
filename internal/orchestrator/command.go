@@ -114,6 +114,17 @@ func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
+// isInstanceGone returns true if the error indicates the EC2 instance no
+// longer exists or is not reachable via SSM (e.g. terminated, shutting down).
+func isInstanceGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "InvalidInstanceId") ||
+		strings.Contains(msg, "InvalidInstanceID")
+}
+
 // isHexString returns true if s is a non-empty string of hex characters (used
 // to validate Docker container IDs).
 func isHexString(s string) bool {
