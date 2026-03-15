@@ -276,7 +276,7 @@ build_codex_args() {
         exec
         --model "$MODEL"
         -c "model_reasoning_effort=${EFFORT}"
-        --full-auto
+        --dangerously-bypass-approvals-and-sandbox
         "$prompt"
     )
 }
