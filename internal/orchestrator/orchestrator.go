@@ -95,6 +95,8 @@ func (o *Orchestrator) Start(ctx context.Context) {
 		Dur("poll_interval", o.config.PollInterval).
 		Msg("orchestrator started")
 
+	o.recoverOnStartup(ctx)
+
 	ticker := time.NewTicker(o.config.PollInterval)
 	defer ticker.Stop()
 
@@ -117,6 +119,7 @@ func (o *Orchestrator) Stop() {
 }
 
 func (o *Orchestrator) tick(ctx context.Context) {
+	o.monitorRecovering(ctx)
 	o.monitorRunning(ctx)
 	o.dispatchPending(ctx)
 	o.scaler.Evaluate(ctx)
@@ -400,6 +403,164 @@ func (o *Orchestrator) requeueTask(ctx context.Context, task *models.Task, reaso
 	}
 
 	// Trigger scale-up so a new instance is provisioned.
+	o.scaler.RequestScaleUp(ctx)
+}
+
+// recoverOnStartup transitions orphaned running/provisioning tasks to the
+// recovering status so they can be inspected by monitorRecovering on each tick.
+func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
+	runningStatus := models.TaskStatusRunning
+	runningTasks, err := o.store.ListTasks(ctx, store.TaskFilter{Status: &runningStatus})
+	if err != nil {
+		log.Error().Err(err).Msg("recovery: failed to list running tasks")
+		runningTasks = nil
+	}
+
+	provStatus := models.TaskStatusProvisioning
+	provTasks, err := o.store.ListTasks(ctx, store.TaskFilter{Status: &provStatus})
+	if err != nil {
+		log.Error().Err(err).Msg("recovery: failed to list provisioning tasks")
+		provTasks = nil
+	}
+
+	if len(runningTasks) == 0 && len(provTasks) == 0 {
+		return
+	}
+
+	log.Info().Int("running", len(runningTasks)).Int("provisioning", len(provTasks)).Msg("recovery: found orphaned tasks")
+
+	// Provisioning tasks: mark recovering, clear instance/container (dispatch never incremented o.running)
+	for _, task := range provTasks {
+		task.Status = models.TaskStatusRecovering
+		task.InstanceID = ""
+		task.ContainerID = ""
+		o.store.UpdateTask(ctx, task)
+		o.notifier.Notify(notify.Event{
+			Type:      notify.EventTaskRecovering,
+			TaskID:    task.ID,
+			RepoURL:   task.RepoURL,
+			Prompt:    task.Prompt,
+			Message:   "recovering after server restart (was provisioning)",
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	// Running tasks: mark recovering, preserve instance/container for inspection
+	instanceContainers := make(map[string]int)
+	for _, task := range runningTasks {
+		task.Status = models.TaskStatusRecovering
+		o.store.UpdateTask(ctx, task)
+		o.notifier.Notify(notify.Event{
+			Type:      notify.EventTaskRecovering,
+			TaskID:    task.ID,
+			RepoURL:   task.RepoURL,
+			Prompt:    task.Prompt,
+			Message:   "recovering after server restart (was running)",
+			Timestamp: time.Now().UTC(),
+		})
+		if task.InstanceID != "" {
+			instanceContainers[task.InstanceID]++
+		}
+	}
+
+	// Set o.running to the count of previously-running tasks
+	o.mu.Lock()
+	o.running = len(runningTasks)
+	o.mu.Unlock()
+
+	// Fix up RunningContainers for each referenced instance
+	for instID, count := range instanceContainers {
+		if inst, err := o.store.GetInstance(ctx, instID); err == nil && inst != nil {
+			inst.RunningContainers = count
+			o.store.UpdateInstance(ctx, inst)
+		}
+	}
+
+	log.Info().Int("recovering", len(runningTasks)+len(provTasks)).Msg("recovery: tasks marked as recovering")
+}
+
+// monitorRecovering checks recovering tasks and either promotes them back to
+// running, completes them, or re-queues them to pending.
+func (o *Orchestrator) monitorRecovering(ctx context.Context) {
+	recovering := models.TaskStatusRecovering
+	tasks, err := o.store.ListTasks(ctx, store.TaskFilter{Status: &recovering})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to list recovering tasks")
+		return
+	}
+
+	for _, task := range tasks {
+		if task.ContainerID == "" {
+			// Was provisioning — no container to inspect, re-queue immediately
+			log.Info().Str("task_id", task.ID).Msg("recovery: re-queuing task (was provisioning)")
+			o.requeueRecoveringTask(ctx, task, "no container (was provisioning)", false)
+			continue
+		}
+
+		// Was running — try to inspect the container
+		status, err := o.docker.InspectContainer(ctx, task.InstanceID, task.ContainerID)
+		if err != nil {
+			if isInstanceGone(err) {
+				log.Warn().Str("task_id", task.ID).Msg("recovery: instance gone, re-queuing")
+				o.requeueRecoveringTask(ctx, task, "instance gone", true)
+				continue
+			}
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("recovery: inspect failed, re-queuing")
+			o.requeueRecoveringTask(ctx, task, fmt.Sprintf("inspect error: %v", err), true)
+			continue
+		}
+
+		if status.Done {
+			log.Info().Str("task_id", task.ID).Msg("recovery: container exited, handling completion")
+			o.handleCompletion(ctx, task, status)
+		} else {
+			// Container still running — promote back to running
+			log.Info().Str("task_id", task.ID).Msg("recovery: container still running, promoting to running")
+			task.Status = models.TaskStatusRunning
+			task.Error = ""
+			o.store.UpdateTask(ctx, task)
+			o.notifier.Notify(notify.Event{
+				Type:      notify.EventTaskRunning,
+				TaskID:    task.ID,
+				RepoURL:   task.RepoURL,
+				Prompt:    task.Prompt,
+				Message:   "recovered: container still running",
+				Timestamp: time.Now().UTC(),
+			})
+		}
+	}
+}
+
+// requeueRecoveringTask resets a recovering task back to pending. If wasRunning
+// is true, it decrements o.running (since recoverOnStartup counted it).
+func (o *Orchestrator) requeueRecoveringTask(ctx context.Context, task *models.Task, reason string, wasRunning bool) {
+	if wasRunning {
+		// Mark the instance as terminated in EC2 mode so no new tasks go there
+		if task.InstanceID != "" && o.config.Mode != config.ModeLocal {
+			if inst, err := o.store.GetInstance(ctx, task.InstanceID); err == nil && inst != nil {
+				if inst.Status != models.InstanceStatusTerminated {
+					inst.Status = models.InstanceStatusTerminated
+					inst.RunningContainers = 0
+					o.store.UpdateInstance(ctx, inst)
+				}
+			}
+		}
+
+		o.mu.Lock()
+		o.running--
+		o.mu.Unlock()
+	}
+
+	task.Status = models.TaskStatusPending
+	task.InstanceID = ""
+	task.ContainerID = ""
+	task.StartedAt = nil
+	task.Error = "re-queued: " + reason + " at " + time.Now().UTC().Format(time.RFC3339)
+	task.RetryCount++
+	if err := o.store.UpdateTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("failed to re-queue recovering task")
+	}
+
 	o.scaler.RequestScaleUp(ctx)
 }
 
