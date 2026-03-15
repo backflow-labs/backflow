@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -401,6 +402,313 @@ func TestRequeueTask_LocalMode(t *testing.T) {
 	inst, _ := s.GetInstance(context.Background(), "local")
 	if inst.Status != models.InstanceStatusRunning {
 		t.Errorf("instance status = %q, want running (local mode should not terminate)", inst.Status)
+	}
+}
+
+// --- monitorRunning integration tests ---
+
+func TestMonitorRunning_TimedOutTaskKilled(t *testing.T) {
+	s := newMockStore()
+	past := time.Now().UTC().Add(-60 * time.Minute)
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:            "bf_timeout",
+		Status:        models.TaskStatusRunning,
+		RepoURL:       "https://github.com/test/repo",
+		Prompt:        "long task",
+		InstanceID:    "local",
+		ContainerID:   "cont1",
+		StartedAt:     &past,
+		MaxRuntimeMin: 10,
+	})
+
+	n := &mockNotifier{}
+	mock := &mockDockerManager{
+		inspectResults: map[string]ContainerStatus{},
+	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+	o.running = 1
+
+	o.monitorRunning(context.Background())
+
+	task, _ := s.GetTask(context.Background(), "bf_timeout")
+	if task.Status != models.TaskStatusFailed {
+		t.Errorf("status = %q, want failed", task.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+}
+
+func TestMonitorRunning_StillRunning(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_still",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	mock := &mockDockerManager{
+		inspectResults: map[string]ContainerStatus{
+			"local/cont1": {Done: false},
+		},
+	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+	o.running = 1
+
+	o.monitorRunning(context.Background())
+
+	task, _ := s.GetTask(context.Background(), "bf_still")
+	if task.Status != models.TaskStatusRunning {
+		t.Errorf("status = %q, want running", task.Status)
+	}
+	if o.running != 1 {
+		t.Errorf("running = %d, want 1", o.running)
+	}
+	if len(n.events) != 0 {
+		t.Errorf("expected no events, got %d", len(n.events))
+	}
+}
+
+func TestMonitorRunning_Completed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_done",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "finish me",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	mock := &mockDockerManager{
+		inspectResults: map[string]ContainerStatus{
+			"local/cont1": {Done: true, ExitCode: 0, PRURL: "https://github.com/test/repo/pull/42"},
+		},
+	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+	o.running = 1
+
+	o.monitorRunning(context.Background())
+
+	task, _ := s.GetTask(context.Background(), "bf_done")
+	if task.Status != models.TaskStatusCompleted {
+		t.Errorf("status = %q, want completed", task.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskCompleted {
+		t.Errorf("expected [task.completed], got %v", types)
+	}
+}
+
+func TestMonitorRunning_InspectError(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_ierr",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	mock := &mockDockerManager{
+		inspectErrors: map[string]error{
+			"local/cont1": fmt.Errorf("connection refused"),
+		},
+	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+	o.running = 1
+
+	o.monitorRunning(context.Background())
+
+	// After 1 failure, task should still be running (not killed yet)
+	task, _ := s.GetTask(context.Background(), "bf_ierr")
+	if task.Status != models.TaskStatusRunning {
+		t.Errorf("status = %q, want running (only 1 failure)", task.Status)
+	}
+	if o.inspectFailures["bf_ierr"] != 1 {
+		t.Errorf("inspectFailures = %d, want 1", o.inspectFailures["bf_ierr"])
+	}
+}
+
+func TestMonitorRunning_ClearsInspectFailuresOnSuccess(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_clear",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	mock := &mockDockerManager{
+		inspectResults: map[string]ContainerStatus{
+			"local/cont1": {Done: false},
+		},
+	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+	o.running = 1
+	o.inspectFailures["bf_clear"] = 2 // had prior failures
+
+	o.monitorRunning(context.Background())
+
+	if _, exists := o.inspectFailures["bf_clear"]; exists {
+		t.Error("inspectFailures should be cleared on successful inspect")
+	}
+}
+
+// --- handleInspectError tests ---
+
+func TestHandleInspectError_InstanceGone(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_gone",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "lost instance",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+	o.inspectFailures["bf_gone"] = 2 // should be cleared
+
+	task, _ := s.GetTask(context.Background(), "bf_gone")
+	o.handleInspectError(context.Background(), task, fmt.Errorf("InvalidInstanceId: i-abc does not exist"))
+
+	task, _ = s.GetTask(context.Background(), "bf_gone")
+	if task.Status != models.TaskStatusPending {
+		t.Errorf("status = %q, want pending (requeued)", task.Status)
+	}
+	if task.RetryCount != 1 {
+		t.Errorf("retry count = %d, want 1", task.RetryCount)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+	if _, exists := o.inspectFailures["bf_gone"]; exists {
+		t.Error("inspectFailures should be cleared on instance gone")
+	}
+}
+
+func TestHandleInspectError_AccumulatesFailures(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_accum",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_accum")
+
+	// First failure
+	o.handleInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+	if o.inspectFailures["bf_accum"] != 1 {
+		t.Fatalf("after 1st failure: count = %d, want 1", o.inspectFailures["bf_accum"])
+	}
+
+	// Second failure
+	o.handleInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+	if o.inspectFailures["bf_accum"] != 2 {
+		t.Fatalf("after 2nd failure: count = %d, want 2", o.inspectFailures["bf_accum"])
+	}
+
+	// Task should still be running
+	task, _ = s.GetTask(context.Background(), "bf_accum")
+	if task.Status != models.TaskStatusRunning {
+		t.Errorf("status = %q, want running (under threshold)", task.Status)
+	}
+}
+
+func TestHandleInspectError_KillsAtMaxFailures(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_maxfail",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "failing task",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+	o.inspectFailures["bf_maxfail"] = maxInspectFailures - 1 // one away from max
+
+	task, _ := s.GetTask(context.Background(), "bf_maxfail")
+	o.handleInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+
+	task, _ = s.GetTask(context.Background(), "bf_maxfail")
+	if task.Status != models.TaskStatusFailed {
+		t.Errorf("status = %q, want failed", task.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+	if _, exists := o.inspectFailures["bf_maxfail"]; exists {
+		t.Error("inspectFailures should be cleared after kill")
+	}
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskFailed {
+		t.Errorf("expected [task.failed], got %v", types)
 	}
 }
 

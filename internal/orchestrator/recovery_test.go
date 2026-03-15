@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -238,6 +239,117 @@ func TestMonitorRecovering_ContainerExited(t *testing.T) {
 	}
 	if o.running != 0 {
 		t.Errorf("running = %d, want 0", o.running)
+	}
+}
+
+// --- handleRecoveringInspectError tests ---
+
+func TestHandleRecoveringInspectError_InstanceGone(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_rgone",
+		Status:      models.TaskStatusRecovering,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "recovering task",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+	o.inspectFailures["bf_rgone"] = 2 // should be cleared
+
+	task, _ := s.GetTask(context.Background(), "bf_rgone")
+	o.handleRecoveringInspectError(context.Background(), task, fmt.Errorf("InvalidInstanceId: i-abc"))
+
+	task, _ = s.GetTask(context.Background(), "bf_rgone")
+	if task.Status != models.TaskStatusPending {
+		t.Errorf("status = %q, want pending (requeued)", task.Status)
+	}
+	if task.RetryCount != 1 {
+		t.Errorf("retry count = %d, want 1", task.RetryCount)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0 (wasRunning should decrement)", o.running)
+	}
+	if _, exists := o.inspectFailures["bf_rgone"]; exists {
+		t.Error("inspectFailures should be cleared on instance gone")
+	}
+}
+
+func TestHandleRecoveringInspectError_AccumulatesFailures(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_raccum",
+		Status:      models.TaskStatusRecovering,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_raccum")
+
+	// First two failures — should accumulate without requeueing
+	o.handleRecoveringInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+	o.handleRecoveringInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+
+	if o.inspectFailures["bf_raccum"] != 2 {
+		t.Errorf("inspectFailures = %d, want 2", o.inspectFailures["bf_raccum"])
+	}
+	// Task should still be recovering in the store
+	task, _ = s.GetTask(context.Background(), "bf_raccum")
+	if task.Status != models.TaskStatusRecovering {
+		t.Errorf("status = %q, want recovering (under threshold)", task.Status)
+	}
+	if o.running != 1 {
+		t.Errorf("running = %d, want 1 (not yet requeued)", o.running)
+	}
+}
+
+func TestHandleRecoveringInspectError_RequeuesAtMaxFailures(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_rmaxfail",
+		Status:      models.TaskStatusRecovering,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "failing recovery",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+	o.inspectFailures["bf_rmaxfail"] = maxInspectFailures - 1
+
+	task, _ := s.GetTask(context.Background(), "bf_rmaxfail")
+	o.handleRecoveringInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+
+	task, _ = s.GetTask(context.Background(), "bf_rmaxfail")
+	if task.Status != models.TaskStatusPending {
+		t.Errorf("status = %q, want pending (requeued after max failures)", task.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0 (wasRunning should decrement)", o.running)
+	}
+	if _, exists := o.inspectFailures["bf_rmaxfail"]; exists {
+		t.Error("inspectFailures should be cleared after requeue")
 	}
 }
 

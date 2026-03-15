@@ -150,9 +150,24 @@ func (n *mockNotifier) eventTypes() []notify.EventType {
 type mockDockerManager struct {
 	inspectResults map[string]ContainerStatus
 	inspectErrors  map[string]error
+
+	// RunAgent behavior: if runAgentFn is set it takes priority; otherwise
+	// returns runAgentID/runAgentErr.
+	runAgentFn  func(ctx context.Context, instance *models.Instance, task *models.Task) (string, error)
+	runAgentID  string
+	runAgentErr error
 }
 
-func (m *mockDockerManager) RunAgent(_ context.Context, instance *models.Instance, _ *models.Task) (string, error) {
+func (m *mockDockerManager) RunAgent(ctx context.Context, instance *models.Instance, task *models.Task) (string, error) {
+	if m.runAgentFn != nil {
+		return m.runAgentFn(ctx, instance, task)
+	}
+	if m.runAgentErr != nil {
+		return "", m.runAgentErr
+	}
+	if m.runAgentID != "" {
+		return m.runAgentID, nil
+	}
 	return "", fmt.Errorf("not implemented")
 }
 
