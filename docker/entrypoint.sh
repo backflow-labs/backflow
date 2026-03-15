@@ -398,6 +398,28 @@ ${PROMPT}
     gh pr comment "$PR_URL" --body "$COMMENT_BODY" 2>/dev/null || true
 fi
 
+# --- Comment task metadata on PR ---
+if [ -n "$PR_URL" ]; then
+    echo "==> Commenting task metadata on PR..."
+    METADATA_BODY="## Backflow Task Metadata
+
+| Field | Value |
+|-------|-------|
+| Task ID | \`${TASK_ID:-unknown}\` |
+| Harness | \`${HARNESS}\` |
+| Model | \`${MODEL}\` |
+| Effort | \`${EFFORT}\` |
+| Max Budget | \`\$${MAX_BUDGET_USD}\` |
+| Max Turns | \`${MAX_TURNS}\` |
+| Auth Mode | \`${AUTH_MODE}\` |
+| Attempts | \`${ATTEMPT}/${MAX_RETRIES}\` |"
+    if [ "$SELF_REVIEW" = "true" ]; then
+        METADATA_BODY="${METADATA_BODY}
+| Self-Review | enabled |"
+    fi
+    gh pr comment "$PR_URL" --body "$METADATA_BODY" 2>/dev/null || true
+fi
+
 # --- Self-review phase ---
 if [ "$SELF_REVIEW" = "true" ] && [ -n "$PR_URL" ]; then
     echo "==> Starting self-review phase..."
