@@ -137,14 +137,18 @@ func (n *mockNotifier) eventTypes() []notify.EventType {
 	return types
 }
 
-// --- Mock docker manager ---
+// --- Mock docker manager (implements dockerClient) ---
 
 type mockDockerManager struct {
 	inspectResults map[string]ContainerStatus
 	inspectErrors  map[string]error
 }
 
-func (m *mockDockerManager) inspect(instanceID, containerID string) (ContainerStatus, error) {
+func (m *mockDockerManager) RunAgent(_ context.Context, instance *models.Instance, _ *models.Task) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+
+func (m *mockDockerManager) InspectContainer(_ context.Context, instanceID, containerID string) (ContainerStatus, error) {
 	key := instanceID + "/" + containerID
 	if err, ok := m.inspectErrors[key]; ok {
 		return ContainerStatus{}, err
@@ -155,16 +159,24 @@ func (m *mockDockerManager) inspect(instanceID, containerID string) (ContainerSt
 	return ContainerStatus{}, fmt.Errorf("unknown container %s", key)
 }
 
+func (m *mockDockerManager) StopContainer(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *mockDockerManager) GetLogs(_ context.Context, _, _ string, _ int) (string, error) {
+	return "", nil
+}
+
 // --- Test orchestrator constructor ---
 
-func newTestOrchestrator(s store.Store, n notify.Notifier) *Orchestrator {
+func newTestOrchestrator(s store.Store, n notify.Notifier, opts ...func(*Orchestrator)) *Orchestrator {
 	cfg := &config.Config{
 		Mode:              config.ModeLocal,
 		AuthMode:          config.AuthModeAPIKey,
 		ContainersPerInst: 4,
 		PollInterval:      5 * time.Second,
 	}
-	return &Orchestrator{
+	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
 		notifier:        n,
@@ -173,6 +185,14 @@ func newTestOrchestrator(s store.Store, n notify.Notifier) *Orchestrator {
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
 	}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o
+}
+
+func withDocker(d dockerClient) func(*Orchestrator) {
+	return func(o *Orchestrator) { o.docker = d }
 }
 
 // newLocalInstance creates a standard local instance for tests.

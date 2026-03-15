@@ -24,7 +24,7 @@ type Orchestrator struct {
 	config   *config.Config
 	notifier notify.Notifier
 	ec2      *EC2Manager
-	docker   *DockerManager
+	docker   dockerClient
 	scaler   scaler
 	spot     *SpotHandler
 
@@ -97,7 +97,7 @@ func (o *Orchestrator) initEC2Mode(s store.Store, cfg *config.Config, docker *Do
 }
 
 // Docker returns the DockerManager for use by the API logs endpoint.
-func (o *Orchestrator) Docker() *DockerManager {
+func (o *Orchestrator) Docker() dockerClient {
 	return o.docker
 }
 

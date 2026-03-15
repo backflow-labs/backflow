@@ -184,27 +184,22 @@ func TestMonitorRecovering_ContainerStillRunning(t *testing.T) {
 	})
 
 	n := &mockNotifier{}
-	_ = newTestOrchestrator(s, n)
-
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{
 			"local/cont_alive": {Done: false},
 		},
 	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+
+	o.monitorRecovering(context.Background())
 
 	task, _ := s.GetTask(context.Background(), "bf_alive")
-	status, _ := mock.inspect("local", "cont_alive")
-	if status.Done {
-		t.Fatal("expected container to be running")
-	}
-	// Simulate what monitorRecovering does when container is still running
-	task.Status = models.TaskStatusRunning
-	task.Error = ""
-	s.UpdateTask(context.Background(), task)
-
-	task, _ = s.GetTask(context.Background(), "bf_alive")
 	if task.Status != models.TaskStatusRunning {
 		t.Errorf("task status = %q, want running", task.Status)
+	}
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskRunning {
+		t.Errorf("expected [task.running], got %v", types)
 	}
 }
 
