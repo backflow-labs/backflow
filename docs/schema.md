@@ -1,6 +1,6 @@
 # Database Schema
 
-Backflow uses SQLite in WAL mode with foreign keys enabled. The schema is auto-migrated on startup via `internal/store/sqlite.go:migrate()` using `CREATE TABLE IF NOT EXISTS` statements.
+Backflow uses SQLite in WAL mode with foreign keys enabled. The schema is initialized on startup via `internal/store/sqlite.go:migrate()` using `CREATE TABLE IF NOT EXISTS` statements.
 
 Connection string: `<path>?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on`
 
@@ -14,9 +14,11 @@ Stores Claude Code agent tasks submitted via the REST API.
 |--------|------|---------|-------------|
 | `id` | `TEXT` | — | **Primary key.** ULID with `bf_` prefix (e.g. `bf_01KKQW82994E87Z99QVEMBN8V0`). |
 | `status` | `TEXT` | `'pending'` | Task lifecycle state. One of: `pending`, `provisioning`, `running`, `completed`, `failed`, `interrupted`, `cancelled`, `recovering`. |
+| `task_mode` | `TEXT` | `'code'` | Task execution mode. `code` runs an implementation task; `review` reviews an existing PR. |
 | `repo_url` | `TEXT` | — | Git repository URL to clone (required). |
 | `branch` | `TEXT` | `''` | Branch to check out before running the agent. |
 | `target_branch` | `TEXT` | `''` | Base branch for PR creation (e.g. `main`). |
+| `review_pr_number` | `INTEGER` | `0` | Pull request number to review when `task_mode='review'`. |
 | `prompt` | `TEXT` | — | The instruction given to Claude Code (required). |
 | `context` | `TEXT` | `''` | Additional context appended to the prompt. |
 | `model` | `TEXT` | `''` | Claude model override (e.g. `claude-sonnet-4-20250514`). |
@@ -95,4 +97,4 @@ pending → running → draining → terminated
 - All timestamps are stored as RFC 3339 strings, not SQLite datetime types.
 - Booleans (`create_pr`, `self_review`) are stored as integers (0/1).
 - JSON fields (`allowed_tools`, `env_vars`) are stored as serialized TEXT.
-- Schema changes are applied idempotently in `migrate()` — new columns use `ALTER TABLE ... ADD COLUMN` with `IF NOT EXISTS` semantics.
+- New databases are bootstrapped entirely from the `CREATE TABLE IF NOT EXISTS` definitions in `migrate()`.

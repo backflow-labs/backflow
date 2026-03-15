@@ -37,35 +37,37 @@ func (s *SQLiteStore) Close() error {
 func (s *SQLiteStore) migrate() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS tasks (
-		id              TEXT PRIMARY KEY,
-		status          TEXT NOT NULL DEFAULT 'pending',
-		repo_url        TEXT NOT NULL,
-		branch          TEXT NOT NULL DEFAULT '',
-		target_branch   TEXT NOT NULL DEFAULT '',
-		prompt          TEXT NOT NULL,
-		context         TEXT NOT NULL DEFAULT '',
-		model           TEXT NOT NULL DEFAULT '',
-		effort          TEXT NOT NULL DEFAULT '',
-		max_budget_usd  REAL NOT NULL DEFAULT 0,
-		max_runtime_min INTEGER NOT NULL DEFAULT 0,
-		max_turns       INTEGER NOT NULL DEFAULT 0,
-		create_pr       INTEGER NOT NULL DEFAULT 0,
-		self_review     INTEGER NOT NULL DEFAULT 0,
-		pr_title        TEXT NOT NULL DEFAULT '',
-		pr_body         TEXT NOT NULL DEFAULT '',
-		pr_url          TEXT NOT NULL DEFAULT '',
-		allowed_tools   TEXT NOT NULL DEFAULT '[]',
-		claude_md       TEXT NOT NULL DEFAULT '',
-		env_vars        TEXT NOT NULL DEFAULT '{}',
-		instance_id     TEXT NOT NULL DEFAULT '',
-		container_id    TEXT NOT NULL DEFAULT '',
-		retry_count     INTEGER NOT NULL DEFAULT 0,
-		cost_usd        REAL NOT NULL DEFAULT 0,
-		error           TEXT NOT NULL DEFAULT '',
-		created_at      TEXT NOT NULL,
-		updated_at      TEXT NOT NULL,
-		started_at      TEXT,
-		completed_at    TEXT
+		id               TEXT PRIMARY KEY,
+		status           TEXT NOT NULL DEFAULT 'pending',
+		task_mode        TEXT NOT NULL DEFAULT 'code',
+		repo_url         TEXT NOT NULL,
+		branch           TEXT NOT NULL DEFAULT '',
+		target_branch    TEXT NOT NULL DEFAULT '',
+		review_pr_number INTEGER NOT NULL DEFAULT 0,
+		prompt           TEXT NOT NULL,
+		context          TEXT NOT NULL DEFAULT '',
+		model            TEXT NOT NULL DEFAULT '',
+		effort           TEXT NOT NULL DEFAULT '',
+		max_budget_usd   REAL NOT NULL DEFAULT 0,
+		max_runtime_min  INTEGER NOT NULL DEFAULT 0,
+		max_turns        INTEGER NOT NULL DEFAULT 0,
+		create_pr        INTEGER NOT NULL DEFAULT 0,
+		self_review      INTEGER NOT NULL DEFAULT 0,
+		pr_title         TEXT NOT NULL DEFAULT '',
+		pr_body          TEXT NOT NULL DEFAULT '',
+		pr_url           TEXT NOT NULL DEFAULT '',
+		allowed_tools    TEXT NOT NULL DEFAULT '[]',
+		claude_md        TEXT NOT NULL DEFAULT '',
+		env_vars         TEXT NOT NULL DEFAULT '{}',
+		instance_id      TEXT NOT NULL DEFAULT '',
+		container_id     TEXT NOT NULL DEFAULT '',
+		retry_count      INTEGER NOT NULL DEFAULT 0,
+		cost_usd         REAL NOT NULL DEFAULT 0,
+		error            TEXT NOT NULL DEFAULT '',
+		created_at       TEXT NOT NULL,
+		updated_at       TEXT NOT NULL,
+		started_at       TEXT,
+		completed_at     TEXT
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -87,15 +89,6 @@ func (s *SQLiteStore) migrate() error {
 	`
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
-	}
-
-	// Idempotent migrations for new columns
-	migrations := []string{
-		"ALTER TABLE tasks ADD COLUMN task_mode TEXT NOT NULL DEFAULT 'code'",
-		"ALTER TABLE tasks ADD COLUMN review_pr_number INTEGER NOT NULL DEFAULT 0",
-	}
-	for _, m := range migrations {
-		s.db.Exec(m) // ignore "duplicate column" errors
 	}
 	return nil
 }

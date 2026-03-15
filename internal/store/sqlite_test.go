@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"testing"
 	"time"
@@ -128,6 +129,41 @@ func TestGetTaskNotFound(t *testing.T) {
 	}
 	if got != nil {
 		t.Error("expected nil for nonexistent task")
+	}
+}
+
+func TestBootstrapSchemaIncludesTaskColumns(t *testing.T) {
+	s := testStore(t)
+
+	rows, err := s.db.Query("PRAGMA table_info(tasks)")
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(tasks): %v", err)
+	}
+	defer rows.Close()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			dataType   string
+			notNull    int
+			defaultV   sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultV, &primaryKey); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate table_info: %v", err)
+	}
+
+	for _, name := range []string{"task_mode", "review_pr_number"} {
+		if !columns[name] {
+			t.Fatalf("expected %q column in tasks bootstrap schema", name)
+		}
 	}
 }
 

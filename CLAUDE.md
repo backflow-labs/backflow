@@ -42,7 +42,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Two
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
 - **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
-- **store/** — `Store` interface + SQLite (WAL mode, auto-migrated)
+- **store/** — `Store` interface + SQLite (WAL mode, schema bootstrapped at startup)
 - **models/** — `Task` and `Instance` structs with status enums
 - **config/** — Env-var config (`BACKFLOW_*` prefix), two modes (`ec2`/`local`)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`
@@ -76,7 +76,7 @@ Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → che
 
 ## Database
 
-SQLite with WAL mode. Schema auto-migrates on startup via `CREATE TABLE IF NOT EXISTS` in `internal/store/sqlite.go:migrate()`. No separate migration files — add new columns with `ALTER TABLE` idempotently in the same function.
+SQLite with WAL mode. Schema is bootstrapped on startup via `CREATE TABLE IF NOT EXISTS` in `internal/store/sqlite.go:migrate()`. No separate migration files. Add new columns directly to the table definition and keep the CRUD statements in sync.
 
 ## Documentation
 
