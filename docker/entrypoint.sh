@@ -267,9 +267,7 @@ build_codex_args() {
     local prompt="$1"
     CODEX_ARGS=(
         --model "$MODEL"
-        --reasoning-effort "$EFFORT"
         --full-auto
-        --quiet
         "$prompt"
     )
 }
