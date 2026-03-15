@@ -1,0 +1,11 @@
+{
+  "exit_code": 0,
+  "complete": true,
+  "needs_input": true,
+  "question": "### Key design decisions:"
+"- **Default harness**: `claude` (backward compatible)"
+"- **Codex defaults**: model `gpt-5.4`, effort `high`"
+"- **Codex auth**: requires `OPENAI_API_KEY` env var (independent of `AUTH_MODE`)"
+"- **Codex CLI flags**: `--model`, `--reasoning-effort`, `--approval-mode full-auto`, `--quiet`",
+  "error": ""
+}

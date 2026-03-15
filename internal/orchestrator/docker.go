@@ -52,6 +52,7 @@ func (m *DockerManager) RunAgent(ctx context.Context, instance *models.Instance,
 	}
 
 	envFlags := []string{
+		fmt.Sprintf("-e HARNESS=%s", shellEscape(task.Harness)),
 		fmt.Sprintf("-e TASK_ID=%s", task.ID),
 		fmt.Sprintf("-e REPO_URL=%s", shellEscape(task.RepoURL)),
 		fmt.Sprintf("-e BRANCH=%s", shellEscape(task.Branch)),
@@ -81,6 +82,10 @@ func (m *DockerManager) RunAgent(ctx context.Context, instance *models.Instance,
 	envFlags = append(envFlags, fmt.Sprintf("-e AUTH_MODE=%s", string(m.config.AuthMode)))
 	if m.config.AuthMode == config.AuthModeAPIKey {
 		envFlags = append(envFlags, fmt.Sprintf("-e ANTHROPIC_API_KEY=%s", m.config.AnthropicAPIKey))
+	}
+
+	if m.config.OpenAIAPIKey != "" {
+		envFlags = append(envFlags, fmt.Sprintf("-e OPENAI_API_KEY=%s", m.config.OpenAIAPIKey))
 	}
 
 	if m.config.GitHubToken != "" {

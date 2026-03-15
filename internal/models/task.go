@@ -25,6 +25,7 @@ func (s TaskStatus) IsTerminal() bool {
 type Task struct {
 	ID            string     `json:"id"`
 	Status        TaskStatus `json:"status"`
+	Harness       string     `json:"harness"`
 	RepoURL       string     `json:"repo_url"`
 	Branch        string     `json:"branch"`
 	TargetBranch  string     `json:"target_branch"`
@@ -73,6 +74,7 @@ func (t *Task) EnvVarsJSON() string {
 
 // CreateTaskRequest is the API input for creating a task.
 type CreateTaskRequest struct {
+	Harness       string            `json:"harness,omitempty"`
 	RepoURL       string            `json:"repo_url"`
 	Branch        string            `json:"branch,omitempty"`
 	TargetBranch  string            `json:"target_branch,omitempty"`
@@ -103,6 +105,13 @@ func (r *CreateTaskRequest) Validate() error {
 	}
 	if r.MaxRuntimeMin < 0 {
 		return fmt.Errorf("max_runtime_min must be non-negative")
+	}
+	if r.Harness != "" {
+		switch r.Harness {
+		case "claude", "codex":
+		default:
+			return fmt.Errorf("harness must be claude or codex")
+		}
 	}
 	if r.Effort != "" {
 		switch r.Effort {

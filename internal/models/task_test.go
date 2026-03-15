@@ -28,6 +28,21 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo", Prompt: "Fix", MaxBudgetUSD: -1},
 			wantErr: true,
 		},
+		{
+			name:    "valid harness claude",
+			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo", Prompt: "Fix", Harness: "claude"},
+			wantErr: false,
+		},
+		{
+			name:    "valid harness codex",
+			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo", Prompt: "Fix", Harness: "codex"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid harness",
+			req:     CreateTaskRequest{RepoURL: "https://github.com/test/repo", Prompt: "Fix", Harness: "invalid"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

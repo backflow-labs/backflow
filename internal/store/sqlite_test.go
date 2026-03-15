@@ -34,6 +34,7 @@ func TestTaskCRUD(t *testing.T) {
 	task := &models.Task{
 		ID:           "bf_TEST001",
 		Status:       models.TaskStatusPending,
+		Harness:      "claude",
 		RepoURL:      "https://github.com/test/repo",
 		Branch:       "backflow/test",
 		TargetBranch: "main",
@@ -61,6 +62,9 @@ func TestTaskCRUD(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("GetTask returned nil")
+	}
+	if got.Harness != task.Harness {
+		t.Errorf("Harness = %q, want %q", got.Harness, task.Harness)
 	}
 	if got.RepoURL != task.RepoURL {
 		t.Errorf("RepoURL = %q, want %q", got.RepoURL, task.RepoURL)

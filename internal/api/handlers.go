@@ -42,15 +42,24 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	harness := withDefault(req.Harness, h.config.DefaultHarness)
+
+	// Pick the right default model based on harness
+	defaultModel := h.config.DefaultModel
+	if harness == "codex" {
+		defaultModel = h.config.DefaultCodexModel
+	}
+
 	task := &models.Task{
 		ID:            "bf_" + ulid.Make().String(),
 		Status:        models.TaskStatusPending,
+		Harness:       harness,
 		RepoURL:       req.RepoURL,
 		Branch:        req.Branch,
 		TargetBranch:  req.TargetBranch,
 		Prompt:        req.Prompt,
 		Context:       req.Context,
-		Model:         withDefault(req.Model, h.config.DefaultModel),
+		Model:         withDefault(req.Model, defaultModel),
 		Effort:        withDefault(req.Effort, h.config.DefaultEffort),
 		MaxBudgetUSD:  withDefaultFloat(req.MaxBudgetUSD, h.config.DefaultMaxBudget),
 		MaxRuntimeMin: withDefaultInt(req.MaxRuntimeMin, int(h.config.DefaultMaxRuntime.Minutes())),

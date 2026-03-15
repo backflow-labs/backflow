@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # --- Configuration from environment ---
+HARNESS="${HARNESS:-claude}"
 REPO_URL="${REPO_URL:?REPO_URL is required}"
 PROMPT="${PROMPT:?PROMPT is required}"
 AUTH_MODE="${AUTH_MODE:-api_key}"
@@ -78,9 +79,15 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 # --- Auth mode setup ---
+echo "==> Harness: ${HARNESS}"
 echo "==> Auth mode: ${AUTH_MODE}"
 echo "==> Model: ${MODEL}, effort: ${EFFORT}"
-if [ "$AUTH_MODE" = "api_key" ]; then
+if [ "$HARNESS" = "codex" ]; then
+    if [ -z "${OPENAI_API_KEY:-}" ]; then
+        echo "ERROR: OPENAI_API_KEY is required for codex harness" >&2
+        exit 1
+    fi
+elif [ "$AUTH_MODE" = "api_key" ]; then
     if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         echo "ERROR: ANTHROPIC_API_KEY is required in api_key mode" >&2
         exit 1
@@ -96,57 +103,79 @@ else
     exit 1
 fi
 
-# --- Build claude command args ---
-CLAUDE_ARGS=(
-    -p "$FULL_PROMPT"
-    --dangerously-skip-permissions
-    --model "$MODEL"
-    --effort "$EFFORT"
-    --max-turns "$MAX_TURNS"
-    --output-format json
-    --verbose
-)
+# --- Build command args based on harness ---
+build_claude_args() {
+    local prompt="$1"
+    AGENT_CMD="claude"
+    AGENT_ARGS=(
+        -p "$prompt"
+        --dangerously-skip-permissions
+        --model "$MODEL"
+        --effort "$EFFORT"
+        --max-turns "$MAX_TURNS"
+        --output-format json
+        --verbose
+    )
+    # --max-budget-usd only applies to API key mode (billed per token)
+    if [ "$AUTH_MODE" = "api_key" ]; then
+        AGENT_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
+    fi
+}
 
-# --max-budget-usd only applies to API key mode (billed per token)
-if [ "$AUTH_MODE" = "api_key" ]; then
-    CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-fi
+build_codex_args() {
+    local prompt="$1"
+    AGENT_CMD="codex"
+    AGENT_ARGS=(
+        --model "$MODEL"
+        --reasoning-effort "$EFFORT"
+        --approval-mode full-auto
+        --quiet
+        "$prompt"
+    )
+}
 
-# --- Run Claude Code with retries ---
+build_agent_args() {
+    local prompt="$1"
+    if [ "$HARNESS" = "codex" ]; then
+        build_codex_args "$prompt"
+    else
+        build_claude_args "$prompt"
+    fi
+}
+
+build_agent_args "$FULL_PROMPT"
+
+# --- Run agent with retries ---
 ATTEMPT=0
-CLAUDE_EXIT=1
-CLAUDE_OUTPUT=""
+AGENT_EXIT=1
+AGENT_OUTPUT=""
 
 while [ $ATTEMPT -lt "$MAX_RETRIES" ]; do
     ATTEMPT=$((ATTEMPT + 1))
-    echo "==> Running Claude Code (attempt ${ATTEMPT}/${MAX_RETRIES})..."
+    echo "==> Running ${HARNESS} (attempt ${ATTEMPT}/${MAX_RETRIES})..."
 
     set +e
-    CLAUDE_OUTPUT=$(claude "${CLAUDE_ARGS[@]}" 2>&1)
-    CLAUDE_EXIT=$?
+    AGENT_OUTPUT=$("$AGENT_CMD" "${AGENT_ARGS[@]}" 2>&1)
+    AGENT_EXIT=$?
     set -e
 
-    if [ $CLAUDE_EXIT -eq 0 ]; then
-        echo "==> Claude Code completed successfully"
+    if [ $AGENT_EXIT -eq 0 ]; then
+        echo "==> ${HARNESS} completed successfully"
         break
     fi
 
-    echo "==> Claude Code exited with code ${CLAUDE_EXIT} (attempt ${ATTEMPT})"
-    echo "$CLAUDE_OUTPUT" | tail -30
+    echo "==> ${HARNESS} exited with code ${AGENT_EXIT} (attempt ${ATTEMPT})"
+    echo "$AGENT_OUTPUT" | tail -30
 
     if [ $ATTEMPT -lt "$MAX_RETRIES" ]; then
         # Add error context to prompt for retry
-        ERROR_TAIL=$(echo "$CLAUDE_OUTPUT" | tail -20)
+        ERROR_TAIL=$(echo "$AGENT_OUTPUT" | tail -20)
         FULL_PROMPT="Previous attempt failed with error:
 ${ERROR_TAIL}
 
 Please try again:
 ${PROMPT}"
-        # Rebuild args with updated prompt
-        CLAUDE_ARGS=( -p "$FULL_PROMPT" --dangerously-skip-permissions --model "$MODEL" --effort "$EFFORT" --max-turns "$MAX_TURNS" --output-format json --verbose )
-        if [ "$AUTH_MODE" = "api_key" ]; then
-            CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-        fi
+        build_agent_args "$FULL_PROMPT"
     fi
 done
 
@@ -154,29 +183,37 @@ done
 NEEDS_INPUT=false
 QUESTION=""
 
-if echo "$CLAUDE_OUTPUT" | jq -e '.result' 2>/dev/null | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
-    NEEDS_INPUT=true
-    QUESTION=$(echo "$CLAUDE_OUTPUT" | jq -r '.result // empty' 2>/dev/null | tail -5)
-fi
-
-# If claude ran out of turns without completing
-if echo "$CLAUDE_OUTPUT" | jq -e '.is_error' 2>/dev/null | grep -q 'true'; then
-    if echo "$CLAUDE_OUTPUT" | jq -r '.error_type // empty' 2>/dev/null | grep -q 'max_turns'; then
+if [ "$HARNESS" = "codex" ]; then
+    # Codex outputs plain text; check for question patterns
+    if echo "$AGENT_OUTPUT" | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
         NEEDS_INPUT=true
-        QUESTION="Agent ran out of turns (${MAX_TURNS}) without completing the task"
+        QUESTION=$(echo "$AGENT_OUTPUT" | tail -5)
+    fi
+else
+    if echo "$AGENT_OUTPUT" | jq -e '.result' 2>/dev/null | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
+        NEEDS_INPUT=true
+        QUESTION=$(echo "$AGENT_OUTPUT" | jq -r '.result // empty' 2>/dev/null | tail -5)
+    fi
+
+    # If claude ran out of turns without completing
+    if echo "$AGENT_OUTPUT" | jq -e '.is_error' 2>/dev/null | grep -q 'true'; then
+        if echo "$AGENT_OUTPUT" | jq -r '.error_type // empty' 2>/dev/null | grep -q 'max_turns'; then
+            NEEDS_INPUT=true
+            QUESTION="Agent ran out of turns (${MAX_TURNS}) without completing the task"
+        fi
     fi
 fi
 
 # --- Write status ---
 COMPLETE=false
-if [ $CLAUDE_EXIT -eq 0 ]; then
+if [ $AGENT_EXIT -eq 0 ]; then
     COMPLETE=true
 fi
 ERROR_MSG=""
-if [ $CLAUDE_EXIT -ne 0 ]; then
-    ERROR_MSG=$(echo "$CLAUDE_OUTPUT" | tail -5)
+if [ $AGENT_EXIT -ne 0 ]; then
+    ERROR_MSG=$(echo "$AGENT_OUTPUT" | tail -5)
 fi
-write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG"
+write_status "$AGENT_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG"
 
 # --- Commit remaining changes ---
 echo "==> Committing any remaining changes..."
@@ -185,6 +222,7 @@ if ! git diff --cached --quiet; then
     COMMIT_MSG="backflow: agent work on task ${TASK_ID:-unknown}
 
 Automated commit by backflow agent.
+Harness: ${HARNESS}
 Model: ${MODEL}"
     if [ "$AUTH_MODE" = "api_key" ]; then
         COMMIT_MSG="${COMMIT_MSG}
@@ -207,6 +245,7 @@ if [ "$CREATE_PR" = "true" ]; then
 
 **Task:** ${PROMPT}
 
+**Harness:** ${HARNESS}
 **Model:** ${MODEL}"
         if [ "$AUTH_MODE" = "api_key" ]; then
             PR_BODY="${PR_BODY}
@@ -232,5 +271,5 @@ if [ "$CREATE_PR" = "true" ]; then
     fi
 fi
 
-echo "==> Done (exit code: ${CLAUDE_EXIT})"
-exit $CLAUDE_EXIT
+echo "==> Done (exit code: ${AGENT_EXIT})"
+exit $AGENT_EXIT

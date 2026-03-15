@@ -39,6 +39,7 @@ func (s *SQLiteStore) migrate() error {
 	CREATE TABLE IF NOT EXISTS tasks (
 		id              TEXT PRIMARY KEY,
 		status          TEXT NOT NULL DEFAULT 'pending',
+		harness         TEXT NOT NULL DEFAULT 'claude',
 		repo_url        TEXT NOT NULL,
 		branch          TEXT NOT NULL DEFAULT '',
 		target_branch   TEXT NOT NULL DEFAULT '',
@@ -93,14 +94,14 @@ func (s *SQLiteStore) migrate() error {
 func (s *SQLiteStore) CreateTask(ctx context.Context, task *models.Task) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, status, repo_url, branch, target_branch, prompt, context,
+			id, status, harness, repo_url, branch, target_branch, prompt, context,
 			model, effort, max_budget_usd, max_runtime_min, max_turns,
 			create_pr, pr_title, pr_body, pr_url,
 			allowed_tools, claude_md, env_vars,
 			instance_id, container_id, retry_count, cost_usd, error,
 			created_at, updated_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		task.ID, task.Status, task.RepoURL, task.Branch, task.TargetBranch,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		task.ID, task.Status, task.Harness, task.RepoURL, task.Branch, task.TargetBranch,
 		task.Prompt, task.Context, task.Model, task.Effort,
 		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
 		boolToInt(task.CreatePR), task.PRTitle, task.PRBody, task.PRURL,
@@ -114,7 +115,7 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task *models.Task) error {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (*models.Task, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT
-		id, status, repo_url, branch, target_branch, prompt, context,
+		id, status, harness, repo_url, branch, target_branch, prompt, context,
 		model, effort, max_budget_usd, max_runtime_min, max_turns,
 		create_pr, pr_title, pr_body, pr_url,
 		allowed_tools, claude_md, env_vars,
@@ -125,7 +126,7 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (*models.Task, err
 }
 
 func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*models.Task, error) {
-	query := "SELECT id, status, repo_url, branch, target_branch, prompt, context, model, effort, max_budget_usd, max_runtime_min, max_turns, create_pr, pr_title, pr_body, pr_url, allowed_tools, claude_md, env_vars, instance_id, container_id, retry_count, cost_usd, error, created_at, updated_at, started_at, completed_at FROM tasks"
+	query := "SELECT id, status, harness, repo_url, branch, target_branch, prompt, context, model, effort, max_budget_usd, max_runtime_min, max_turns, create_pr, pr_title, pr_body, pr_url, allowed_tools, claude_md, env_vars, instance_id, container_id, retry_count, cost_usd, error, created_at, updated_at, started_at, completed_at FROM tasks"
 	var args []any
 	var where []string
 
@@ -165,14 +166,14 @@ func (s *SQLiteStore) UpdateTask(ctx context.Context, task *models.Task) error {
 	task.UpdatedAt = time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE tasks SET
-			status=?, repo_url=?, branch=?, target_branch=?, prompt=?, context=?,
+			status=?, harness=?, repo_url=?, branch=?, target_branch=?, prompt=?, context=?,
 			model=?, effort=?, max_budget_usd=?, max_runtime_min=?, max_turns=?,
 			create_pr=?, pr_title=?, pr_body=?, pr_url=?,
 			allowed_tools=?, claude_md=?, env_vars=?,
 			instance_id=?, container_id=?, retry_count=?, cost_usd=?, error=?,
 			updated_at=?, started_at=?, completed_at=?
 		WHERE id = ?`,
-		task.Status, task.RepoURL, task.Branch, task.TargetBranch,
+		task.Status, task.Harness, task.RepoURL, task.Branch, task.TargetBranch,
 		task.Prompt, task.Context, task.Model, task.Effort,
 		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
 		boolToInt(task.CreatePR), task.PRTitle, task.PRBody, task.PRURL,
@@ -261,7 +262,7 @@ func scanTask(row scanner) (*models.Task, error) {
 	var startedAt, completedAt sql.NullString
 
 	err := row.Scan(
-		&t.ID, &t.Status, &t.RepoURL, &t.Branch, &t.TargetBranch,
+		&t.ID, &t.Status, &t.Harness, &t.RepoURL, &t.Branch, &t.TargetBranch,
 		&t.Prompt, &t.Context, &t.Model, &t.Effort,
 		&t.MaxBudgetUSD, &t.MaxRuntimeMin, &t.MaxTurns,
 		&createPR, &t.PRTitle, &t.PRBody, &t.PRURL,
