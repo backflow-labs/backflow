@@ -51,6 +51,7 @@ type Config struct {
 	ECSSecurityGroups []string
 	ECSLaunchType     string
 	ECSContainerName  string
+	ECSAssignPublicIP bool
 
 	// Container resources
 	ContainerCPUs  int
@@ -121,6 +122,7 @@ func Load() (*Config, error) {
 		ECSSecurityGroups:     envCSV("BACKFLOW_ECS_SECURITY_GROUPS"),
 		ECSLaunchType:         strings.ToUpper(envOr("BACKFLOW_ECS_LAUNCH_TYPE", "FARGATE_SPOT")),
 		ECSContainerName:      envOr("BACKFLOW_ECS_CONTAINER_NAME", "backflow-agent"),
+		ECSAssignPublicIP:     envBool("BACKFLOW_ECS_ASSIGN_PUBLIC_IP", true),
 		ContainerCPUs:         envInt("BACKFLOW_CONTAINER_CPUS", 2),
 		ContainerMemGB:        envInt("BACKFLOW_CONTAINER_MEMORY_GB", 8),
 		LaunchTemplateID:      os.Getenv("BACKFLOW_LAUNCH_TEMPLATE_ID"),
@@ -219,6 +221,18 @@ func envFloat(key string, fallback float64) float64 {
 		}
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	v := strings.ToLower(os.Getenv(key))
+	switch v {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func envCSV(key string) []string {

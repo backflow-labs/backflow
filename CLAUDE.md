@@ -93,6 +93,7 @@ Optional Fargate env vars:
 - `BACKFLOW_ECS_LAUNCH_TYPE` (`FARGATE` or `FARGATE_SPOT`, default `FARGATE_SPOT`)
 - `BACKFLOW_ECS_CONTAINER_NAME` (default `backflow-agent`)
 - `BACKFLOW_ECS_LOG_STREAM_PREFIX` (default `ecs`)
+- `BACKFLOW_ECS_ASSIGN_PUBLIC_IP` (`true` or `false`, default `true`; set to `false` for private subnets with NAT)
 - `BACKFLOW_MAX_CONCURRENT_TASKS` (default `5`)
 
 ECS prerequisites:

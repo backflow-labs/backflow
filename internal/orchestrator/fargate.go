@@ -65,9 +65,14 @@ func (m *FargateManager) RunAgent(ctx context.Context, _ *models.Instance, task 
 	containerCPU := int32(m.taskCPUUnits())
 	containerMemory := int32(m.taskMemoryMiB())
 
+	assignPublicIP := ecstypes.AssignPublicIpDisabled
+	if m.config.ECSAssignPublicIP {
+		assignPublicIP = ecstypes.AssignPublicIpEnabled
+	}
+
 	awsvpc := &ecstypes.AwsVpcConfiguration{
 		Subnets:        append([]string(nil), m.config.ECSSubnets...),
-		AssignPublicIp: ecstypes.AssignPublicIpEnabled,
+		AssignPublicIp: assignPublicIP,
 	}
 	if len(m.config.ECSSecurityGroups) > 0 {
 		awsvpc.SecurityGroups = append([]string(nil), m.config.ECSSecurityGroups...)
