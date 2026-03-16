@@ -1,161 +1,173 @@
 # Backflow
 
-Background agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral Docker containers on AWS EC2 spot instances. POST a task (repo + prompt), get back a branch with commits and optionally a PR.
+Backflow is a background agent orchestrator for code tasks and PR reviews. It runs Claude Code or Codex inside short-lived Docker containers, either on your machine or on AWS EC2 Spot instances, then tracks execution through a small HTTP API backed by SQLite.
 
-## Prerequisites
+Submit a repository plus instructions, and Backflow can:
+
+- run the task in an isolated container
+- push commits to a branch
+- open a pull request
+- review an existing pull request
+- expose logs, status, and optional webhook or S3 output
+
+## How It Works
+
+1. A client creates a task through the API or helper scripts.
+2. Backflow schedules a container locally or on an EC2 instance.
+3. The container clones the repository, runs the selected harness (`claude_code` or `codex`), and writes task status back to Backflow.
+4. Backflow stores task and instance state in SQLite, exposes logs over HTTP, and can send webhooks or upload saved output to S3.
+
+## Quickstart
+
+### Prerequisites
 
 - Go 1.24+
-- AWS CLI (configured with credentials)
 - Docker
-- `sqlite3` CLI (for `make db-status`)
+- `curl` and `jq` if you want to use the helper scripts in `scripts/`
+- `sqlite3` if you want to use `make db-status`
+- AWS CLI with configured credentials if you want EC2 mode
 
-## Local Development
+### Run Locally
 
-### Setup
+Copy the sample environment file and set the credentials you need:
 
 ```bash
 cp .env.example .env
-# Edit .env — at minimum set ANTHROPIC_API_KEY and GITHUB_TOKEN
 ```
 
-For local-only development without AWS, set `BACKFLOW_MODE=local` in `.env`. This skips EC2 provisioning and runs containers on the local Docker daemon.
+At minimum:
 
-### Build and Run
+- set `ANTHROPIC_API_KEY` for Claude Code in `api_key` mode
+- set `OPENAI_API_KEY` if you want to use the `codex` harness
+- set `GITHUB_TOKEN` if tasks need to clone private repos or create PRs
+
+For local-only development, set:
 
 ```bash
-make build          # Compile to bin/backflow
-make run            # Build + run (auto-sources .env)
+BACKFLOW_MODE=local
 ```
 
-Server starts on `http://localhost:8080`. The orchestrator poll loop and HTTP server run as concurrent goroutines.
-
-### Testing
+Then build and run the server:
 
 ```bash
-make test           # Run all tests (no cache)
-make lint           # go vet
-
-# Run a single test
-go test ./internal/store/ -run TestCreateTask -v
-
-# Run tests for a specific package
-go test ./internal/api/ -v -count=1
+make run
 ```
 
-Tests create temporary SQLite databases that are cleaned up automatically. No external services needed.
+The API listens on `http://localhost:8080` by default.
 
-### Build the Agent Image Locally
+### Submit a Code Task
+
+Using the helper script:
 
 ```bash
-make docker-build-local    # Single-arch build, no push
+./scripts/create-task.sh https://github.com/org/repo "Fix the login bug" \
+  --harness claude_code \
+  --no-pr
 ```
 
-## Database
-
-Backflow uses SQLite in WAL mode. The database file location is configured via `BACKFLOW_DB_PATH` (default: `backflow.db` in the working directory).
-
-### Schema
-
-Two tables: `tasks` and `instances`. See `internal/store/sqlite.go` for the full schema.
-
-### Migrations
-
-There are no separate migration files. Schema is managed in `internal/store/sqlite.go` in the `migrate()` method. All DDL uses `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`, so it's safe to run on every startup.
-
-**To add a new column:**
-
-1. Add an `ALTER TABLE ... ADD COLUMN` statement to `migrate()` in `internal/store/sqlite.go`, wrapped in an idempotent check (SQLite will error if the column already exists, so ignore the error or check `pragma table_info` first).
-2. Update the `INSERT`, `UPDATE`, and `SELECT` statements in the same file.
-3. Update the model struct in `internal/models/`.
-
-**To inspect the database:**
+Create a task and ask Backflow to open a PR:
 
 ```bash
-make db-status                              # Dump all tasks and instances
-sqlite3 backflow.db ".schema"               # Show schema
+./scripts/create-task.sh https://github.com/org/repo "Fix the login bug" \
+  --harness claude_code \
+  --branch backflow/fix-login \
+  --target-branch main \
+  --pr-title "Fix login bug"
+```
+
+Important defaults for `scripts/create-task.sh`:
+
+- it defaults to `--harness codex`
+- it creates a PR by default
+- pass `--no-pr` if you only want a pushed branch
+
+You can also call the API directly:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/org/repo",
+    "prompt": "Fix the login bug",
+    "harness": "claude_code",
+    "create_pr": true
+  }'
+```
+
+Important defaults for the HTTP API:
+
+- `harness` defaults to `BACKFLOW_DEFAULT_HARNESS` (`claude_code` by default)
+- `create_pr` defaults to `false` unless you set it explicitly
+- `save_agent_output` defaults to `true`
+
+### Submit a PR Review Task
+
+Use `scripts/review-pr.sh` to review an existing PR:
+
+```bash
+./scripts/review-pr.sh https://github.com/org/repo 42 \
+  --prompt "Focus on correctness, regressions, and security risks"
+```
+
+Review tasks run with `task_mode=review` and post feedback through the GitHub CLI inside the container.
+
+## Development Workflow
+
+### Common Commands
+
+```bash
+make build               # Compile to bin/backflow
+make run                 # Build and run the server
+make test                # Run all tests without cache
+make lint                # go vet
+make docker-build-local  # Build the agent image locally
+make db-status           # Inspect tasks and instances in SQLite
+```
+
+Tests use temporary SQLite databases and do not require external services.
+
+### Database
+
+Backflow uses SQLite in WAL mode. By default the database is stored at `backflow.db`, configurable through `BACKFLOW_DB_PATH`.
+
+Useful commands:
+
+```bash
+make db-status
+sqlite3 backflow.db ".schema"
 sqlite3 backflow.db "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
 ```
 
-**To reset the database:** delete the `backflow.db` file. It will be recreated on next startup.
+To reset local state, delete the database file and restart the server.
 
-## AWS Setup (EC2 Mode)
+## Running on AWS EC2 Spot
 
-### One-Time Infrastructure
+### One-Time Setup
+
+Provision the supporting AWS resources:
 
 ```bash
 make setup-aws
 ```
 
-This creates: ECR repo, IAM role, security group, and launch template. Copy the `BACKFLOW_LAUNCH_TEMPLATE_ID` from the output into `.env`.
+This creates the ECR repository, IAM role and instance profile, security group, launch template, and an S3 bucket for saved agent output. Copy the values printed by the script into `.env`, especially:
 
-### Deploy Agent Image
+- `BACKFLOW_LAUNCH_TEMPLATE_ID`
+- `BACKFLOW_S3_BUCKET` if you want agent output uploaded to S3
+
+### Build and Deploy the Agent Image
 
 ```bash
 make docker-deploy
-# If docker needs sudo: make docker-deploy DOCKER="sudo docker"
 ```
 
-Builds a multi-arch image (amd64 + arm64) and pushes to ECR.
+This builds a multi-arch image (`linux/amd64` and `linux/arm64`) and pushes it to ECR.
 
-## Submitting Tasks
+To run in EC2 mode, keep:
 
 ```bash
-# Simple task
-./scripts/create-task.sh https://github.com/org/repo "Fix the login bug"
-
-# With PR creation
-./scripts/create-task.sh https://github.com/org/repo "Fix the login bug" --pr
-
-# Full options
-./scripts/create-task.sh https://github.com/org/repo "Add unit tests" \
-  --pr --pr-title "Add tests" \
-  --budget 15 --model claude-sonnet-4-6 \
-  --branch my-feature --target-branch develop \
-  --context "Focus on the auth module" \
-  --claude-md "Always use table-driven tests" \
-  --env "GOPRIVATE=github.com/org/*"
+BACKFLOW_MODE=ec2
 ```
-
-Or call the API directly:
-
-```bash
-# Claude Code (default)
-curl -X POST http://localhost:8080/api/v1/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"repo_url": "https://github.com/org/repo", "prompt": "Fix the bug", "create_pr": true}'
-
-# Codex (requires OPENAI_API_KEY)
-curl -X POST http://localhost:8080/api/v1/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"repo_url": "https://github.com/org/repo", "prompt": "Fix the bug", "harness": "codex", "create_pr": true}'
-```
-
-## Monitoring and Operations
-
-```bash
-# Database state
-make db-status
-
-# Task details
-curl http://localhost:8080/api/v1/tasks/{id}
-
-# Container logs
-curl http://localhost:8080/api/v1/tasks/{id}/logs?tail=100
-
-# Health check
-curl http://localhost:8080/api/v1/health
-
-# Shell into an agent EC2 instance
-aws ssm start-session --target i-0abc...
-```
-
-### Task Lifecycle
-
-`pending` → `provisioning` → `running` → `completed` | `failed` | `interrupted` | `cancelled`
-
-### Instance Lifecycle
-
-`pending` → `running` → idle 5 min → `terminated`. Spot interruptions automatically re-queue affected tasks.
 
 ## API Reference
 
@@ -164,72 +176,122 @@ aws ssm start-session --target i-0abc...
 | `POST` | `/api/v1/tasks` | Create a task |
 | `GET` | `/api/v1/tasks` | List tasks (`?status=`, `?limit=`, `?offset=`) |
 | `GET` | `/api/v1/tasks/{id}` | Get task details |
-| `DELETE` | `/api/v1/tasks/{id}` | Cancel a task |
-| `GET` | `/api/v1/tasks/{id}/logs` | Container logs (`?tail=100`) |
+| `DELETE` | `/api/v1/tasks/{id}` | Cancel or delete a task |
+| `GET` | `/api/v1/tasks/{id}/logs` | Get container logs (`?tail=100`) |
 | `GET` | `/api/v1/health` | Health check |
 
-## Auth Modes
+### Common Operational Requests
 
-- **`api_key`** (default) — Uses Anthropic API key. Supports multiple concurrent agents. Pay per token.
-- **`max_subscription`** — Uses Claude Max subscription credentials. One agent at a time. Flat rate.
+```bash
+# Health check
+curl http://localhost:8080/api/v1/health
 
-## Harnesses
+# Task details
+curl http://localhost:8080/api/v1/tasks/{id}
 
-Tasks can run with different agent CLIs via the `harness` field:
-
-- **`claude_code`** (default) — Claude Code CLI. Uses `--output-format stream-json` with retry logic and structured result parsing.
-- **`codex`** — OpenAI Codex CLI. Uses `--full-auto --quiet` mode. Requires `OPENAI_API_KEY`.
-
-Set `BACKFLOW_DEFAULT_HARNESS` to change the default, or specify per-task in the API request.
-
-## Webhooks
-
-Set `BACKFLOW_WEBHOOK_URL` in `.env`:
-
-```json
-{
-  "event": "task.completed",
-  "task_id": "bf_01KK...",
-  "repo_url": "https://github.com/org/repo",
-  "prompt": "Fix the bug",
-  "message": "",
-  "agent_log_tail": "last 20 lines...",
-  "timestamp": "2026-03-13T22:00:00Z"
-}
+# Recent logs
+curl http://localhost:8080/api/v1/tasks/{id}/logs?tail=100
 ```
 
-Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`
+### Task Lifecycle
 
-Filter with `BACKFLOW_WEBHOOK_EVENTS=task.completed,task.failed`.
+`pending` -> `provisioning` -> `running` -> `completed`
+
+Other possible outcomes:
+
+- `failed`
+- `interrupted`
+- `cancelled`
+- `recovering`
+
+### Instance Lifecycle
+
+`pending` -> `running` -> `draining` -> `terminated`
+
+Spot interruptions re-queue affected tasks.
+
+## Harnesses and Auth Modes
+
+### Harnesses
+
+- `claude_code`: uses the Claude Code CLI
+- `codex`: uses the OpenAI Codex CLI
+
+Set the default with `BACKFLOW_DEFAULT_HARNESS`, or override per task.
+
+### Auth Modes
+
+- `api_key`: uses `ANTHROPIC_API_KEY`; supports multiple concurrent agents
+- `max_subscription`: uses cached Claude Max credentials from `CLAUDE_CREDENTIALS_PATH`; effectively serializes execution to one agent at a time
 
 ## Configuration
 
-All config is via environment variables (or `.env` file).
+`.env.example` is the best source of truth for a working local configuration. The most important variables are grouped below.
+
+### Core Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKFLOW_MODE` | `ec2` | `ec2` or `local` |
-| `BACKFLOW_AUTH_MODE` | `api_key` | `api_key` or `max_subscription` |
-| `ANTHROPIC_API_KEY` | | Required for `api_key` mode |
-| `OPENAI_API_KEY` | | Required for `codex` harness |
-| `CLAUDE_CREDENTIALS_PATH` | | Path to `~/.claude/` for `max_subscription` mode |
-| `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
-| `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
+| `BACKFLOW_MODE` | `ec2` | Run on `ec2` or `local` |
+| `BACKFLOW_LISTEN_ADDR` | `:8080` | HTTP listen address |
 | `BACKFLOW_DB_PATH` | `backflow.db` | SQLite database path |
+| `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval |
+
+### Credentials and Auth
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKFLOW_AUTH_MODE` | `api_key` | `api_key` or `max_subscription` |
+| `ANTHROPIC_API_KEY` | | Required when `BACKFLOW_AUTH_MODE=api_key` |
+| `OPENAI_API_KEY` | | Required for the `codex` harness |
+| `CLAUDE_CREDENTIALS_PATH` | | Path to `~/.claude/` for `max_subscription` mode |
+| `GITHUB_TOKEN` | | Required for private repo access and PR creation |
+
+### EC2 Capacity and Sizing
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `AWS_REGION` | `us-east-1` | AWS region |
 | `BACKFLOW_INSTANCE_TYPE` | `m7g.xlarge` | EC2 instance type |
-| `BACKFLOW_LAUNCH_TEMPLATE_ID` | | From `make setup-aws` |
+| `BACKFLOW_LAUNCH_TEMPLATE_ID` | | Launch template created by `make setup-aws` |
 | `BACKFLOW_MAX_INSTANCES` | `5` | Max EC2 instances |
-| `BACKFLOW_CONTAINERS_PER_INSTANCE` | `1` | Containers per instance |
-| `BACKFLOW_CONTAINER_CPUS` | `2` | CPU cores per container |
-| `BACKFLOW_CONTAINER_MEMORY_GB` | `8` | Memory (GB) per container |
-| `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | Default harness (`claude_code` or `codex`) |
-| `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code harness |
-| `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex harness |
-| `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Default budget (USD) |
-| `BACKFLOW_DEFAULT_MAX_RUNTIME_MIN` | `30` | Default max runtime (min) |
-| `BACKFLOW_DEFAULT_MAX_TURNS` | `200` | Default max turns |
-| `BACKFLOW_WEBHOOK_URL` | | Webhook endpoint |
-| `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event filter |
-| `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (sec) |
-| `DOCKER` | `docker` | Docker command (e.g. `sudo docker`) |
+| `BACKFLOW_CONTAINERS_PER_INSTANCE` | `1` | Max containers per instance |
+| `BACKFLOW_CONTAINER_CPUS` | `2` | CPU cores reserved per container |
+| `BACKFLOW_CONTAINER_MEMORY_GB` | `8` | Memory reserved per container |
+
+In local mode, `BACKFLOW_CONTAINERS_PER_INSTANCE` must stay at or below `6`.
+
+### Task Defaults
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | Default task harness |
+| `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default Claude Code model |
+| `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default Codex model |
+| `BACKFLOW_DEFAULT_EFFORT` | `high` | Default effort level |
+| `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Default max budget in USD |
+| `BACKFLOW_DEFAULT_MAX_RUNTIME_MIN` | `30` | Default max runtime in minutes |
+| `BACKFLOW_DEFAULT_MAX_TURNS` | `200` | Default max conversation turns |
+
+### Optional Integrations
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKFLOW_S3_BUCKET` | | Upload saved agent output to S3 |
+| `BACKFLOW_WEBHOOK_URL` | | Send task lifecycle events to an HTTP endpoint |
+| `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event allowlist |
+
+Webhook events:
+
+- `task.created`
+- `task.running`
+- `task.completed`
+- `task.failed`
+- `task.needs_input`
+- `task.interrupted`
+
+## Additional Docs
+
+- `docs/schema.md`: SQLite schema, statuses, and migration notes
+- `docs/sizing.md`: instance sizing and cost reference
+- `docs/file-reference.md`: repository file map
