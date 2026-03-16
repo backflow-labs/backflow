@@ -426,5 +426,7 @@ func taskIDFromARN(taskARN string) (string, error) {
 }
 
 func isSpotInterruptionReason(reason string) bool {
-	return strings.Contains(strings.ToLower(reason), "spot")
+	r := strings.ToLower(reason)
+	return strings.Contains(r, "host ec2 (spot) terminated") ||
+		strings.Contains(r, "spot capacity")
 }

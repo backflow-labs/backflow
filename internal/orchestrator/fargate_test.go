@@ -240,3 +240,30 @@ func TestFargateBuildLogStreamName(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSpotInterruptionReason(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason string
+		want   bool
+	}{
+		{"empty", "", false},
+		{"normal stop", "Essential container in task exited", false},
+		{"user stop", "stopped by backflow", false},
+		{"scaling activity", "Scaling activity initiated by deployment", false},
+		{"ec2 spot terminated", "Host EC2 (spot) terminated", true},
+		{"ec2 spot terminated lowercase", "host ec2 (spot) terminated", true},
+		{"fargate spot capacity", "Your Fargate Spot capacity reclaimed", true},
+		{"spot capacity generic", "Spot capacity unavailable", true},
+		{"task failed to start", "Task failed to start", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isSpotInterruptionReason(tt.reason)
+			if got != tt.want {
+				t.Errorf("isSpotInterruptionReason(%q) = %v, want %v", tt.reason, got, tt.want)
+			}
+		})
+	}
+}
