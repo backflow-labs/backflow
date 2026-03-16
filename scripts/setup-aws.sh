@@ -3,10 +3,13 @@ set -euo pipefail
 
 # Backflow AWS infrastructure setup
 # Creates: ECR repo, IAM roles, security group, S3 bucket,
-#          launch template (EC2 mode), and ECS cluster + task definition (Fargate mode)
+#          launch template (EC2 mode), ECS cluster + task definition (Fargate mode),
+#          and GitHub Actions OIDC provider + CI deploy role
 
 REGION="${AWS_REGION:-us-east-1}"
+GITHUB_REPO="${BACKFLOW_GITHUB_REPO:-}"  # e.g. "org/repo"
 ECR_REPO="backflow-agent"
+CI_ROLE="backflow-ci-deploy"
 IAM_ROLE="backflow-ec2-role"
 SG_NAME="backflow-agent-sg"
 LT_NAME="backflow-agent-lt"
@@ -62,6 +65,109 @@ ECR_URI=$(aws ecr describe-repositories \
     --query 'repositories[0].repositoryUri' \
     --output text)
 echo "    ECR URI: ${ECR_URI}"
+
+# --- GitHub Actions OIDC + CI Deploy Role ---
+if [ -n "$GITHUB_REPO" ]; then
+    OIDC_URL="https://token.actions.githubusercontent.com"
+    OIDC_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
+
+    echo "==> Creating GitHub Actions OIDC provider..."
+    if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$OIDC_ARN" &>/dev/null; then
+        echo "    OIDC provider already exists"
+    else
+        aws iam create-open-id-connect-provider \
+            --url "$OIDC_URL" \
+            --client-id-list sts.amazonaws.com \
+            --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+    fi
+    echo "    OIDC provider: ${OIDC_ARN}"
+
+    echo "==> Creating CI deploy role..."
+    CI_TRUST_POLICY=$(cat <<CIEOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "${OIDC_ARN}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:${GITHUB_REPO}:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+CIEOF
+)
+
+    if aws iam get-role --role-name "$CI_ROLE" &>/dev/null; then
+        echo "    CI role already exists, updating trust policy..."
+        aws iam update-assume-role-policy \
+            --role-name "$CI_ROLE" \
+            --policy-document "$CI_TRUST_POLICY"
+    else
+        aws iam create-role \
+            --role-name "$CI_ROLE" \
+            --assume-role-policy-document "$CI_TRUST_POLICY"
+    fi
+
+    CI_ECR_POLICY=$(cat <<CIECREOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload"
+      ],
+      "Resource": "arn:aws:ecr:${REGION}:${ACCOUNT_ID}:repository/${ECR_REPO}"
+    }
+  ]
+}
+CIECREOF
+)
+
+    CI_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/backflow-ci-ecr-push"
+    if aws iam get-policy --policy-arn "$CI_POLICY_ARN" 2>/dev/null; then
+        echo "    CI ECR policy already exists, creating new version..."
+        aws iam create-policy-version \
+            --policy-arn "$CI_POLICY_ARN" \
+            --policy-document "$CI_ECR_POLICY" \
+            --set-as-default
+    else
+        aws iam create-policy \
+            --policy-name "backflow-ci-ecr-push" \
+            --policy-document "$CI_ECR_POLICY"
+    fi
+
+    aws iam attach-role-policy \
+        --role-name "$CI_ROLE" \
+        --policy-arn "$CI_POLICY_ARN"
+
+    CI_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${CI_ROLE}"
+    echo "    CI role: ${CI_ROLE_ARN}"
+else
+    echo "==> Skipping GitHub Actions OIDC setup (set BACKFLOW_GITHUB_REPO=org/repo to enable)"
+    CI_ROLE_ARN=""
+fi
 
 # --- IAM Role ---
 echo "==> Creating IAM role..."
@@ -441,7 +547,12 @@ echo "  BACKFLOW_ECS_SECURITY_GROUPS=${SG_ID}"
 echo "  BACKFLOW_CLOUDWATCH_LOG_GROUP=${CW_LOG_GROUP}"
 echo "  BACKFLOW_S3_BUCKET=${S3_BUCKET}"
 echo "  AWS_REGION=${REGION}"
-echo ""
+if [ -n "$CI_ROLE_ARN" ]; then
+    echo "For GitHub Actions CI (see docs/setup-ci.md):"
+    echo "  Add this secret to your GitHub repo:"
+    echo "    AWS_ROLE_ARN=${CI_ROLE_ARN}"
+    echo ""
+fi
 echo "Next steps:"
 echo "  1. Build and push the agent image: make docker-build && make docker-push REGISTRY=${ECR_URI}"
 echo "  2. Set ANTHROPIC_API_KEY and GITHUB_TOKEN in .env"
