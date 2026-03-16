@@ -330,6 +330,11 @@ aws iam attach-role-policy \
 
 echo "    Task role: ${ECS_TASK_ROLE}"
 
+# --- ECS Service-Linked Role ---
+# Required before first ECS cluster creation in an account
+echo "==> Ensuring ECS service-linked role exists..."
+aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com 2>/dev/null || true
+
 # --- ECS Cluster ---
 echo "==> Creating ECS cluster..."
 if aws ecs describe-clusters \
