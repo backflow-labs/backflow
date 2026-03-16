@@ -202,7 +202,14 @@ POLICYEOF
 )
 
 if aws iam get-policy --policy-arn "$S3_POLICY_ARN" 2>/dev/null; then
-    echo "    S3 policy already exists, creating new version..."
+    echo "    S3 policy already exists, pruning old versions..."
+    # IAM policies can have at most 5 versions; delete all non-default versions
+    # before creating a new one.
+    OLD_VERSIONS=$(aws iam list-policy-versions --policy-arn "$S3_POLICY_ARN" \
+        --query 'Versions[?IsDefaultVersion==`false`].VersionId' --output text)
+    for V in $OLD_VERSIONS; do
+        aws iam delete-policy-version --policy-arn "$S3_POLICY_ARN" --version-id "$V"
+    done
     aws iam create-policy-version \
         --policy-arn "$S3_POLICY_ARN" \
         --policy-document "$S3_POLICY" \
