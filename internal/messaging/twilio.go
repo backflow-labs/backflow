@@ -40,7 +40,12 @@ func (t *TwilioMessenger) Send(ctx context.Context, msg OutboundMessage) error {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			delay := time.Duration(attempt) * 2 * time.Second
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("twilio SMS cancelled during retry: %w", ctx.Err())
+			case <-time.After(delay):
+			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))
