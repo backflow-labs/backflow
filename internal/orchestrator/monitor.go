@@ -200,7 +200,12 @@ type taskMetadata struct {
 	TargetBranch  string            `json:"target_branch,omitempty"`
 	Prompt        string            `json:"prompt"`
 	Model         string            `json:"model,omitempty"`
+	Effort        string            `json:"effort,omitempty"`
+	MaxBudgetUSD  float64           `json:"max_budget_usd,omitempty"`
+	MaxTurns      int               `json:"max_turns,omitempty"`
+	MaxRuntimeMin int               `json:"max_runtime_min,omitempty"`
 	CreatePR      bool              `json:"create_pr"`
+	SelfReview    bool              `json:"self_review"`
 	PRURL         string            `json:"pr_url,omitempty"`
 	OutputURL     string            `json:"output_url,omitempty"`
 	CostUSD       float64           `json:"cost_usd,omitempty"`
@@ -219,24 +224,29 @@ func (o *Orchestrator) saveTaskMetadata(ctx context.Context, task *models.Task) 
 	}
 
 	meta := taskMetadata{
-		ID:           task.ID,
-		Status:       task.Status,
-		TaskMode:     task.TaskMode,
-		Harness:      task.Harness,
-		RepoURL:      task.RepoURL,
-		Branch:       task.Branch,
-		TargetBranch: task.TargetBranch,
-		Prompt:       task.Prompt,
-		Model:        task.Model,
-		CreatePR:     task.CreatePR,
-		PRURL:        task.PRURL,
-		OutputURL:    task.OutputURL,
-		CostUSD:      task.CostUSD,
-		Error:        task.Error,
-		RetryCount:   task.RetryCount,
-		CreatedAt:    task.CreatedAt,
-		StartedAt:    task.StartedAt,
-		CompletedAt:  task.CompletedAt,
+		ID:            task.ID,
+		Status:        task.Status,
+		TaskMode:      task.TaskMode,
+		Harness:       task.Harness,
+		RepoURL:       task.RepoURL,
+		Branch:        task.Branch,
+		TargetBranch:  task.TargetBranch,
+		Prompt:        task.Prompt,
+		Model:         task.Model,
+		Effort:        task.Effort,
+		MaxBudgetUSD:  task.MaxBudgetUSD,
+		MaxTurns:      task.MaxTurns,
+		MaxRuntimeMin: task.MaxRuntimeMin,
+		CreatePR:      task.CreatePR,
+		SelfReview:    task.SelfReview,
+		PRURL:         task.PRURL,
+		OutputURL:     task.OutputURL,
+		CostUSD:       task.CostUSD,
+		Error:         task.Error,
+		RetryCount:    task.RetryCount,
+		CreatedAt:     task.CreatedAt,
+		StartedAt:     task.StartedAt,
+		CompletedAt:   task.CompletedAt,
 	}
 
 	data, err := json.MarshalIndent(meta, "", "  ")

@@ -870,17 +870,22 @@ func TestSaveTaskMetadata_NilS3(t *testing.T) {
 func TestSaveTaskMetadata_JSONSerialization(t *testing.T) {
 	now := time.Now().UTC()
 	meta := taskMetadata{
-		ID:          "bf_ser",
-		Status:      models.TaskStatusCompleted,
-		TaskMode:    "code",
-		Harness:     models.HarnessClaudeCode,
-		RepoURL:     "https://github.com/test/repo",
-		Branch:      "feature",
-		Prompt:      "implement feature",
-		CreatePR:    true,
-		PRURL:       "https://github.com/test/repo/pull/5",
-		CreatedAt:   now,
-		CompletedAt: &now,
+		ID:            "bf_ser",
+		Status:        models.TaskStatusCompleted,
+		TaskMode:      "code",
+		Harness:       models.HarnessClaudeCode,
+		RepoURL:       "https://github.com/test/repo",
+		Branch:        "feature",
+		Prompt:        "implement feature",
+		Effort:        "high",
+		MaxBudgetUSD:  5.0,
+		MaxTurns:      50,
+		MaxRuntimeMin: 30,
+		CreatePR:      true,
+		SelfReview:    true,
+		PRURL:         "https://github.com/test/repo/pull/5",
+		CreatedAt:     now,
+		CompletedAt:   &now,
 	}
 
 	data, err := json.MarshalIndent(meta, "", "  ")
@@ -904,6 +909,21 @@ func TestSaveTaskMetadata_JSONSerialization(t *testing.T) {
 	}
 	if !decoded.CreatePR {
 		t.Error("CreatePR should be true")
+	}
+	if !decoded.SelfReview {
+		t.Error("SelfReview should be true")
+	}
+	if decoded.Effort != "high" {
+		t.Errorf("Effort = %q, want high", decoded.Effort)
+	}
+	if decoded.MaxBudgetUSD != 5.0 {
+		t.Errorf("MaxBudgetUSD = %v, want 5.0", decoded.MaxBudgetUSD)
+	}
+	if decoded.MaxTurns != 50 {
+		t.Errorf("MaxTurns = %d, want 50", decoded.MaxTurns)
+	}
+	if decoded.MaxRuntimeMin != 30 {
+		t.Errorf("MaxRuntimeMin = %d, want 30", decoded.MaxRuntimeMin)
 	}
 }
 
