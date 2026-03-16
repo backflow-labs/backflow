@@ -79,6 +79,16 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "review mode pr url with repo_url is conflict",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/42", RepoURL: "https://github.com/test/repo"},
+			wantErr: true,
+		},
+		{
+			name:    "review mode pr url with pr number is conflict",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/42", ReviewPRNumber: 42},
+			wantErr: true,
+		},
+		{
 			name:    "invalid task mode",
 			req:     CreateTaskRequest{TaskMode: "deploy", RepoURL: "https://github.com/test/repo", Prompt: "Fix"},
 			wantErr: true,
@@ -95,7 +105,7 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 	}
 }
 
-func TestParseGitHubPRURL(t *testing.T) {
+func TestParsePullRequestURL(t *testing.T) {
 	tests := []struct {
 		name       string
 		url        string
@@ -134,9 +144,9 @@ func TestParseGitHubPRURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo, number, err := ParseGitHubPRURL(tt.url)
+			repo, number, err := ParsePullRequestURL(tt.url)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseGitHubPRURL() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ParsePullRequestURL() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {

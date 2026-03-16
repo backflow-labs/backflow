@@ -134,9 +134,9 @@ type CreateTaskRequest struct {
 	EnvVars         map[string]string `json:"env_vars,omitempty"`
 }
 
-// ParseGitHubPRURL extracts the repository URL and PR number from a GitHub PR URL.
+// ParsePullRequestURL extracts the repository URL and PR number from a GitHub PR URL.
 // It accepts URLs like https://github.com/owner/repo/pull/123 (with optional trailing path).
-func ParseGitHubPRURL(prURL string) (repoURL string, prNumber int, err error) {
+func ParsePullRequestURL(prURL string) (repoURL string, prNumber int, err error) {
 	u, err := url.Parse(prURL)
 	if err != nil {
 		return "", 0, fmt.Errorf("invalid PR URL: %w", err)
@@ -173,17 +173,16 @@ func (r *CreateTaskRequest) Validate() error {
 		}
 	case TaskModeReview:
 		if r.ReviewPRURL != "" {
+			if r.RepoURL != "" || r.ReviewPRNumber > 0 {
+				return fmt.Errorf("review_pr_url cannot be combined with repo_url or review_pr_number; use one or the other")
+			}
 			// Parse the PR URL to derive repo_url and review_pr_number
-			repoURL, prNumber, err := ParseGitHubPRURL(r.ReviewPRURL)
+			repoURL, prNumber, err := ParsePullRequestURL(r.ReviewPRURL)
 			if err != nil {
 				return err
 			}
-			if r.RepoURL == "" {
-				r.RepoURL = repoURL
-			}
-			if r.ReviewPRNumber == 0 {
-				r.ReviewPRNumber = prNumber
-			}
+			r.RepoURL = repoURL
+			r.ReviewPRNumber = prNumber
 		} else if r.RepoURL != "" && r.ReviewPRNumber > 0 {
 			// Backward compat: construct the PR URL from repo_url + review_pr_number
 			r.ReviewPRURL = fmt.Sprintf("%s/pull/%d", strings.TrimRight(r.RepoURL, "/"), r.ReviewPRNumber)
