@@ -62,7 +62,7 @@ The task is created with a `reply_channel` of `sms:+15559876543` so results go b
 
 ## 6. Deployment Notes
 
-- Twilio webhooks require a **publicly reachable URL** — use a tunnel (ngrok) for local dev
+- Twilio webhooks require a **publicly reachable URL** — use `cloudflared tunnel --url http://localhost:8080` for local dev (no account needed, see the [Local Tunnel](../README.md#local-tunnel-for-smswebhooks) section in the README)
 - The Twilio integration uses raw HTTP (no SDK dependency), with 3 retries and exponential backoff
 - `max_subscription` auth mode runs one agent at a time, so inbound SMS tasks queue up serially
 - `max_subscription` is not supported in `fargate` mode
