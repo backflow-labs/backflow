@@ -1,6 +1,6 @@
 # Backflow
 
-Background agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral Docker containers on AWS EC2 spot instances. POST a task (repo + prompt), get back a branch with commits and optionally a PR.
+Background agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral containers. POST a task (repo + prompt), get back a branch with commits and optionally a PR. Three operating modes: EC2 spot instances, local Docker, or ECS Fargate.
 
 ## Prerequisites
 
@@ -18,7 +18,10 @@ cp .env.example .env
 # Edit .env — at minimum set ANTHROPIC_API_KEY and GITHUB_TOKEN
 ```
 
-For local-only development without AWS, set `BACKFLOW_MODE=local` in `.env`. This skips EC2 provisioning and runs containers on the local Docker daemon.
+Set `BACKFLOW_MODE` in `.env`:
+- **`local`** — Runs containers on the local Docker daemon, no AWS needed
+- **`ec2`** (default) — Provisions EC2 spot instances
+- **`fargate`** — Runs each task as a standalone ECS Fargate task
 
 ### Build and Run
 
@@ -97,6 +100,30 @@ make docker-deploy
 
 Builds a multi-arch image (amd64 + arm64) and pushes to ECR.
 
+## Fargate Mode
+
+Set `BACKFLOW_MODE=fargate` to run each task as a standalone ECS Fargate task. No EC2 instances to manage — capacity is tracked through a synthetic instance in SQLite.
+
+### Prerequisites
+
+- ECS cluster with Fargate capacity providers (include `FARGATE_SPOT` if using spot)
+- Task definition with `awslogs` log driver pointing to your CloudWatch log group
+- Subnets with egress for git/GitHub/API traffic
+- IAM execution and task roles for image pull, log delivery, and repo access
+
+### Quick start
+
+```bash
+# Add to .env
+BACKFLOW_MODE=fargate
+BACKFLOW_ECS_CLUSTER=backflow
+BACKFLOW_ECS_TASK_DEFINITION=backflow-agent
+BACKFLOW_ECS_SUBNETS=subnet-abc123,subnet-def456
+BACKFLOW_CLOUDWATCH_LOG_GROUP=/ecs/backflow
+```
+
+`max_subscription` auth is not supported in Fargate mode. Fargate Spot interruptions are detected and tasks are automatically re-queued.
+
 ## Submitting Tasks
 
 ```bash
@@ -151,11 +178,11 @@ aws ssm start-session --target i-0abc...
 
 ### Task Lifecycle
 
-`pending` → `provisioning` → `running` → `completed` | `failed` | `interrupted` | `cancelled`
+`pending` → `provisioning` → `running` → `completed` | `failed` | `interrupted` | `cancelled` | `recovering` → `pending` | `running` | `completed` | `failed`
 
 ### Instance Lifecycle
 
-`pending` → `running` → idle 5 min → `terminated`. Spot interruptions automatically re-queue affected tasks.
+`pending` → `running` → `draining` → `terminated`. Spot interruptions (EC2 and Fargate Spot) automatically re-queue affected tasks.
 
 ## API Reference
 
@@ -198,7 +225,7 @@ Set `BACKFLOW_WEBHOOK_URL` in `.env`:
 }
 ```
 
-Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`
+Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
 
 Filter with `BACKFLOW_WEBHOOK_EVENTS=task.completed,task.failed`.
 
@@ -206,9 +233,11 @@ Filter with `BACKFLOW_WEBHOOK_EVENTS=task.completed,task.failed`.
 
 All config is via environment variables (or `.env` file).
 
+### General
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKFLOW_MODE` | `ec2` | `ec2` or `local` |
+| `BACKFLOW_MODE` | `ec2` | `ec2`, `local`, or `fargate` |
 | `BACKFLOW_AUTH_MODE` | `api_key` | `api_key` or `max_subscription` |
 | `ANTHROPIC_API_KEY` | | Required for `api_key` mode |
 | `OPENAI_API_KEY` | | Required for `codex` harness |
@@ -216,20 +245,51 @@ All config is via environment variables (or `.env` file).
 | `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
 | `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
 | `BACKFLOW_DB_PATH` | `backflow.db` | SQLite database path |
-| `AWS_REGION` | `us-east-1` | AWS region |
-| `BACKFLOW_INSTANCE_TYPE` | `m7g.xlarge` | EC2 instance type |
-| `BACKFLOW_LAUNCH_TEMPLATE_ID` | | From `make setup-aws` |
-| `BACKFLOW_MAX_INSTANCES` | `5` | Max EC2 instances |
-| `BACKFLOW_CONTAINERS_PER_INSTANCE` | `1` | Containers per instance |
-| `BACKFLOW_CONTAINER_CPUS` | `2` | CPU cores per container |
-| `BACKFLOW_CONTAINER_MEMORY_GB` | `8` | Memory (GB) per container |
+| `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (sec) |
+
+### Agent defaults
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | Default harness (`claude_code` or `codex`) |
 | `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code harness |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex harness |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Default budget (USD) |
 | `BACKFLOW_DEFAULT_MAX_RUNTIME_MIN` | `30` | Default max runtime (min) |
 | `BACKFLOW_DEFAULT_MAX_TURNS` | `200` | Default max turns |
+| `BACKFLOW_CONTAINER_CPUS` | `2` | CPU cores per container |
+| `BACKFLOW_CONTAINER_MEMORY_GB` | `8` | Memory (GB) per container |
+
+### EC2 mode
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AWS_REGION` | `us-east-1` | AWS region |
+| `BACKFLOW_INSTANCE_TYPE` | `m7g.xlarge` | EC2 instance type |
+| `BACKFLOW_LAUNCH_TEMPLATE_ID` | | From `make setup-aws` |
+| `BACKFLOW_MAX_INSTANCES` | `5` | Max EC2 instances |
+| `BACKFLOW_CONTAINERS_PER_INSTANCE` | `1` | Containers per instance |
+| `DOCKER` | `docker` | Docker command (e.g. `sudo docker`) |
+
+### Fargate mode
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKFLOW_ECS_CLUSTER` | | ECS cluster name (required) |
+| `BACKFLOW_ECS_TASK_DEFINITION` | | ECS task definition ARN or family (required) |
+| `BACKFLOW_ECS_SUBNETS` | | Comma-separated subnet IDs (required) |
+| `BACKFLOW_CLOUDWATCH_LOG_GROUP` | | CloudWatch log group name (required) |
+| `BACKFLOW_ECS_SECURITY_GROUPS` | | Comma-separated security group IDs |
+| `BACKFLOW_ECS_LAUNCH_TYPE` | `FARGATE_SPOT` | `FARGATE` or `FARGATE_SPOT` |
+| `BACKFLOW_ECS_CONTAINER_NAME` | `backflow-agent` | Main container name in task definition |
+| `BACKFLOW_ECS_LOG_STREAM_PREFIX` | `ecs` | CloudWatch log stream prefix |
+| `BACKFLOW_ECS_ASSIGN_PUBLIC_IP` | `true` | Set `false` for private subnets with NAT |
+| `BACKFLOW_MAX_CONCURRENT_TASKS` | `5` | Max concurrent Fargate tasks |
+
+### Webhooks
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `BACKFLOW_WEBHOOK_URL` | | Webhook endpoint |
 | `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event filter |
-| `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (sec) |
-| `DOCKER` | `docker` | Docker command (e.g. `sudo docker`) |
+| `BACKFLOW_S3_BUCKET` | | S3 bucket for agent output storage |
