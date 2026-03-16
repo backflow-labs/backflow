@@ -38,28 +38,29 @@ func NewMessagingNotifier(inner Notifier, m messaging.Messenger, s store.Store, 
 
 func (m *MessagingNotifier) Notify(event Event) error {
 	// Always delegate to inner notifier first
-	if err := m.inner.Notify(event); err != nil {
-		log.Warn().Err(err).Str("event", string(event.Type)).Msg("inner notifier failed")
+	innerErr := m.inner.Notify(event)
+	if innerErr != nil {
+		log.Warn().Err(innerErr).Str("event", string(event.Type)).Msg("inner notifier failed")
 	}
 
 	// Check event filter
 	if m.events != nil && !m.events[event.Type] {
-		return nil
+		return innerErr
 	}
 
 	// Look up task to get reply channel
 	task, err := m.store.GetTask(context.Background(), event.TaskID)
 	if err != nil || task == nil {
-		return nil
+		return innerErr
 	}
 	if task.ReplyChannel == "" {
-		return nil
+		return innerErr
 	}
 
 	channel, err := parseReplyChannel(task.ReplyChannel)
 	if err != nil {
 		log.Warn().Err(err).Str("reply_channel", task.ReplyChannel).Msg("invalid reply channel")
-		return nil
+		return innerErr
 	}
 
 	body := formatEventMessage(event)
@@ -72,11 +73,11 @@ func (m *MessagingNotifier) Notify(event Event) error {
 		Body:    body,
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", event.TaskID).Msg("failed to send messaging notification")
-		return nil
+		return innerErr
 	}
 
 	log.Debug().Str("task_id", event.TaskID).Str("event", string(event.Type)).Msg("messaging notification sent")
-	return nil
+	return innerErr
 }
 
 // parseReplyChannel converts "sms:+15551234567" into a Channel.

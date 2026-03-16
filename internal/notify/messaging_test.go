@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,14 @@ type recordingNotifier struct {
 func (n *recordingNotifier) Notify(e Event) error {
 	n.events = append(n.events, e)
 	return nil
+}
+
+type failingNotifier struct {
+	err error
+}
+
+func (n *failingNotifier) Notify(Event) error {
+	return n.err
 }
 
 type recordingMessenger struct {
@@ -43,16 +52,22 @@ func (s *stubStore) GetTask(_ context.Context, id string) (*models.Task, error) 
 }
 
 // Unused Store methods
-func (s *stubStore) CreateTask(context.Context, *models.Task) error                                    { return nil }
-func (s *stubStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error)               { return nil, nil }
-func (s *stubStore) UpdateTask(context.Context, *models.Task) error                                    { return nil }
-func (s *stubStore) DeleteTask(context.Context, string) error                                          { return nil }
-func (s *stubStore) CreateInstance(context.Context, *models.Instance) error                            { return nil }
-func (s *stubStore) GetInstance(context.Context, string) (*models.Instance, error)                     { return nil, nil }
-func (s *stubStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) { return nil, nil }
-func (s *stubStore) UpdateInstance(context.Context, *models.Instance) error                            { return nil }
-func (s *stubStore) GetAllowedSender(context.Context, string, string) (*models.AllowedSender, error)  { return nil, nil }
-func (s *stubStore) Close() error                                                                      { return nil }
+func (s *stubStore) CreateTask(context.Context, *models.Task) error { return nil }
+func (s *stubStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error) {
+	return nil, nil
+}
+func (s *stubStore) UpdateTask(context.Context, *models.Task) error                { return nil }
+func (s *stubStore) DeleteTask(context.Context, string) error                      { return nil }
+func (s *stubStore) CreateInstance(context.Context, *models.Instance) error        { return nil }
+func (s *stubStore) GetInstance(context.Context, string) (*models.Instance, error) { return nil, nil }
+func (s *stubStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
+	return nil, nil
+}
+func (s *stubStore) UpdateInstance(context.Context, *models.Instance) error { return nil }
+func (s *stubStore) GetAllowedSender(context.Context, string, string) (*models.AllowedSender, error) {
+	return nil, nil
+}
+func (s *stubStore) Close() error { return nil }
 
 // --- tests ---
 
@@ -70,6 +85,21 @@ func TestMessagingNotifier_DelegatesToInner(t *testing.T) {
 	}
 	if inner.events[0].TaskID != "bf_123" {
 		t.Errorf("inner event task_id = %q", inner.events[0].TaskID)
+	}
+}
+
+func TestMessagingNotifier_PropagatesInnerError(t *testing.T) {
+	inner := &failingNotifier{err: errors.New("webhook failed")}
+	m := &recordingMessenger{}
+	s := &stubStore{tasks: map[string]*models.Task{}}
+
+	mn := NewMessagingNotifier(inner, m, s, nil)
+	err := mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_123", Timestamp: time.Now()})
+	if err == nil {
+		t.Fatal("expected inner error to be returned")
+	}
+	if err.Error() != "webhook failed" {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
