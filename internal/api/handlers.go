@@ -75,7 +75,6 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		AllowedTools:    req.AllowedTools,
 		ClaudeMD:        req.ClaudeMD,
 		EnvVars:         req.EnvVars,
-		ReplyChannel:    req.ReplyChannel,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -85,6 +84,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	task.RedactReplyChannel()
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -99,6 +99,7 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
+	task.RedactReplyChannel()
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -129,6 +130,9 @@ func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	if tasks == nil {
 		tasks = []*models.Task{}
+	}
+	for _, t := range tasks {
+		t.RedactReplyChannel()
 	}
 	writeJSON(w, http.StatusOK, tasks)
 }

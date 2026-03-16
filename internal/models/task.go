@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -74,6 +75,18 @@ type Task struct {
 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 }
 
+// RedactReplyChannel replaces the full reply channel (e.g. "sms:+15551234567")
+// with just the channel type (e.g. "sms") to avoid exposing phone numbers in
+// API responses.
+func (t *Task) RedactReplyChannel() {
+	if t.ReplyChannel == "" {
+		return
+	}
+	if idx := strings.Index(t.ReplyChannel, ":"); idx >= 0 {
+		t.ReplyChannel = t.ReplyChannel[:idx]
+	}
+}
+
 // AllowedToolsJSON returns the JSON representation for DB storage.
 func (t *Task) AllowedToolsJSON() string {
 	if len(t.AllowedTools) == 0 {
@@ -115,7 +128,6 @@ type CreateTaskRequest struct {
 	AllowedTools    []string          `json:"allowed_tools,omitempty"`
 	ClaudeMD        string            `json:"claude_md,omitempty"`
 	EnvVars         map[string]string `json:"env_vars,omitempty"`
-	ReplyChannel    string            `json:"reply_channel,omitempty"`
 }
 
 func (r *CreateTaskRequest) Validate() error {
