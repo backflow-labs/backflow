@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -839,6 +840,103 @@ func TestHandleInspectError_KillsAtMaxFailures(t *testing.T) {
 	types := n.eventTypes()
 	if len(types) != 1 || types[0] != notify.EventTaskFailed {
 		t.Errorf("expected [task.failed], got %v", types)
+	}
+}
+
+func TestSaveTaskMetadata_NilS3(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_meta_nil",
+		Status:      models.TaskStatusCompleted,
+		TaskMode:    "code",
+		Harness:     models.HarnessClaudeCode,
+		RepoURL:     "https://github.com/test/repo",
+		Branch:      "main",
+		Prompt:      "do something",
+		CreatePR:    true,
+		PRURL:       "https://github.com/test/repo/pull/1",
+		CreatedAt:   now,
+		CompletedAt: &now,
+	})
+
+	o := newTestOrchestrator(s, &mockNotifier{})
+	// o.s3 is nil — should be a no-op without panicking
+	task, _ := s.GetTask(context.Background(), "bf_meta_nil")
+	o.saveTaskMetadata(context.Background(), task)
+}
+
+func TestSaveTaskMetadata_JSONSerialization(t *testing.T) {
+	now := time.Now().UTC()
+	started := now.Add(-10 * time.Minute)
+	meta := taskMetadata{
+		ID:            "bf_ser",
+		Status:        models.TaskStatusCompleted,
+		TaskMode:      "code",
+		Harness:       models.HarnessClaudeCode,
+		RepoURL:       "https://github.com/test/repo",
+		Branch:        "feature",
+		Prompt:        "implement feature",
+		Model:         "claude-opus-4-6",
+		Effort:        "high",
+		MaxBudgetUSD:  10.0,
+		MaxRuntimeMin: 45,
+		MaxTurns:      200,
+		CreatePR:      true,
+		SelfReview:    true,
+		PRURL:         "https://github.com/test/repo/pull/5",
+		OutputURL:     "s3://bucket/tasks/bf_ser/agent_output.log",
+		CostUSD:       2.50,
+		RetryCount:    1,
+		CreatedAt:     now,
+		StartedAt:     &started,
+		CompletedAt:   &now,
+	}
+
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal metadata: %v", err)
+	}
+
+	var decoded taskMetadata
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal metadata: %v", err)
+	}
+
+	if decoded.ID != "bf_ser" {
+		t.Errorf("ID = %q, want bf_ser", decoded.ID)
+	}
+	if decoded.Status != models.TaskStatusCompleted {
+		t.Errorf("Status = %q, want completed", decoded.Status)
+	}
+	if decoded.PRURL != "https://github.com/test/repo/pull/5" {
+		t.Errorf("PRURL = %q, want PR URL", decoded.PRURL)
+	}
+	if !decoded.CreatePR {
+		t.Error("CreatePR should be true")
+	}
+	// Verify the additional analytics fields round-trip correctly
+	if decoded.Effort != "high" {
+		t.Errorf("Effort = %q, want high", decoded.Effort)
+	}
+	if decoded.MaxBudgetUSD != 10.0 {
+		t.Errorf("MaxBudgetUSD = %f, want 10.0", decoded.MaxBudgetUSD)
+	}
+	if decoded.MaxRuntimeMin != 45 {
+		t.Errorf("MaxRuntimeMin = %d, want 45", decoded.MaxRuntimeMin)
+	}
+	if decoded.MaxTurns != 200 {
+		t.Errorf("MaxTurns = %d, want 200", decoded.MaxTurns)
+	}
+	if !decoded.SelfReview {
+		t.Error("SelfReview should be true")
+	}
+	if decoded.CostUSD != 2.50 {
+		t.Errorf("CostUSD = %f, want 2.50", decoded.CostUSD)
+	}
+	if decoded.OutputURL != "s3://bucket/tasks/bf_ser/agent_output.log" {
+		t.Errorf("OutputURL = %q, want s3 URL", decoded.OutputURL)
 	}
 }
 

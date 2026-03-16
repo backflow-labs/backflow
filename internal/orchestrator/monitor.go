@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -68,6 +69,7 @@ func (o *Orchestrator) monitorRunning(ctx context.Context) {
 		if status.Done {
 			o.saveAgentOutput(ctx, task)
 			o.handleCompletion(ctx, task, status)
+			o.saveTaskMetadata(ctx, task)
 		}
 	}
 }
@@ -184,6 +186,85 @@ func (o *Orchestrator) saveAgentOutput(ctx context.Context, task *models.Task) {
 
 	task.OutputURL = url
 	log.Debug().Str("task_id", task.ID).Str("url", url).Msg("saved agent output to S3")
+}
+
+// taskMetadata is the subset of task fields written to S3 after completion.
+// It excludes sensitive fields (EnvVars, ClaudeMD) but includes configuration
+// fields useful for analytics and post-mortem analysis.
+type taskMetadata struct {
+	ID            string            `json:"id"`
+	Status        models.TaskStatus `json:"status"`
+	TaskMode      string            `json:"task_mode"`
+	Harness       models.Harness    `json:"harness"`
+	RepoURL       string            `json:"repo_url"`
+	Branch        string            `json:"branch"`
+	TargetBranch  string            `json:"target_branch,omitempty"`
+	Prompt        string            `json:"prompt"`
+	Model         string            `json:"model,omitempty"`
+	Effort        string            `json:"effort,omitempty"`
+	MaxBudgetUSD  float64           `json:"max_budget_usd,omitempty"`
+	MaxRuntimeMin int               `json:"max_runtime_min,omitempty"`
+	MaxTurns      int               `json:"max_turns,omitempty"`
+	CreatePR      bool              `json:"create_pr"`
+	SelfReview    bool              `json:"self_review,omitempty"`
+	PRURL         string            `json:"pr_url,omitempty"`
+	OutputURL     string            `json:"output_url,omitempty"`
+	CostUSD       float64           `json:"cost_usd,omitempty"`
+	Error         string            `json:"error,omitempty"`
+	RetryCount    int               `json:"retry_count"`
+	CreatedAt     time.Time         `json:"created_at"`
+	StartedAt     *time.Time        `json:"started_at,omitempty"`
+	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
+}
+
+// saveTaskMetadata uploads a JSON summary of the completed task to S3.
+// Unlike saveAgentOutput, this always runs when S3 is configured — metadata
+// is useful for tracking regardless of the save_agent_output setting.
+func (o *Orchestrator) saveTaskMetadata(ctx context.Context, task *models.Task) {
+	if o.s3 == nil {
+		return
+	}
+
+	meta := taskMetadata{
+		ID:            task.ID,
+		Status:        task.Status,
+		TaskMode:      task.TaskMode,
+		Harness:       task.Harness,
+		RepoURL:       task.RepoURL,
+		Branch:        task.Branch,
+		TargetBranch:  task.TargetBranch,
+		Prompt:        task.Prompt,
+		Model:         task.Model,
+		Effort:        task.Effort,
+		MaxBudgetUSD:  task.MaxBudgetUSD,
+		MaxRuntimeMin: task.MaxRuntimeMin,
+		MaxTurns:      task.MaxTurns,
+		CreatePR:      task.CreatePR,
+		SelfReview:    task.SelfReview,
+		PRURL:         task.PRURL,
+		OutputURL:     task.OutputURL,
+		CostUSD:       task.CostUSD,
+		Error:         task.Error,
+		RetryCount:    task.RetryCount,
+		CreatedAt:     task.CreatedAt,
+		StartedAt:     task.StartedAt,
+		CompletedAt:   task.CompletedAt,
+	}
+
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to marshal task metadata")
+		return
+	}
+
+	key := fmt.Sprintf("tasks/%s/task_metadata.json", task.ID)
+	_, err = o.s3.UploadJSON(ctx, key, data)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to upload task metadata to S3")
+		return
+	}
+
+	log.Debug().Str("task_id", task.ID).Msg("saved task metadata to S3")
 }
 
 // killTask stops the container, marks the task as failed, and releases the slot.

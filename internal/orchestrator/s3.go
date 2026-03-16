@@ -35,9 +35,17 @@ func NewS3Uploader(ctx context.Context, cfg *config.Config) (*S3Uploader, error)
 	}, nil
 }
 
-// Upload stores data in S3 and returns the s3:// URL.
+// Upload stores data in S3 with text/plain content type and returns the s3:// URL.
 func (u *S3Uploader) Upload(ctx context.Context, key string, data []byte) (string, error) {
-	contentType := "text/plain"
+	return u.upload(ctx, key, data, "text/plain")
+}
+
+// UploadJSON stores JSON data in S3 with application/json content type.
+func (u *S3Uploader) UploadJSON(ctx context.Context, key string, data []byte) (string, error) {
+	return u.upload(ctx, key, data, "application/json")
+}
+
+func (u *S3Uploader) upload(ctx context.Context, key string, data []byte, contentType string) (string, error) {
 	_, err := u.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &u.bucket,
 		Key:         &key,
