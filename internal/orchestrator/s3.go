@@ -12,6 +12,14 @@ import (
 	"github.com/backflow-labs/backflow/internal/config"
 )
 
+// s3Client is the interface used by the orchestrator and Fargate manager to
+// upload data to S3. S3Uploader is the production implementation.
+type s3Client interface {
+	Upload(ctx context.Context, key string, data []byte) (string, error)
+	UploadJSON(ctx context.Context, key string, data []byte) (string, error)
+	PresignGetURL(ctx context.Context, key string, expiry time.Duration) (string, error)
+}
+
 // S3Uploader uploads data to S3 (agent output, offloaded task config).
 type S3Uploader struct {
 	client *s3.Client
