@@ -77,7 +77,11 @@ func requestURL(r *http.Request) string {
 	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
 		host = fwdHost
 	}
-	return scheme + "://" + host + r.URL.Path
+	u := scheme + "://" + host + r.URL.Path
+	if r.URL.RawQuery != "" {
+		u += "?" + r.URL.RawQuery
+	}
+	return u
 }
 
 // InboundHandler returns an http.HandlerFunc that processes inbound SMS from Twilio.
