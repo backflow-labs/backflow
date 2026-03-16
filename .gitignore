@@ -6,3 +6,4 @@ bin/
 *.exe
 mise.toml
 .backflow/
+claude_output.log
