@@ -16,6 +16,7 @@ import (
 // ContainerStatus represents the current state of an agent container.
 type ContainerStatus struct {
 	Done       bool
+	Complete   bool
 	ExitCode   int
 	NeedsInput bool
 	Question   string
@@ -227,19 +228,24 @@ func parseInspectOutput(output string) (ContainerStatus, error) {
 // enrichFromStatusJSON reads the agent's status.json from the container and
 // merges its fields into the ContainerStatus.
 func (m *DockerManager) enrichFromStatusJSON(ctx context.Context, instanceID, containerID string, status *ContainerStatus) {
-	cmd := fmt.Sprintf("docker cp %s:/home/agent/workspace/status.json /dev/stdout 2>/dev/null", containerID)
+	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/status.json \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", containerID)
 	statusJSON, err := m.runCommand(ctx, instanceID, cmd)
 	if err != nil {
+		log.Warn().Err(err).Str("container", containerID[:12]).Msg("failed to read status.json from container")
 		return
 	}
 
 	var agent agentStatus
-	if json.Unmarshal([]byte(statusJSON), &agent) != nil {
+	if err := json.Unmarshal([]byte(statusJSON), &agent); err != nil {
+		log.Warn().Err(err).Str("container", containerID[:12]).Str("raw", statusJSON[:min(len(statusJSON), 200)]).Msg("failed to parse status.json")
 		return
 	}
 
+	log.Debug().Str("container", containerID[:12]).Bool("complete", agent.Complete).Bool("needs_input", agent.NeedsInput).Str("error", agent.Error).Msg("read status.json")
+
 	status.NeedsInput = agent.NeedsInput
 	status.Question = agent.Question
+	status.Complete = agent.Complete
 	status.PRURL = agent.PRURL
 	if agent.Error != "" {
 		status.Error = agent.Error

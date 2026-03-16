@@ -27,6 +27,7 @@ type Orchestrator struct {
 	docker   dockerClient
 	scaler   scaler
 	spot     *SpotHandler
+	s3       *S3Uploader
 
 	mu              sync.Mutex
 	running         int
@@ -34,7 +35,7 @@ type Orchestrator struct {
 	inspectFailures map[string]int // task ID -> consecutive inspect failure count
 }
 
-func New(s store.Store, cfg *config.Config, notifier notify.Notifier) *Orchestrator {
+func New(s store.Store, cfg *config.Config, notifier notify.Notifier, s3 *S3Uploader) *Orchestrator {
 	docker := NewDockerManager(cfg)
 
 	o := &Orchestrator{
@@ -44,6 +45,7 @@ func New(s store.Store, cfg *config.Config, notifier notify.Notifier) *Orchestra
 		docker:          docker,
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
+		s3:              s3,
 	}
 
 	if cfg.Mode == config.ModeLocal {

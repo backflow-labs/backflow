@@ -166,6 +166,57 @@ func TestHandleCompletion_Success(t *testing.T) {
 	}
 }
 
+func TestHandleCompletion_CompleteFlagOverridesExitCode(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_complete_flag",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "do something",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+		Error:       "previous error",
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_complete_flag")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		ExitCode: 1,
+		PRURL:    "https://github.com/test/repo/pull/2",
+	})
+
+	task, _ = s.GetTask(context.Background(), "bf_complete_flag")
+	if task.Status != models.TaskStatusCompleted {
+		t.Errorf("status = %q, want completed", task.Status)
+	}
+	if task.Error != "" {
+		t.Errorf("error = %q, want empty", task.Error)
+	}
+	if task.PRURL != "https://github.com/test/repo/pull/2" {
+		t.Errorf("PRURL = %q, want PR URL", task.PRURL)
+	}
+
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskCompleted {
+		t.Errorf("expected [task.completed], got %v", types)
+	}
+}
+
 func TestHandleCompletion_NeedsInput(t *testing.T) {
 	s := newMockStore()
 	now := time.Now().UTC()
@@ -516,6 +567,53 @@ func TestMonitorRunning_Completed(t *testing.T) {
 	task, _ := s.GetTask(context.Background(), "bf_done")
 	if task.Status != models.TaskStatusCompleted {
 		t.Errorf("status = %q, want completed", task.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskCompleted {
+		t.Errorf("expected [task.completed], got %v", types)
+	}
+}
+
+func TestMonitorRunning_CompletedFromStatusFile(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_done_status",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "finish me",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	mock := &mockDockerManager{
+		inspectResults: map[string]ContainerStatus{
+			"local/cont1": {Done: true, Complete: true, ExitCode: 1, PRURL: "https://github.com/test/repo/pull/43"},
+		},
+	}
+	o := newTestOrchestrator(s, n, withDocker(mock))
+	o.running = 1
+
+	o.monitorRunning(context.Background())
+
+	task, _ := s.GetTask(context.Background(), "bf_done_status")
+	if task.Status != models.TaskStatusCompleted {
+		t.Errorf("status = %q, want completed", task.Status)
+	}
+	if task.Error != "" {
+		t.Errorf("error = %q, want empty", task.Error)
 	}
 	if o.running != 0 {
 		t.Errorf("running = %d, want 0", o.running)

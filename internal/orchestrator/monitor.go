@@ -66,6 +66,7 @@ func (o *Orchestrator) monitorRunning(ctx context.Context) {
 		delete(o.inspectFailures, task.ID)
 
 		if status.Done {
+			o.saveAgentOutput(ctx, task)
 			o.handleCompletion(ctx, task, status)
 		}
 	}
@@ -107,8 +108,9 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	task.PRURL = status.PRURL
 
 	switch {
-	case status.ExitCode == 0:
+	case status.Complete || (status.ExitCode == 0 && !status.NeedsInput):
 		task.Status = models.TaskStatusCompleted
+		task.Error = ""
 		o.notifier.Notify(notify.Event{
 			Type:         notify.EventTaskCompleted,
 			TaskID:       task.ID,
@@ -148,6 +150,31 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	o.releaseSlot(ctx, task)
 
 	log.Info().Str("task_id", task.ID).Str("status", string(task.Status)).Msg("task completed")
+}
+
+// saveAgentOutput extracts the agent's output log from the container and uploads
+// it to S3 if the task has save_agent_output enabled and S3 is configured.
+func (o *Orchestrator) saveAgentOutput(ctx context.Context, task *models.Task) {
+	if !task.SaveAgentOutput || o.s3 == nil {
+		return
+	}
+
+	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/claude_output.log \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", task.ContainerID)
+	data, err := o.docker.(*DockerManager).runCommand(ctx, task.InstanceID, cmd)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to extract agent output log")
+		return
+	}
+
+	key := fmt.Sprintf("tasks/%s/agent_output.log", task.ID)
+	url, err := o.s3.Upload(ctx, key, []byte(data))
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to upload agent output to S3")
+		return
+	}
+
+	task.OutputURL = url
+	log.Debug().Str("task_id", task.ID).Str("url", url).Msg("saved agent output to S3")
 }
 
 // killTask stops the container, marks the task as failed, and releases the slot.

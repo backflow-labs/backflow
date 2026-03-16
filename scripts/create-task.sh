@@ -39,6 +39,7 @@ Options:
   --claude-md <text>      Extra CLAUDE.md content to inject
   --context <text>        Additional context for the prompt
   --self-review           Enable self-review after PR creation
+  --no-save-output        Skip saving agent output to S3
   --env <KEY=VALUE>       Environment variable (can repeat)
 USAGE
     exit 1
@@ -60,7 +61,7 @@ else
 fi
 
 # Defaults
-HARNESS=""
+HARNESS="codex"
 BRANCH=""
 TARGET_BRANCH=""
 MODEL=""
@@ -70,6 +71,7 @@ RUNTIME=""
 TURNS=""
 CREATE_PR=true
 SELF_REVIEW=false
+SAVE_AGENT_OUTPUT=true
 PR_TITLE=""
 PR_BODY=""
 CLAUDE_MD=""
@@ -95,6 +97,7 @@ while [ $# -gt 0 ]; do
         --runtime)      RUNTIME="$2"; shift 2 ;;
         --turns)        TURNS="$2"; shift 2 ;;
         --no-pr)        CREATE_PR=false; shift ;;
+        --no-save-output) SAVE_AGENT_OUTPUT=false; shift ;;
         --self-review)  SELF_REVIEW=true; shift ;;
         --pr-title)     PR_TITLE="$2"; shift 2 ;;
         --pr-body)      PR_BODY="$2"; shift 2 ;;
@@ -125,6 +128,7 @@ JSON=$(jq -n \
     --arg turns "$TURNS" \
     --argjson create_pr "$CREATE_PR" \
     --argjson self_review "$SELF_REVIEW" \
+    --argjson save_agent_output "$SAVE_AGENT_OUTPUT" \
     --arg pr_title "$PR_TITLE" \
     --arg pr_body "$PR_BODY" \
     --arg claude_md "$CLAUDE_MD" \
@@ -133,7 +137,8 @@ JSON=$(jq -n \
         repo_url: $repo_url,
         prompt: $prompt,
         create_pr: $create_pr,
-        self_review: $self_review
+        self_review: $self_review,
+        save_agent_output: $save_agent_output
     }
     + if $harness != "" then {harness: $harness} else {} end
     + if $branch != "" then {branch: $branch} else {} end
