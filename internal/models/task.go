@@ -37,38 +37,40 @@ const (
 )
 
 type Task struct {
-	ID             string            `json:"id"`
-	Status         TaskStatus        `json:"status"`
-	TaskMode       string            `json:"task_mode"`
-	Harness        Harness           `json:"harness"`
-	RepoURL        string            `json:"repo_url"`
-	Branch         string            `json:"branch"`
-	TargetBranch   string            `json:"target_branch"`
-	ReviewPRNumber int               `json:"review_pr_number,omitempty"`
-	Prompt         string            `json:"prompt"`
-	Context        string            `json:"context,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	Effort         string            `json:"effort,omitempty"`
-	MaxBudgetUSD   float64           `json:"max_budget_usd,omitempty"`
-	MaxRuntimeMin  int               `json:"max_runtime_min,omitempty"`
-	MaxTurns       int               `json:"max_turns,omitempty"`
-	CreatePR       bool              `json:"create_pr"`
-	SelfReview     bool              `json:"self_review"`
-	PRTitle        string            `json:"pr_title,omitempty"`
-	PRBody         string            `json:"pr_body,omitempty"`
-	PRURL          string            `json:"pr_url,omitempty"`
-	AllowedTools   []string          `json:"allowed_tools,omitempty"`
-	ClaudeMD       string            `json:"claude_md,omitempty"`
-	EnvVars        map[string]string `json:"env_vars,omitempty"`
-	InstanceID     string            `json:"instance_id,omitempty"`
-	ContainerID    string            `json:"container_id,omitempty"`
-	RetryCount     int               `json:"retry_count"`
-	CostUSD        float64           `json:"cost_usd,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	StartedAt      *time.Time        `json:"started_at,omitempty"`
-	CompletedAt    *time.Time        `json:"completed_at,omitempty"`
+	ID              string            `json:"id"`
+	Status          TaskStatus        `json:"status"`
+	TaskMode        string            `json:"task_mode"`
+	Harness         Harness           `json:"harness"`
+	RepoURL         string            `json:"repo_url"`
+	Branch          string            `json:"branch"`
+	TargetBranch    string            `json:"target_branch"`
+	ReviewPRNumber  int               `json:"review_pr_number,omitempty"`
+	Prompt          string            `json:"prompt"`
+	Context         string            `json:"context,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	Effort          string            `json:"effort,omitempty"`
+	MaxBudgetUSD    float64           `json:"max_budget_usd,omitempty"`
+	MaxRuntimeMin   int               `json:"max_runtime_min,omitempty"`
+	MaxTurns        int               `json:"max_turns,omitempty"`
+	CreatePR        bool              `json:"create_pr"`
+	SelfReview      bool              `json:"self_review"`
+	PRTitle         string            `json:"pr_title,omitempty"`
+	PRBody          string            `json:"pr_body,omitempty"`
+	PRURL           string            `json:"pr_url,omitempty"`
+	SaveAgentOutput bool              `json:"save_agent_output"`
+	OutputURL       string            `json:"output_url,omitempty"`
+	AllowedTools    []string          `json:"allowed_tools,omitempty"`
+	ClaudeMD        string            `json:"claude_md,omitempty"`
+	EnvVars         map[string]string `json:"env_vars,omitempty"`
+	InstanceID      string            `json:"instance_id,omitempty"`
+	ContainerID     string            `json:"container_id,omitempty"`
+	RetryCount      int               `json:"retry_count"`
+	CostUSD         float64           `json:"cost_usd,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	StartedAt       *time.Time        `json:"started_at,omitempty"`
+	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 }
 
 // AllowedToolsJSON returns the JSON representation for DB storage.
@@ -91,26 +93,27 @@ func (t *Task) EnvVarsJSON() string {
 
 // CreateTaskRequest is the API input for creating a task.
 type CreateTaskRequest struct {
-	TaskMode       string            `json:"task_mode,omitempty"`
-	Harness        string            `json:"harness,omitempty"`
-	RepoURL        string            `json:"repo_url"`
-	Branch         string            `json:"branch,omitempty"`
-	TargetBranch   string            `json:"target_branch,omitempty"`
-	ReviewPRNumber int               `json:"review_pr_number,omitempty"`
-	Prompt         string            `json:"prompt,omitempty"`
-	Context        string            `json:"context,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	Effort         string            `json:"effort,omitempty"`
-	MaxBudgetUSD   float64           `json:"max_budget_usd,omitempty"`
-	MaxRuntimeMin  int               `json:"max_runtime_min,omitempty"`
-	MaxTurns       int               `json:"max_turns,omitempty"`
-	CreatePR       bool              `json:"create_pr"`
-	SelfReview     bool              `json:"self_review"`
-	PRTitle        string            `json:"pr_title,omitempty"`
-	PRBody         string            `json:"pr_body,omitempty"`
-	AllowedTools   []string          `json:"allowed_tools,omitempty"`
-	ClaudeMD       string            `json:"claude_md,omitempty"`
-	EnvVars        map[string]string `json:"env_vars,omitempty"`
+	TaskMode        string            `json:"task_mode,omitempty"`
+	Harness         string            `json:"harness,omitempty"`
+	RepoURL         string            `json:"repo_url"`
+	Branch          string            `json:"branch,omitempty"`
+	TargetBranch    string            `json:"target_branch,omitempty"`
+	ReviewPRNumber  int               `json:"review_pr_number,omitempty"`
+	Prompt          string            `json:"prompt,omitempty"`
+	Context         string            `json:"context,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	Effort          string            `json:"effort,omitempty"`
+	MaxBudgetUSD    float64           `json:"max_budget_usd,omitempty"`
+	MaxRuntimeMin   int               `json:"max_runtime_min,omitempty"`
+	MaxTurns        int               `json:"max_turns,omitempty"`
+	CreatePR        bool              `json:"create_pr"`
+	SelfReview      bool              `json:"self_review"`
+	SaveAgentOutput *bool             `json:"save_agent_output,omitempty"`
+	PRTitle         string            `json:"pr_title,omitempty"`
+	PRBody          string            `json:"pr_body,omitempty"`
+	AllowedTools    []string          `json:"allowed_tools,omitempty"`
+	ClaudeMD        string            `json:"claude_md,omitempty"`
+	EnvVars         map[string]string `json:"env_vars,omitempty"`
 }
 
 func (r *CreateTaskRequest) Validate() error {

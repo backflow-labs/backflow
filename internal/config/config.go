@@ -65,6 +65,9 @@ type Config struct {
 	WebhookURL    string
 	WebhookEvents []string
 
+	// S3 (agent output storage)
+	S3Bucket string
+
 	// Database
 	DBPath string
 
@@ -105,6 +108,7 @@ func Load() (*Config, error) {
 		DefaultMaxBudget:      envFloat("BACKFLOW_DEFAULT_MAX_BUDGET", 10.0),
 		DefaultMaxRuntime:     time.Duration(envInt("BACKFLOW_DEFAULT_MAX_RUNTIME_MIN", 30)) * time.Minute,
 		DefaultMaxTurns:       envInt("BACKFLOW_DEFAULT_MAX_TURNS", 200),
+		S3Bucket:              os.Getenv("BACKFLOW_S3_BUCKET"),
 		GitHubToken:           os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:            os.Getenv("BACKFLOW_WEBHOOK_URL"),
 		DBPath:                envOr("BACKFLOW_DB_PATH", "backflow.db"),
