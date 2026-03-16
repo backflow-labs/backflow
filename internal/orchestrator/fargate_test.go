@@ -191,6 +191,30 @@ func TestFargateParseStatusFromLogEvents(t *testing.T) {
 	if status.PRURL != "https://github.com/test/repo/pull/1" {
 		t.Errorf("PRURL = %q, want PR URL", status.PRURL)
 	}
+	if status.Complete {
+		t.Error("Complete = true, want false")
+	}
+}
+
+func TestFargateParseStatusFromLogEvents_Complete(t *testing.T) {
+	events := []cloudwatchlogstypes.OutputLogEvent{
+		{Message: aws.String("==> running agent")},
+		{Message: aws.String(`BACKFLOW_STATUS_JSON:{"needs_input":false,"question":"","complete":true,"error":"","pr_url":"https://github.com/test/repo/pull/5"}`)},
+	}
+
+	status, ok := parseStatusFromLogEvents(events)
+	if !ok {
+		t.Fatal("expected status JSON to be parsed")
+	}
+	if !status.Complete {
+		t.Error("Complete = false, want true")
+	}
+	if status.NeedsInput {
+		t.Error("NeedsInput = true, want false")
+	}
+	if status.PRURL != "https://github.com/test/repo/pull/5" {
+		t.Errorf("PRURL = %q, want PR URL", status.PRURL)
+	}
 }
 
 func TestFargateBuildLogStreamName(t *testing.T) {

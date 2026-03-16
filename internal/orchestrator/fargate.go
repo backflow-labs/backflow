@@ -168,6 +168,7 @@ func (m *FargateManager) InspectContainer(ctx context.Context, _, containerID st
 		}
 		status.LogTail = formatLogEvents(events)
 		if agent, ok := parseStatusFromLogEvents(events); ok {
+			status.Complete = agent.Complete
 			status.NeedsInput = agent.NeedsInput
 			status.Question = agent.Question
 			status.PRURL = agent.PRURL
