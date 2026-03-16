@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint db-status setup-aws deps
+.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint db-status setup-aws setup-orchestrator deploy-orchestrator orchestrator-build orchestrator-build-local orchestrator-deploy deps
 
 BINARY := backflow
 PKG := github.com/backflow-labs/backflow
@@ -52,11 +52,29 @@ docker-deploy:
 		docker/ && \
 	echo "Pushed to $$ECR/backflow-agent:latest"
 
+orchestrator-build:
+	$(DOCKER) buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t backflow-orchestrator \
+		.
+
+orchestrator-build-local:
+	$(DOCKER) build -t backflow-orchestrator .
+
+orchestrator-deploy:
+	@$(ENV); bash scripts/deploy-orchestrator.sh
+
 db-status:
 	@bash scripts/db-status.sh
 
 setup-aws:
 	@$(ENV); bash scripts/setup-aws.sh
+
+setup-orchestrator:
+	@$(ENV); bash scripts/setup-orchestrator.sh
+
+deploy-orchestrator:
+	@$(ENV); bash scripts/deploy-orchestrator.sh
 
 deps:
 	go mod tidy

@@ -1,0 +1,13 @@
+bin/
+docker/
+docs/
+scripts/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.env
+.env*
+.git/
+.github/
+claude_output.log
