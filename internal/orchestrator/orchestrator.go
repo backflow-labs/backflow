@@ -93,13 +93,18 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 	o.scaler = localScaler{}
 
 	now := time.Now().UTC()
-	inst, _ := s.GetInstance(context.Background(), "fargate")
+	inst, err := s.GetInstance(context.Background(), "fargate")
+	if err != nil {
+		log.Error().Err(err).Msg("fargate init: failed to get synthetic instance")
+	}
 	if inst != nil {
 		inst.Status = models.InstanceStatusRunning
 		inst.MaxContainers = cfg.MaxConcurrentTasks
 		inst.RunningContainers = 0
 		inst.UpdatedAt = now
-		s.UpdateInstance(context.Background(), inst)
+		if err := s.UpdateInstance(context.Background(), inst); err != nil {
+			log.Error().Err(err).Msg("fargate init: failed to update synthetic instance")
+		}
 	} else {
 		inst = &models.Instance{
 			InstanceID:    "fargate",
@@ -109,11 +114,14 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}
-		s.CreateInstance(context.Background(), inst)
+		if err := s.CreateInstance(context.Background(), inst); err != nil {
+			log.Error().Err(err).Msg("fargate init: failed to create synthetic instance")
+		}
 	}
 
 	instances, err := s.ListInstances(context.Background(), nil)
 	if err != nil {
+		log.Error().Err(err).Msg("fargate init: failed to list instances for cleanup")
 		return
 	}
 	for _, other := range instances {
@@ -122,7 +130,9 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 		}
 		other.Status = models.InstanceStatusTerminated
 		other.RunningContainers = 0
-		s.UpdateInstance(context.Background(), other)
+		if err := s.UpdateInstance(context.Background(), other); err != nil {
+			log.Error().Err(err).Str("instance_id", other.InstanceID).Msg("fargate init: failed to terminate stale instance")
+		}
 	}
 }
 
