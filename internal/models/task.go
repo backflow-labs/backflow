@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -66,11 +67,24 @@ type Task struct {
 	ContainerID     string            `json:"container_id,omitempty"`
 	RetryCount      int               `json:"retry_count"`
 	CostUSD         float64           `json:"cost_usd,omitempty"`
+	ReplyChannel    string            `json:"reply_channel,omitempty"`
 	Error           string            `json:"error,omitempty"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	StartedAt       *time.Time        `json:"started_at,omitempty"`
 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
+}
+
+// RedactReplyChannel replaces the full reply channel (e.g. "sms:+15551234567")
+// with just the channel type (e.g. "sms") to avoid exposing phone numbers in
+// API responses.
+func (t *Task) RedactReplyChannel() {
+	if t.ReplyChannel == "" {
+		return
+	}
+	if idx := strings.Index(t.ReplyChannel, ":"); idx >= 0 {
+		t.ReplyChannel = t.ReplyChannel[:idx]
+	}
 }
 
 // AllowedToolsJSON returns the JSON representation for DB storage.

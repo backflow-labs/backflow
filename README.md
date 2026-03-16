@@ -30,6 +30,23 @@ Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
 Tests create temporary SQLite databases — no external services needed.
 
+### Local Tunnel (for SMS/webhooks)
+
+To receive inbound Twilio webhooks during local development, expose your server with [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps):
+
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:8080
+```
+
+cloudflared prints a public URL like `https://random-words.trycloudflare.com`. Set this as the webhook URL in the Twilio Console:
+
+```
+https://random-words.trycloudflare.com/webhooks/sms/inbound
+```
+
+No account required. The URL changes each time you restart the tunnel. See [docs/sms-setup.md](docs/sms-setup.md) for full SMS configuration.
+
 ## Submitting Tasks
 
 PRs are created by default. Use `--no-pr` to skip.

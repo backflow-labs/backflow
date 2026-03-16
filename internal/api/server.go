@@ -1,8 +1,6 @@
 package api
 
 import (
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -10,7 +8,7 @@ import (
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
-func NewServer(s store.Store, cfg *config.Config, logs LogFetcher) http.Handler {
+func NewServer(s store.Store, cfg *config.Config, logs LogFetcher) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)

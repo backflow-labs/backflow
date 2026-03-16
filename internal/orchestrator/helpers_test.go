@@ -119,6 +119,10 @@ func (s *mockStore) UpdateInstance(_ context.Context, inst *models.Instance) err
 	return nil
 }
 
+func (s *mockStore) GetAllowedSender(_ context.Context, channelType, address string) (*models.AllowedSender, error) {
+	return nil, nil
+}
+
 func (s *mockStore) Close() error { return nil }
 
 // --- Mock notifier ---
