@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -213,22 +214,9 @@ func TestFormatEventMessage(t *testing.T) {
 			if msg == "" {
 				t.Fatal("expected non-empty message")
 			}
-			if !contains(msg, tt.contains) {
+			if !strings.Contains(msg, tt.contains) {
 				t.Errorf("message %q does not contain %q", msg, tt.contains)
 			}
 		})
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || containsSubstring(s, substr))
-}
-
-func containsSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

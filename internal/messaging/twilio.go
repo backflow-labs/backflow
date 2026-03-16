@@ -61,16 +61,21 @@ func (t *TwilioMessenger) Send(ctx context.Context, msg OutboundMessage) error {
 			log.Warn().Err(err).Int("attempt", attempt+1).Msg("twilio request failed")
 			continue
 		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
 			log.Debug().Str("to", msg.Channel.Address).Msg("SMS sent")
 			return nil
 		}
-		lastErr = fmt.Errorf("twilio returned status %d", resp.StatusCode)
+
+		// Read error response body for diagnostics
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		resp.Body.Close()
+
+		lastErr = fmt.Errorf("twilio returned status %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-			log.Warn().Int("status", resp.StatusCode).Msg("twilio client error, not retrying")
+			log.Warn().Int("status", resp.StatusCode).Str("body", string(respBody)).Msg("twilio client error, not retrying")
 			return lastErr
 		}
 		log.Warn().Int("status", resp.StatusCode).Int("attempt", attempt+1).Msg("twilio server error, retrying")

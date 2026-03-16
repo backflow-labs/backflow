@@ -66,6 +66,9 @@ func validateTwilioSignature(authToken, reqURL, signature string, params url.Val
 
 // requestURL reconstructs the public-facing URL from the request, respecting
 // X-Forwarded-Proto and X-Forwarded-Host headers set by reverse proxies.
+// These headers are trusted unconditionally, so this endpoint must sit behind
+// a reverse proxy that sets them, or Twilio signature validation must be
+// enabled (which binds the URL to the webhook configured in Twilio's console).
 func requestURL(r *http.Request) string {
 	scheme := "https"
 	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
