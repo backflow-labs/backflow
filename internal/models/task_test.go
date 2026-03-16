@@ -49,23 +49,43 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "valid review mode",
+			name:    "valid review mode with pr url",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/42"},
+			wantErr: false,
+		},
+		{
+			name:    "valid review mode with pr url and prompt",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/10", Prompt: "Focus on security"},
+			wantErr: false,
+		},
+		{
+			name:    "valid review mode backward compat with repo_url and pr number",
 			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo", ReviewPRNumber: 42},
 			wantErr: false,
 		},
 		{
-			name:    "review mode with optional prompt",
-			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo", ReviewPRNumber: 10, Prompt: "Focus on security"},
-			wantErr: false,
-		},
-		{
-			name:    "review mode missing pr number",
+			name:    "review mode missing pr url and pr number",
 			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo"},
 			wantErr: true,
 		},
 		{
-			name:    "review mode negative pr number",
-			req:     CreateTaskRequest{TaskMode: "review", RepoURL: "https://github.com/test/repo", ReviewPRNumber: -1},
+			name:    "review mode invalid pr url",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo"},
+			wantErr: true,
+		},
+		{
+			name:    "review mode pr url with trailing path",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/42/files"},
+			wantErr: false,
+		},
+		{
+			name:    "review mode pr url with repo_url is conflict",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/42", RepoURL: "https://github.com/test/repo"},
+			wantErr: true,
+		},
+		{
+			name:    "review mode pr url with pr number is conflict",
+			req:     CreateTaskRequest{TaskMode: "review", ReviewPRURL: "https://github.com/test/repo/pull/42", ReviewPRNumber: 42},
 			wantErr: true,
 		},
 		{
@@ -82,6 +102,94 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestParsePullRequestURL(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		wantRepo   string
+		wantNumber int
+		wantErr    bool
+	}{
+		{
+			name:       "standard PR URL",
+			url:        "https://github.com/owner/repo/pull/123",
+			wantRepo:   "https://github.com/owner/repo",
+			wantNumber: 123,
+		},
+		{
+			name:       "PR URL with trailing path",
+			url:        "https://github.com/owner/repo/pull/42/files",
+			wantRepo:   "https://github.com/owner/repo",
+			wantNumber: 42,
+		},
+		{
+			name:    "missing pull segment",
+			url:     "https://github.com/owner/repo/issues/5",
+			wantErr: true,
+		},
+		{
+			name:    "non-numeric PR number",
+			url:     "https://github.com/owner/repo/pull/abc",
+			wantErr: true,
+		},
+		{
+			name:    "too short path",
+			url:     "https://github.com/owner",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, number, err := ParsePullRequestURL(tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParsePullRequestURL() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if repo != tt.wantRepo {
+					t.Errorf("repo = %q, want %q", repo, tt.wantRepo)
+				}
+				if number != tt.wantNumber {
+					t.Errorf("number = %d, want %d", number, tt.wantNumber)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateReviewDeriveFields(t *testing.T) {
+	// Validate should populate RepoURL and ReviewPRNumber from ReviewPRURL
+	req := CreateTaskRequest{
+		TaskMode:    "review",
+		ReviewPRURL: "https://github.com/test/repo/pull/99",
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate() unexpected error: %v", err)
+	}
+	if req.RepoURL != "https://github.com/test/repo" {
+		t.Errorf("RepoURL = %q, want %q", req.RepoURL, "https://github.com/test/repo")
+	}
+	if req.ReviewPRNumber != 99 {
+		t.Errorf("ReviewPRNumber = %d, want 99", req.ReviewPRNumber)
+	}
+}
+
+func TestValidateReviewBackwardCompatBuildsPRURL(t *testing.T) {
+	// Backward compat: repo_url + review_pr_number should derive review_pr_url
+	req := CreateTaskRequest{
+		TaskMode:       "review",
+		RepoURL:        "https://github.com/test/repo",
+		ReviewPRNumber: 7,
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate() unexpected error: %v", err)
+	}
+	if req.ReviewPRURL != "https://github.com/test/repo/pull/7" {
+		t.Errorf("ReviewPRURL = %q, want %q", req.ReviewPRURL, "https://github.com/test/repo/pull/7")
 	}
 }
 

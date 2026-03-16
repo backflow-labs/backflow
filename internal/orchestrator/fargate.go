@@ -233,6 +233,7 @@ func (m *FargateManager) buildECSEnvVars(task *models.Task) []ecstypes.KeyValueP
 		ecsEnvVar("REPO_URL", task.RepoURL),
 		ecsEnvVar("BRANCH", task.Branch),
 		ecsEnvVar("TARGET_BRANCH", task.TargetBranch),
+		ecsEnvVar("REVIEW_PR_URL", task.ReviewPRURL),
 		ecsEnvVar("REVIEW_PR_NUMBER", strconv.Itoa(task.ReviewPRNumber)),
 		ecsEnvVar("PROMPT", task.Prompt),
 		ecsEnvVar("MODEL", task.Model),

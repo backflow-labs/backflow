@@ -8,6 +8,7 @@ HARNESS="${HARNESS:-claude_code}"
 AUTH_MODE="${AUTH_MODE:-api_key}"
 BRANCH="${BRANCH:-backflow/${TASK_ID:-$(date +%s)}}"
 TARGET_BRANCH="${TARGET_BRANCH:-main}"
+REVIEW_PR_URL="${REVIEW_PR_URL:-}"
 REVIEW_PR_NUMBER="${REVIEW_PR_NUMBER:-0}"
 PROMPT="${PROMPT:-}"
 MODEL="${MODEL:-claude-opus-4-6}"
@@ -102,7 +103,7 @@ fi
 # REVIEW MODE — review an existing PR and post feedback
 # =============================================================================
 if [ "$TASK_MODE" = "review" ]; then
-    echo "==> PR Review mode: reviewing PR #${REVIEW_PR_NUMBER}"
+    echo "==> PR Review mode: reviewing ${REVIEW_PR_URL:-PR #${REVIEW_PR_NUMBER}}"
 
     # Clone repo (needed for gh CLI context)
     echo "==> Cloning ${REPO_URL} (depth 1)..."
@@ -121,15 +122,18 @@ if [ "$TASK_MODE" = "review" ]; then
 ${REVIEW_PROMPT}"
     fi
 
-    FULL_REVIEW_PROMPT="You are reviewing pull request #${REVIEW_PR_NUMBER} in this repository.
+    # Use the full PR URL in the prompt so the agent can reference it directly
+    PR_REF="${REVIEW_PR_URL:-${REVIEW_PR_NUMBER}}"
+
+    FULL_REVIEW_PROMPT="You are reviewing pull request ${REVIEW_PR_URL:-#${REVIEW_PR_NUMBER}} in this repository.
 
 ${REVIEW_PROMPT}
 
 Steps:
-1. Read the PR description: gh pr view ${REVIEW_PR_NUMBER}
-2. Read the full diff: gh pr diff ${REVIEW_PR_NUMBER}
-3. If needed, check out the PR branch to inspect specific files: gh pr checkout ${REVIEW_PR_NUMBER}
-4. Post your review using: gh pr review ${REVIEW_PR_NUMBER} --comment --body '<your review>'
+1. Read the PR description: gh pr view ${PR_REF}
+2. Read the full diff: gh pr diff ${PR_REF}
+3. If needed, check out the PR branch to inspect specific files: gh pr checkout ${PR_REF}
+4. Post your review using: gh pr review ${PR_REF} --comment --body '<your review>'
 
 Focus on:
 - Bugs and logic errors
@@ -186,8 +190,11 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
         echo "==> PR review failed (exit code: ${CLAUDE_EXIT})"
     fi
 
-    # Look up PR URL for status
-    PR_URL=$(gh pr view "$REVIEW_PR_NUMBER" --json url --jq '.url' 2>/dev/null || true)
+    # Use provided PR URL or look it up for status
+    PR_URL="${REVIEW_PR_URL:-}"
+    if [ -z "$PR_URL" ]; then
+        PR_URL=$(gh pr view "$REVIEW_PR_NUMBER" --json url --jq '.url' 2>/dev/null || true)
+    fi
 
     write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL"
     echo "==> Done (exit code: ${CLAUDE_EXIT})"

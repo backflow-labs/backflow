@@ -4,19 +4,22 @@ set -euo pipefail
 # Review an existing PR via the Backflow API
 #
 # Usage:
-#   ./scripts/review-pr.sh <repo_url> <pr_number> [options]
+#   ./scripts/review-pr.sh <pr_url> [options]
 #
 # Examples:
-#   ./scripts/review-pr.sh https://github.com/org/repo 42
-#   ./scripts/review-pr.sh https://github.com/org/repo 42 --model claude-sonnet-4-6
-#   ./scripts/review-pr.sh https://github.com/org/repo 42 --prompt "Focus on security issues"
-#   ./scripts/review-pr.sh https://github.com/org/repo 42 --budget 5 --effort low
+#   ./scripts/review-pr.sh https://github.com/org/repo/pull/42
+#   ./scripts/review-pr.sh https://github.com/org/repo/pull/42 --model claude-sonnet-4-6
+#   ./scripts/review-pr.sh https://github.com/org/repo/pull/42 --prompt "Focus on security issues"
+#   ./scripts/review-pr.sh https://github.com/org/repo/pull/42 --budget 5 --effort low
 
 BACKFLOW_URL="${BACKFLOW_URL:-http://localhost:8080}"
 
 usage() {
     cat <<USAGE
-Usage: $(basename "$0") <repo_url> <pr_number> [options]
+Usage: $(basename "$0") <pr_url> [options]
+
+Arguments:
+  pr_url                  Full PR URL (e.g. https://github.com/org/repo/pull/42)
 
 Options:
   --prompt <text>         Custom review instructions
@@ -32,16 +35,16 @@ USAGE
     exit 1
 }
 
-if [ $# -lt 2 ]; then
+if [ $# -lt 1 ]; then
     usage
 fi
 
-REPO_URL="$1"
-PR_NUMBER="$2"
-shift 2
+PR_URL="$1"
+shift
 
-if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
-    echo "Error: PR number must be a positive integer, got '$PR_NUMBER'" >&2
+# Validate that it looks like a PR URL
+if ! [[ "$PR_URL" =~ /pull/[0-9]+(/|$) ]]; then
+    echo "Error: Expected a PR URL like https://github.com/owner/repo/pull/123, got '$PR_URL'" >&2
     exit 1
 fi
 
@@ -73,8 +76,7 @@ done
 
 # Build JSON payload
 JSON=$(jq -n \
-    --arg repo_url "$REPO_URL" \
-    --argjson pr_number "$PR_NUMBER" \
+    --arg pr_url "$PR_URL" \
     --arg prompt "$PROMPT" \
     --arg model "$MODEL" \
     --arg effort "$EFFORT" \
@@ -85,8 +87,7 @@ JSON=$(jq -n \
     --arg context "$CONTEXT" \
     '{
         task_mode: "review",
-        repo_url: $repo_url,
-        review_pr_number: $pr_number,
+        review_pr_url: $pr_url,
         create_pr: false,
         self_review: false
     }
