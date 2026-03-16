@@ -15,15 +15,16 @@ import (
 
 // ContainerStatus represents the current state of an agent container.
 type ContainerStatus struct {
-	Done       bool
-	Complete   bool
-	ExitCode   int
-	NeedsInput bool
-	Question   string
-	Error      string
-	LogTail    string
-	PRURL      string
-	CostUSD    float64
+	Done           bool
+	Complete       bool
+	ExitCode       int
+	NeedsInput     bool
+	Question       string
+	Error          string
+	LogTail        string
+	PRURL          string
+	CostUSD        float64
+	ElapsedTimeSec int
 }
 
 // dockerClient is the interface used by the orchestrator to manage containers.
@@ -190,12 +191,13 @@ func envFlag(key, value string) string {
 // agentStatus is the JSON structure written by the agent entrypoint to
 // /home/agent/workspace/status.json inside the container.
 type agentStatus struct {
-	NeedsInput bool    `json:"needs_input"`
-	Question   string  `json:"question"`
-	Complete   bool    `json:"complete"`
-	Error      string  `json:"error"`
-	PRURL      string  `json:"pr_url"`
-	CostUSD    float64 `json:"cost_usd,omitempty"`
+	NeedsInput     bool    `json:"needs_input"`
+	Question       string  `json:"question"`
+	Complete       bool    `json:"complete"`
+	Error          string  `json:"error"`
+	PRURL          string  `json:"pr_url"`
+	CostUSD        float64 `json:"cost_usd,omitempty"`
+	ElapsedTimeSec int     `json:"elapsed_time_sec,omitempty"`
 }
 
 // parseInspectOutput parses the combined output of `docker inspect` +
@@ -251,6 +253,7 @@ func (m *DockerManager) enrichFromStatusJSON(ctx context.Context, instanceID, co
 	status.Complete = agent.Complete
 	status.PRURL = agent.PRURL
 	status.CostUSD = agent.CostUSD
+	status.ElapsedTimeSec = agent.ElapsedTimeSec
 	if agent.Error != "" {
 		status.Error = agent.Error
 	}

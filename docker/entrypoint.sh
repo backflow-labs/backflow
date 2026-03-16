@@ -54,6 +54,7 @@ write_status() {
     local error_msg="$5"
     local pr_url="${6:-}"
     local cost_usd="${7:-0}"
+    local elapsed_sec="${8:-0}"
 
     cat > "$STATUS_FILE" <<STATUSEOF
 {
@@ -63,7 +64,8 @@ write_status() {
   "question": $(echo "$question" | jq -R .),
   "error": $(echo "$error_msg" | jq -R .),
   "pr_url": $(echo "$pr_url" | jq -R .),
-  "cost_usd": ${cost_usd}
+  "cost_usd": ${cost_usd},
+  "elapsed_time_sec": ${elapsed_sec}
 }
 STATUSEOF
 
@@ -200,7 +202,8 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
     fi
 
     REVIEW_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
-    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL" "$REVIEW_COST"
+    REVIEW_ELAPSED=$(( $(date +%s) - START_TIME ))
+    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL" "$REVIEW_COST" "$REVIEW_ELAPSED"
     echo "==> Done (exit code: ${CLAUDE_EXIT})"
     exit $CLAUDE_EXIT
 fi
@@ -396,6 +399,12 @@ if [ $CLAUDE_EXIT -ne 0 ]; then
     ERROR_MSG=$(echo "$CLAUDE_OUTPUT" | tail -5)
 fi
 
+# --- Extract cost from agent output ---
+ACTUAL_COST="0"
+if [ "$HARNESS" != "codex" ]; then
+    ACTUAL_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+fi
+
 # --- Extract PR URL ---
 PR_URL=""
 if [ "$CREATE_PR" = "true" ] && [ "$COMPLETE" = "true" ]; then
@@ -411,9 +420,6 @@ fi
 # --- Comment prompt and metadata on PR ---
 if [ -n "$PR_URL" ]; then
     echo "==> Commenting task info on PR..."
-
-    # Extract actual cost from agent output (stream-json result line)
-    ACTUAL_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // empty' 2>/dev/null || true)
 
     # Compute elapsed time
     END_TIME=$(date +%s)
@@ -516,14 +522,9 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
     fi
 fi
 
-# --- Extract cost for status ---
-FINAL_COST="0"
-if [ "$HARNESS" != "codex" ]; then
-    FINAL_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
-fi
-
 # --- Write status ---
-write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL" "$FINAL_COST"
+ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
+write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL" "$ACTUAL_COST" "$ELAPSED_SEC"
 
 echo "==> Done (exit code: ${CLAUDE_EXIT})"
 exit $CLAUDE_EXIT

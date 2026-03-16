@@ -111,7 +111,9 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	if status.CostUSD > 0 {
 		task.CostUSD = status.CostUSD
 	}
-	if task.StartedAt != nil {
+	if status.ElapsedTimeSec > 0 {
+		task.ElapsedTimeSec = status.ElapsedTimeSec
+	} else if task.StartedAt != nil {
 		task.ElapsedTimeSec = int(now.Sub(*task.StartedAt).Seconds())
 	}
 
