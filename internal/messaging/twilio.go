@@ -69,7 +69,11 @@ func (t *TwilioMessenger) Send(ctx context.Context, msg OutboundMessage) error {
 			return nil
 		}
 		lastErr = fmt.Errorf("twilio returned status %d", resp.StatusCode)
-		log.Warn().Int("status", resp.StatusCode).Int("attempt", attempt+1).Msg("twilio non-2xx response")
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			log.Warn().Int("status", resp.StatusCode).Msg("twilio client error, not retrying")
+			return lastErr
+		}
+		log.Warn().Int("status", resp.StatusCode).Int("attempt", attempt+1).Msg("twilio server error, retrying")
 	}
 
 	return fmt.Errorf("twilio SMS failed after 3 attempts: %w", lastErr)
