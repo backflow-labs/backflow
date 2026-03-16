@@ -159,7 +159,7 @@ func (o *Orchestrator) saveAgentOutput(ctx context.Context, task *models.Task) {
 		return
 	}
 
-	cmd := fmt.Sprintf("docker cp %s:/home/agent/workspace/claude_output.log - 2>/dev/null | tar -xO", task.ContainerID)
+	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/claude_output.log \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", task.ContainerID)
 	data, err := o.docker.(*DockerManager).runCommand(ctx, task.InstanceID, cmd)
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to extract agent output log")
