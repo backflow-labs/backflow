@@ -109,7 +109,7 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			return
 		}
 
-		log.Info().Str("from", from).Str("body", body).Msg("sms: inbound message received")
+		log.Debug().Str("from", from).Str("body", body).Msg("sms: inbound message received")
 
 		// Look up sender
 		sender, err := db.GetAllowedSender(r.Context(), string(ChannelSMS), from)
