@@ -71,6 +71,20 @@ func TestParseTaskFromSMS(t *testing.T) {
 			wantRepo:   "http://github.com/org/repo",
 			wantPrompt: "Add a README",
 		},
+		{
+			name:        "slash in prompt not mistaken for URL",
+			body:        "Fix/update the config parser",
+			defaultRepo: "https://github.com/example/repo",
+			wantRepo:    "https://github.com/example/repo",
+			wantPrompt:  "Fix/update the config parser",
+		},
+		{
+			name:        "dot and slash in prompt not mistaken for URL",
+			body:        "refactor/api.handler cleanup",
+			defaultRepo: "https://github.com/example/repo",
+			wantRepo:    "https://github.com/example/repo",
+			wantPrompt:  "refactor/api.handler cleanup",
+		},
 	}
 
 	for _, tt := range tests {

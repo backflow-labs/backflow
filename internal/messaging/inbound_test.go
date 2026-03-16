@@ -2,10 +2,14 @@ package messaging
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 
@@ -31,15 +35,19 @@ func (m *mockStore) CreateTask(_ context.Context, task *models.Task) error {
 }
 
 // Unused Store methods — satisfy the interface.
-func (m *mockStore) GetTask(context.Context, string) (*models.Task, error)                          { return nil, nil }
-func (m *mockStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error)            { return nil, nil }
-func (m *mockStore) UpdateTask(context.Context, *models.Task) error                                 { return nil }
-func (m *mockStore) DeleteTask(context.Context, string) error                                       { return nil }
-func (m *mockStore) CreateInstance(context.Context, *models.Instance) error                         { return nil }
-func (m *mockStore) GetInstance(context.Context, string) (*models.Instance, error)                  { return nil, nil }
-func (m *mockStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) { return nil, nil }
-func (m *mockStore) UpdateInstance(context.Context, *models.Instance) error                         { return nil }
-func (m *mockStore) Close() error                                                                   { return nil }
+func (m *mockStore) GetTask(context.Context, string) (*models.Task, error) { return nil, nil }
+func (m *mockStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateTask(context.Context, *models.Task) error                { return nil }
+func (m *mockStore) DeleteTask(context.Context, string) error                      { return nil }
+func (m *mockStore) CreateInstance(context.Context, *models.Instance) error        { return nil }
+func (m *mockStore) GetInstance(context.Context, string) (*models.Instance, error) { return nil, nil }
+func (m *mockStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateInstance(context.Context, *models.Instance) error { return nil }
+func (m *mockStore) Close() error                                           { return nil }
 
 func newTestConfig() *config.Config {
 	return &config.Config{
@@ -202,5 +210,112 @@ func TestInboundHandler_MissingFields(t *testing.T) {
 	}
 	if len(db.tasks) != 0 {
 		t.Fatal("expected no tasks created")
+	}
+}
+
+// --- Twilio signature validation tests ---
+
+// signRequest computes a valid X-Twilio-Signature for the given URL and params.
+func signRequest(authToken, reqURL string, params url.Values) string {
+	s := reqURL
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		s += k + params.Get(k)
+	}
+	mac := hmac.New(sha1.New, []byte(authToken))
+	mac.Write([]byte(s))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func TestValidateTwilioSignature(t *testing.T) {
+	token := "test-auth-token"
+	reqURL := "https://example.com/webhooks/sms/inbound"
+	params := url.Values{"From": {"+15551234567"}, "Body": {"Fix the test"}}
+
+	validSig := signRequest(token, reqURL, params)
+
+	if !validateTwilioSignature(token, reqURL, validSig, params) {
+		t.Fatal("expected valid signature to pass")
+	}
+	if validateTwilioSignature(token, reqURL, "invalidsig", params) {
+		t.Fatal("expected invalid signature to fail")
+	}
+	if validateTwilioSignature(token, reqURL, "", params) {
+		t.Fatal("expected empty signature to fail")
+	}
+	if validateTwilioSignature("wrong-token", reqURL, validSig, params) {
+		t.Fatal("expected wrong token to fail")
+	}
+}
+
+func TestInboundHandler_RejectsInvalidSignature(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				DefaultRepo: "https://github.com/backflow-labs/backflow",
+				Enabled:     true,
+			},
+		},
+	}
+	cfg := newTestConfig()
+	cfg.TwilioAuthToken = "test-auth-token"
+	handler := InboundHandler(db, cfg, NoopMessenger{})
+
+	// Request with no signature header
+	w := postForm(handler, url.Values{
+		"From": {"+15551234567"},
+		"Body": {"Fix the test"},
+	})
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+	if len(db.tasks) != 0 {
+		t.Fatal("expected no tasks created for unsigned request")
+	}
+}
+
+func TestInboundHandler_AcceptsValidSignature(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				DefaultRepo: "https://github.com/backflow-labs/backflow",
+				Enabled:     true,
+			},
+		},
+	}
+	cfg := newTestConfig()
+	cfg.TwilioAuthToken = "test-auth-token"
+	handler := InboundHandler(db, cfg, NoopMessenger{})
+
+	params := url.Values{
+		"From": {"+15551234567"},
+		"Body": {"Fix the test"},
+	}
+
+	// Compute valid signature for the URL the test request will hit
+	reqURL := "http://example.com/webhooks/sms/inbound"
+	sig := signRequest(cfg.TwilioAuthToken, reqURL, params)
+
+	body := params.Encode()
+	req := httptest.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Twilio-Signature", sig)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if len(db.tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(db.tasks))
 	}
 }

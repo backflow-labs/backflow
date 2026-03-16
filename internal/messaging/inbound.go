@@ -1,9 +1,14 @@
 package messaging
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -16,7 +21,7 @@ import (
 
 // twiMLResponse is a minimal TwiML envelope for replying to inbound SMS.
 type twiMLResponse struct {
-	XMLName xml.Name     `xml:"Response"`
+	XMLName xml.Name      `xml:"Response"`
 	Message *twiMLMessage `xml:",omitempty"`
 }
 
@@ -35,6 +40,46 @@ func writeTwiML(w http.ResponseWriter, msg string) {
 	xml.NewEncoder(w).Encode(resp)
 }
 
+// validateTwilioSignature checks the X-Twilio-Signature header against the
+// HMAC-SHA1 of the request URL + sorted POST parameters, per Twilio's spec.
+func validateTwilioSignature(authToken, reqURL, signature string, params url.Values) bool {
+	if signature == "" {
+		return false
+	}
+
+	s := reqURL
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		s += k + params.Get(k)
+	}
+
+	mac := hmac.New(sha1.New, []byte(authToken))
+	mac.Write([]byte(s))
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	return hmac.Equal([]byte(signature), []byte(expected))
+}
+
+// requestURL reconstructs the public-facing URL from the request, respecting
+// X-Forwarded-Proto and X-Forwarded-Host headers set by reverse proxies.
+func requestURL(r *http.Request) string {
+	scheme := "https"
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	} else if r.TLS == nil {
+		scheme = "http"
+	}
+	host := r.Host
+	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		host = fwdHost
+	}
+	return scheme + "://" + host + r.URL.Path
+}
+
 // InboundHandler returns an http.HandlerFunc that processes inbound SMS from Twilio.
 func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -42,6 +87,17 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			log.Warn().Err(err).Msg("sms: failed to parse form")
 			writeTwiML(w, "Error: could not parse request.")
 			return
+		}
+
+		// Validate Twilio request signature when auth token is configured
+		if cfg.TwilioAuthToken != "" {
+			sig := r.Header.Get("X-Twilio-Signature")
+			reqURL := requestURL(r)
+			if !validateTwilioSignature(cfg.TwilioAuthToken, reqURL, sig, r.PostForm) {
+				log.Warn().Str("url", reqURL).Msg("sms: invalid Twilio signature")
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
 		}
 
 		from := r.FormValue("From")
@@ -78,20 +134,20 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 
 		now := time.Now().UTC()
 		task := &models.Task{
-			ID:        "bf_" + ulid.Make().String(),
-			Status:    models.TaskStatusPending,
-			TaskMode:  models.TaskModeCode,
-			Harness:   models.Harness(cfg.DefaultHarness),
-			RepoURL:   repoURL,
-			Prompt:    prompt,
-			Model:     cfg.DefaultModel,
-			Effort:    cfg.DefaultEffort,
-			CreatePR:  true,
-			SelfReview: true,
+			ID:              "bf_" + ulid.Make().String(),
+			Status:          models.TaskStatusPending,
+			TaskMode:        models.TaskModeCode,
+			Harness:         models.Harness(cfg.DefaultHarness),
+			RepoURL:         repoURL,
+			Prompt:          prompt,
+			Model:           cfg.DefaultModel,
+			Effort:          cfg.DefaultEffort,
+			CreatePR:        true,
+			SelfReview:      true,
 			SaveAgentOutput: true,
-			ReplyChannel: fmt.Sprintf("%s:%s", ChannelSMS, from),
-			CreatedAt: now,
-			UpdatedAt: now,
+			ReplyChannel:    fmt.Sprintf("%s:%s", ChannelSMS, from),
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 
 		if err := db.CreateTask(r.Context(), task); err != nil {

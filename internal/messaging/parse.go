@@ -40,7 +40,11 @@ func looksLikeURL(s string) bool {
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		return true
 	}
-	if strings.Contains(s, "/") && strings.Contains(s, ".") {
+	// Require domain/path pattern: the part before the first "/" must contain
+	// a "." (e.g. "github.com/org/repo"). This avoids false positives like
+	// "Fix/update" or "refactor/api.handler".
+	slashIdx := strings.Index(s, "/")
+	if slashIdx > 0 && strings.Contains(s[:slashIdx], ".") {
 		return true
 	}
 	return false
