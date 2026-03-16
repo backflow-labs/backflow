@@ -40,6 +40,7 @@ Stores agent tasks submitted via the REST API.
 | `retry_count` | `INTEGER` | `0` | Number of times this task has been re-queued (e.g. after spot interruption). |
 | `cost_usd` | `REAL` | `0` | Tracked cost in USD. |
 | `error` | `TEXT` | `''` | Error message if the task failed. |
+| `reply_channel` | `TEXT` | `''` | Messaging reply channel (e.g. `sms:+15551234567`). Set when task is created via SMS. |
 | `created_at` | `TEXT` | — | RFC 3339 timestamp. When the task was created. |
 | `updated_at` | `TEXT` | — | RFC 3339 timestamp. Last modification time. |
 | `started_at` | `TEXT` | `NULL` | RFC 3339 timestamp. When the agent container started. Nullable. |
@@ -93,9 +94,23 @@ pending → running → draining → terminated
                   → terminated
 ```
 
+### `allowed_senders`
+
+Pre-registered senders authorized to create tasks via messaging (e.g. SMS).
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `channel_type` | `TEXT` | — | **Composite PK.** Messaging channel type (e.g. `sms`). |
+| `address` | `TEXT` | — | **Composite PK.** Sender address (e.g. `+15551234567`). |
+| `default_repo` | `TEXT` | `''` | Default repo URL when sender omits it from the message. |
+| `enabled` | `INTEGER` | `1` | Boolean (0/1). Whether this sender is allowed to create tasks. |
+| `created_at` | `TEXT` | — | RFC 3339 timestamp. When the sender was registered. |
+
+**Primary key:** `(channel_type, address)`
+
 ## Notes
 
 - All timestamps are stored as RFC 3339 strings, not SQLite datetime types.
-- Booleans (`create_pr`, `self_review`) are stored as integers (0/1).
+- Booleans (`create_pr`, `self_review`, `enabled`) are stored as integers (0/1).
 - JSON fields (`allowed_tools`, `env_vars`) are stored as serialized TEXT.
 - Schema changes are applied idempotently in `migrate()` — new columns use `ALTER TABLE ... ADD COLUMN` with `IF NOT EXISTS` semantics.

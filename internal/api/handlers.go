@@ -75,6 +75,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		AllowedTools:    req.AllowedTools,
 		ClaudeMD:        req.ClaudeMD,
 		EnvVars:         req.EnvVars,
+		ReplyChannel:    req.ReplyChannel,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}

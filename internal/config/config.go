@@ -80,6 +80,13 @@ type Config struct {
 	WebhookURL    string
 	WebhookEvents []string
 
+	// SMS / Messaging
+	SMSProvider      string
+	TwilioAccountSID string
+	TwilioAuthToken  string
+	SMSFromNumber    string
+	SMSEvents        []string
+
 	// S3 (task data: agent output, offloaded config for large prompts)
 	S3Bucket string
 
@@ -143,6 +150,19 @@ func Load() (*Config, error) {
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}
 
+	c.SMSProvider = envOr("BACKFLOW_SMS_PROVIDER", "")
+	c.TwilioAccountSID = os.Getenv("TWILIO_ACCOUNT_SID")
+	c.TwilioAuthToken = os.Getenv("TWILIO_AUTH_TOKEN")
+	c.SMSFromNumber = os.Getenv("BACKFLOW_SMS_FROM_NUMBER")
+	if smsEvents := os.Getenv("BACKFLOW_SMS_EVENTS"); smsEvents != "" {
+		c.SMSEvents = strings.Split(smsEvents, ",")
+		for i := range c.SMSEvents {
+			c.SMSEvents[i] = strings.TrimSpace(c.SMSEvents[i])
+		}
+	} else {
+		c.SMSEvents = []string{"task.completed", "task.failed"}
+	}
+
 	if events := os.Getenv("BACKFLOW_WEBHOOK_EVENTS"); events != "" {
 		c.WebhookEvents = strings.Split(events, ",")
 		for i := range c.WebhookEvents {
@@ -191,6 +211,17 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("BACKFLOW_ECS_SUBNETS is required when BACKFLOW_MODE=%s", ModeFargate)
 		case c.CloudWatchLogGroup == "":
 			return nil, fmt.Errorf("BACKFLOW_CLOUDWATCH_LOG_GROUP is required when BACKFLOW_MODE=%s", ModeFargate)
+		}
+	}
+
+	if c.SMSProvider != "" {
+		switch c.SMSProvider {
+		case "twilio":
+			if c.TwilioAccountSID == "" || c.TwilioAuthToken == "" || c.SMSFromNumber == "" {
+				return nil, fmt.Errorf("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and BACKFLOW_SMS_FROM_NUMBER are required when BACKFLOW_SMS_PROVIDER=twilio")
+			}
+		default:
+			return nil, fmt.Errorf("invalid BACKFLOW_SMS_PROVIDER: %q (must be %q)", c.SMSProvider, "twilio")
 		}
 	}
 

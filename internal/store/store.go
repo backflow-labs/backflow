@@ -28,5 +28,8 @@ type Store interface {
 	ListInstances(ctx context.Context, status *models.InstanceStatus) ([]*models.Instance, error)
 	UpdateInstance(ctx context.Context, inst *models.Instance) error
 
+	// Allowed senders
+	GetAllowedSender(ctx context.Context, channelType, address string) (*models.AllowedSender, error)
+
 	Close() error
 }

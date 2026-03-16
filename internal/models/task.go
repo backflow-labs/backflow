@@ -66,6 +66,7 @@ type Task struct {
 	ContainerID     string            `json:"container_id,omitempty"`
 	RetryCount      int               `json:"retry_count"`
 	CostUSD         float64           `json:"cost_usd,omitempty"`
+	ReplyChannel    string            `json:"reply_channel,omitempty"`
 	Error           string            `json:"error,omitempty"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
@@ -114,6 +115,7 @@ type CreateTaskRequest struct {
 	AllowedTools    []string          `json:"allowed_tools,omitempty"`
 	ClaudeMD        string            `json:"claude_md,omitempty"`
 	EnvVars         map[string]string `json:"env_vars,omitempty"`
+	ReplyChannel    string            `json:"reply_channel,omitempty"`
 }
 
 func (r *CreateTaskRequest) Validate() error {
