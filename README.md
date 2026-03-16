@@ -100,34 +100,38 @@ Builds a multi-arch image (amd64 + arm64) and pushes to ECR.
 ## Submitting Tasks
 
 ```bash
-# Simple task
+# Simple task (creates a PR by default)
 ./scripts/create-task.sh https://github.com/org/repo "Fix the login bug"
 
-# With PR creation
-./scripts/create-task.sh https://github.com/org/repo "Fix the login bug" --pr
+# Skip PR creation
+./scripts/create-task.sh https://github.com/org/repo "Fix the login bug" --no-pr
 
 # Full options
 ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" \
-  --pr --pr-title "Add tests" \
-  --budget 15 --model claude-sonnet-4-6 \
+  --pr-title "Add tests" \
+  --budget 15 --model claude-sonnet-4-6 --effort high \
   --branch my-feature --target-branch develop \
   --context "Focus on the auth module" \
   --claude-md "Always use table-driven tests" \
-  --env "GOPRIVATE=github.com/org/*"
+  --self-review --env "GOPRIVATE=github.com/org/*"
+
+# Read prompt from a file
+./scripts/create-task.sh https://github.com/org/repo --plan plan.md
 ```
 
-Or call the API directly:
+### PR Reviews
 
 ```bash
-# Claude Code (default)
+./scripts/review-pr.sh https://github.com/org/repo 42
+./scripts/review-pr.sh https://github.com/org/repo 42 --budget 5 --effort low
+```
+
+### API
+
+```bash
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{"repo_url": "https://github.com/org/repo", "prompt": "Fix the bug", "create_pr": true}'
-
-# Codex (requires OPENAI_API_KEY)
-curl -X POST http://localhost:8080/api/v1/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"repo_url": "https://github.com/org/repo", "prompt": "Fix the bug", "harness": "codex", "create_pr": true}'
 ```
 
 ## Monitoring and Operations
@@ -151,11 +155,11 @@ aws ssm start-session --target i-0abc...
 
 ### Task Lifecycle
 
-`pending` → `provisioning` → `running` → `completed` | `failed` | `interrupted` | `cancelled`
+`pending` → `provisioning` → `running` → `completed` | `failed` | `interrupted` | `cancelled` | `recovering` → `pending` | `running` | `completed` | `failed`
 
 ### Instance Lifecycle
 
-`pending` → `running` → idle 5 min → `terminated`. Spot interruptions automatically re-queue affected tasks.
+`pending` → `running` → `draining` → `terminated`. Spot interruptions automatically re-queue affected tasks.
 
 ## API Reference
 
@@ -198,7 +202,7 @@ Set `BACKFLOW_WEBHOOK_URL` in `.env`:
 }
 ```
 
-Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`
+Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
 
 Filter with `BACKFLOW_WEBHOOK_EVENTS=task.completed,task.failed`.
 
@@ -218,6 +222,7 @@ All config is via environment variables (or `.env` file).
 | `BACKFLOW_DB_PATH` | `backflow.db` | SQLite database path |
 | `AWS_REGION` | `us-east-1` | AWS region |
 | `BACKFLOW_INSTANCE_TYPE` | `m7g.xlarge` | EC2 instance type |
+| `BACKFLOW_AMI` | | Custom AMI ID (optional) |
 | `BACKFLOW_LAUNCH_TEMPLATE_ID` | | From `make setup-aws` |
 | `BACKFLOW_MAX_INSTANCES` | `5` | Max EC2 instances |
 | `BACKFLOW_CONTAINERS_PER_INSTANCE` | `1` | Containers per instance |
@@ -226,10 +231,20 @@ All config is via environment variables (or `.env` file).
 | `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | Default harness (`claude_code` or `codex`) |
 | `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code harness |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex harness |
+| `BACKFLOW_DEFAULT_EFFORT` | `high` | Default reasoning effort (`low`, `medium`, `high`) |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Default budget (USD) |
 | `BACKFLOW_DEFAULT_MAX_RUNTIME_MIN` | `30` | Default max runtime (min) |
 | `BACKFLOW_DEFAULT_MAX_TURNS` | `200` | Default max turns |
+| `BACKFLOW_S3_BUCKET` | | S3 bucket for agent output storage |
 | `BACKFLOW_WEBHOOK_URL` | | Webhook endpoint |
 | `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event filter |
 | `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (sec) |
 | `DOCKER` | `docker` | Docker command (e.g. `sudo docker`) |
+
+## Documentation
+
+Additional docs in `docs/`:
+
+- `schema.md` — SQLite database schema reference
+- `file-reference.md` — Codebase file reference guide
+- `sizing.md` — Instance sizing and cost reference
