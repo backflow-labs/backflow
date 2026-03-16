@@ -51,6 +51,22 @@ func (u *S3Uploader) Upload(ctx context.Context, key string, data []byte) (strin
 	return fmt.Sprintf("s3://%s/%s", u.bucket, key), nil
 }
 
+// UploadJSON stores JSON data in S3 with the application/json content type.
+func (u *S3Uploader) UploadJSON(ctx context.Context, key string, data []byte) (string, error) {
+	contentType := "application/json"
+	_, err := u.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      &u.bucket,
+		Key:         &key,
+		Body:        bytes.NewReader(data),
+		ContentType: &contentType,
+	})
+	if err != nil {
+		return "", fmt.Errorf("s3 put json: %w", err)
+	}
+
+	return fmt.Sprintf("s3://%s/%s", u.bucket, key), nil
+}
+
 // PresignGetURL returns a pre-signed GET URL for the given S3 key.
 func (u *S3Uploader) PresignGetURL(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	presigner := s3.NewPresignClient(u.client)

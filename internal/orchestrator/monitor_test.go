@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -839,6 +840,70 @@ func TestHandleInspectError_KillsAtMaxFailures(t *testing.T) {
 	types := n.eventTypes()
 	if len(types) != 1 || types[0] != notify.EventTaskFailed {
 		t.Errorf("expected [task.failed], got %v", types)
+	}
+}
+
+func TestSaveTaskMetadata_NilS3(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_meta_nil",
+		Status:      models.TaskStatusCompleted,
+		TaskMode:    "code",
+		Harness:     models.HarnessClaudeCode,
+		RepoURL:     "https://github.com/test/repo",
+		Branch:      "main",
+		Prompt:      "do something",
+		CreatePR:    true,
+		PRURL:       "https://github.com/test/repo/pull/1",
+		CreatedAt:   now,
+		CompletedAt: &now,
+	})
+
+	o := newTestOrchestrator(s, &mockNotifier{})
+	// o.s3 is nil — should be a no-op without panicking
+	task, _ := s.GetTask(context.Background(), "bf_meta_nil")
+	o.saveTaskMetadata(context.Background(), task)
+}
+
+func TestSaveTaskMetadata_JSONSerialization(t *testing.T) {
+	now := time.Now().UTC()
+	meta := taskMetadata{
+		ID:          "bf_ser",
+		Status:      models.TaskStatusCompleted,
+		TaskMode:    "code",
+		Harness:     models.HarnessClaudeCode,
+		RepoURL:     "https://github.com/test/repo",
+		Branch:      "feature",
+		Prompt:      "implement feature",
+		CreatePR:    true,
+		PRURL:       "https://github.com/test/repo/pull/5",
+		CreatedAt:   now,
+		CompletedAt: &now,
+	}
+
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal metadata: %v", err)
+	}
+
+	var decoded taskMetadata
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal metadata: %v", err)
+	}
+
+	if decoded.ID != "bf_ser" {
+		t.Errorf("ID = %q, want bf_ser", decoded.ID)
+	}
+	if decoded.Status != models.TaskStatusCompleted {
+		t.Errorf("Status = %q, want completed", decoded.Status)
+	}
+	if decoded.PRURL != "https://github.com/test/repo/pull/5" {
+		t.Errorf("PRURL = %q, want PR URL", decoded.PRURL)
+	}
+	if !decoded.CreatePR {
+		t.Error("CreatePR should be true")
 	}
 }
 

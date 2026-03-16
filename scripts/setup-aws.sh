@@ -167,7 +167,20 @@ aws s3api put-public-access-block --bucket "$S3_BUCKET" \
     --public-access-block-configuration \
     'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
 
-echo "    S3 bucket: ${S3_BUCKET}"
+# Lifecycle policy: expire all objects after 7 days
+aws s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET" \
+    --lifecycle-configuration '{
+        "Rules": [
+            {
+                "ID": "expire-after-7-days",
+                "Status": "Enabled",
+                "Filter": {},
+                "Expiration": {"Days": 7}
+            }
+        ]
+    }'
+
+echo "    S3 bucket: ${S3_BUCKET} (lifecycle: 7-day expiration)"
 
 # Add S3 policy to IAM role
 S3_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/backflow-s3-output"
