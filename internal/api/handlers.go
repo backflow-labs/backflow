@@ -59,6 +59,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		RepoURL:         req.RepoURL,
 		Branch:          req.Branch,
 		TargetBranch:    req.TargetBranch,
+		ReviewPRURL:     req.ReviewPRURL,
 		ReviewPRNumber:  req.ReviewPRNumber,
 		Prompt:          req.Prompt,
 		Context:         req.Context,
