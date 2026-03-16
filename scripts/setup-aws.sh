@@ -134,6 +134,68 @@ aws ec2 revoke-security-group-ingress \
 
 echo "    Security group: ${SG_ID}"
 
+# --- S3 Bucket (agent output storage) ---
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+S3_BUCKET="backflow-agent-output-${ACCOUNT_ID}-${REGION}"
+echo "==> Creating S3 bucket for agent output..."
+if aws s3api head-bucket --bucket "$S3_BUCKET" --region "$REGION" 2>/dev/null; then
+    echo "    S3 bucket already exists"
+else
+    if [ "$REGION" = "us-east-1" ]; then
+        aws s3api create-bucket --bucket "$S3_BUCKET" --region "$REGION"
+    else
+        aws s3api create-bucket --bucket "$S3_BUCKET" --region "$REGION" \
+            --create-bucket-configuration LocationConstraint="$REGION"
+    fi
+fi
+
+# Enable server-side encryption
+aws s3api put-bucket-encryption --bucket "$S3_BUCKET" \
+    --server-side-encryption-configuration '{
+        "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]
+    }'
+
+# Block public access
+aws s3api put-public-access-block --bucket "$S3_BUCKET" \
+    --public-access-block-configuration \
+    'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
+
+echo "    S3 bucket: ${S3_BUCKET}"
+
+# Add S3 write policy to IAM role
+S3_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/backflow-s3-output"
+S3_POLICY=$(cat <<POLICYEOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::${S3_BUCKET}/tasks/*"
+    }
+  ]
+}
+POLICYEOF
+)
+
+if aws iam get-policy --policy-arn "$S3_POLICY_ARN" 2>/dev/null; then
+    echo "    S3 policy already exists, creating new version..."
+    aws iam create-policy-version \
+        --policy-arn "$S3_POLICY_ARN" \
+        --policy-document "$S3_POLICY" \
+        --set-as-default
+else
+    aws iam create-policy \
+        --policy-name "backflow-s3-output" \
+        --policy-document "$S3_POLICY"
+fi
+
+aws iam attach-role-policy \
+    --role-name "$IAM_ROLE" \
+    --policy-arn "$S3_POLICY_ARN"
+
+echo "    S3 IAM policy attached"
+
 # --- Launch Template ---
 echo "==> Creating launch template..."
 USER_DATA=$(base64 < scripts/user-data.sh | tr -d '\n')
@@ -196,6 +258,7 @@ echo "==> Setup complete!"
 echo ""
 echo "Add these to your environment:"
 echo "  export BACKFLOW_LAUNCH_TEMPLATE_ID=${LT_ID}"
+echo "  export BACKFLOW_S3_BUCKET=${S3_BUCKET}"
 echo "  export AWS_REGION=${REGION}"
 echo ""
 echo "Next steps:"

@@ -228,7 +228,7 @@ func parseInspectOutput(output string) (ContainerStatus, error) {
 // enrichFromStatusJSON reads the agent's status.json from the container and
 // merges its fields into the ContainerStatus.
 func (m *DockerManager) enrichFromStatusJSON(ctx context.Context, instanceID, containerID string, status *ContainerStatus) {
-	cmd := fmt.Sprintf("docker cp %s:/home/agent/workspace/status.json /dev/stdout 2>/dev/null", containerID)
+	cmd := fmt.Sprintf("docker cp %s:/home/agent/workspace/status.json - 2>/dev/null | tar -xO", containerID)
 	statusJSON, err := m.runCommand(ctx, instanceID, cmd)
 	if err != nil {
 		return

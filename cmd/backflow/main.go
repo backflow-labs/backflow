@@ -41,7 +41,15 @@ func main() {
 		notifier = notify.NoopNotifier{}
 	}
 
-	orch := orchestrator.New(db, cfg, notifier)
+	s3Uploader, err := orchestrator.NewS3Uploader(context.Background(), cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create S3 uploader")
+	}
+	if s3Uploader != nil {
+		log.Info().Str("bucket", cfg.S3Bucket).Msg("S3 agent output storage enabled")
+	}
+
+	orch := orchestrator.New(db, cfg, notifier, s3Uploader)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,

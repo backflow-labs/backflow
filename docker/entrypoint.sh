@@ -322,9 +322,7 @@ ${PROMPT}${GIT_INSTRUCTIONS}"
     fi
 done
 
-# --- Parse result from stream-json output ---
-# stream-json emits one JSON object per line; the final "result" message has the outcome.
-RESULT_LINE=$(echo "$CLAUDE_OUTPUT" | grep '"type":"result"' | tail -1)
+# --- Parse result ---
 NEEDS_INPUT=false
 QUESTION=""
 
@@ -335,17 +333,19 @@ if [ "$HARNESS" = "codex" ]; then
         QUESTION=$(echo "$CLAUDE_OUTPUT" | tail -5)
     fi
 else
+    # stream-json emits one JSON object per line; the final "result" message has the outcome.
+    RESULT_LINE=$(echo "$CLAUDE_OUTPUT" | grep '"type":"result"' | tail -1 || true)
     if [ -n "$RESULT_LINE" ]; then
-        RESULT_TEXT=$(echo "$RESULT_LINE" | jq -r '.result // empty' 2>/dev/null)
+        RESULT_TEXT=$(echo "$RESULT_LINE" | jq -r '.result // empty' 2>/dev/null || true)
         if echo "$RESULT_TEXT" | grep -qi 'question\|decision\|should I\|which approach\|do you want\|please clarify'; then
             NEEDS_INPUT=true
             QUESTION=$(echo "$RESULT_TEXT" | tail -5)
         fi
 
         # If claude ran out of turns without completing
-        IS_ERROR=$(echo "$RESULT_LINE" | jq -r '.is_error // false' 2>/dev/null)
+        IS_ERROR=$(echo "$RESULT_LINE" | jq -r '.is_error // false' 2>/dev/null || true)
         if [ "$IS_ERROR" = "true" ]; then
-            ERROR_TYPE=$(echo "$RESULT_LINE" | jq -r '.error_type // empty' 2>/dev/null)
+            ERROR_TYPE=$(echo "$RESULT_LINE" | jq -r '.error_type // empty' 2>/dev/null || true)
             if [ "$ERROR_TYPE" = "max_turns" ]; then
                 NEEDS_INPUT=true
                 QUESTION="Agent ran out of turns (${MAX_TURNS}) without completing the task"
@@ -374,17 +374,6 @@ if [ "$CREATE_PR" = "true" ] && [ "$COMPLETE" = "true" ]; then
     else
         echo "==> No PR found for branch ${BRANCH}"
     fi
-fi
-
-# --- Commit agent output ---
-if [ "$COMPLETE" = "true" ]; then
-    echo "==> Committing agent output..."
-    OUTPUT_FILENAME=".backflow/agent_output_$(date +%s%N).log"
-    mkdir -p "$(dirname "$OUTPUT_FILENAME")"
-    cp "$CLAUDE_LOG" "$OUTPUT_FILENAME"
-    git add "$OUTPUT_FILENAME"
-    git commit -m "backflow: save agent output log" --no-verify || true
-    git push origin "$BRANCH" || true
 fi
 
 # --- Comment prompt on PR ---
