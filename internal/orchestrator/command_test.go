@@ -28,6 +28,21 @@ func TestIsInstanceGone(t *testing.T) {
 			fmt.Errorf("run container: %w", fmt.Errorf("ssm send command: InvalidInstanceId: not found")),
 			true,
 		},
+		{
+			"spot interruption sentinel",
+			fmt.Errorf("%w: Host EC2 (spot) terminated", errSpotInterruption),
+			true,
+		},
+		{
+			"wrapped spot interruption",
+			fmt.Errorf("describe ecs task: %w", fmt.Errorf("%w: Fargate Spot capacity reclaimed", errSpotInterruption)),
+			true,
+		},
+		{
+			"plain string spot not matched",
+			fmt.Errorf("spot interruption: Host EC2 (spot) terminated"),
+			false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

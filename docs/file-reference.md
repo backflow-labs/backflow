@@ -39,7 +39,7 @@ Environment-variable-based configuration.
 
 | File | Description |
 |------|-------------|
-| `config.go` | Defines the `Config` struct with all server settings (mode, auth, AWS, agent defaults, webhooks, DB, polling). `Load()` reads from environment variables with sensible defaults. Supports two modes (`ec2`, `local`), two auth modes (`api_key`, `max_subscription`), and two harnesses (`claude_code`, `codex`) with per-harness default models. `MaxConcurrent()` computes the concurrency limit based on auth mode, dispatch mode, and instance capacity. |
+| `config.go` | Defines the `Config` struct with all server settings (mode, auth, AWS, ECS/Fargate, agent defaults, webhooks, DB, polling). `Load()` reads from environment variables with sensible defaults. Supports three modes (`ec2`, `local`, `fargate`), two auth modes (`api_key`, `max_subscription`), and two harnesses (`claude_code`, `codex`) with per-harness default models. Fargate-specific validation (required ECS fields, launch type, max concurrent tasks, no `max_subscription`) runs only when mode is `fargate`. `MaxConcurrent()` computes the concurrency limit based on mode, auth mode, and instance capacity. |
 
 ## `internal/models/`
 
@@ -57,7 +57,7 @@ Notification system for task lifecycle events.
 
 | File | Description |
 |------|-------------|
-| `webhook.go` | `Notifier` interface with a `Notify(Event)` method. `NoopNotifier` discards events. `WebhookNotifier` sends HTTP POST requests with JSON payloads, supports event filtering, and retries up to 3 times with backoff. Defines event types: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`. |
+| `webhook.go` | `Notifier` interface with a `Notify(Event)` method. `NoopNotifier` discards events. `WebhookNotifier` sends HTTP POST requests with JSON payloads, supports event filtering, and retries up to 3 times with backoff. Defines event types: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`. |
 
 ## `internal/orchestrator/`
 
@@ -65,7 +65,7 @@ Core orchestration loop and infrastructure management.
 
 | File | Description |
 |------|-------------|
-| `orchestrator.go` | Main orchestrator. `New()` initializes sub-components based on mode (EC2 vs local). `Start()` runs the poll loop on a configurable interval. Each `tick()` delegates to `monitor.go`, `dispatch.go`, `recovery.go`, and `scaler.Evaluate()`. |
+| `orchestrator.go` | Main orchestrator. `New()` initializes sub-components based on mode (EC2, local, or Fargate). `Start()` runs the poll loop on a configurable interval. Each `tick()` delegates to `monitor.go`, `dispatch.go`, `recovery.go`, and `scaler.Evaluate()`. Fargate mode seeds a synthetic `fargate` instance and terminates stale instances from other modes. |
 | `dispatch.go` | Task dispatch logic. Finds pending tasks, assigns them to instances with capacity, and starts containers. |
 | `dispatch_test.go` | Tests for dispatch logic. |
 | `monitor.go` | Running task monitoring. Checks container status, detects timeouts, handles completions/failures, and manages cancellations. |
@@ -74,10 +74,14 @@ Core orchestration loop and infrastructure management.
 | `recovery_test.go` | Tests for recovery logic. |
 | `helpers_test.go` | Shared test helpers for orchestrator tests. |
 | `scaler.go` | EC2 instance auto-scaling. Defines the `scaler` interface (`Evaluate`, `RequestScaleUp`). `Scaler` implements it for EC2 mode: launches spot instances when capacity is needed, waits for SSM + Docker readiness before marking instances as running, detects externally terminated instances, and terminates idle instances after 5 minutes. |
-| `docker.go` | Container lifecycle management via SSM (EC2 mode) or local shell (local mode). `RunAgent()` builds `docker run` commands with environment variables for task config (including harness and task mode), auth credentials (Anthropic, OpenAI, GitHub). `InspectContainer()` checks container state and reads `status.json`. `StopContainer()` and `GetLogs()` wrap Docker commands. `runSSMCommand()` executes commands on remote EC2 instances via AWS SSM `SendCommand`. |
+| `docker.go` | Container lifecycle management via SSM (EC2 mode) or local shell (local mode). Defines the `dockerClient` interface (`RunAgent`, `InspectContainer`, `StopContainer`, `GetLogs`) and `ContainerStatus` struct. `RunAgent()` builds `docker run` commands with environment variables for task config (including harness and task mode), auth credentials (Anthropic, OpenAI, GitHub). `InspectContainer()` checks container state and reads `status.json`. `StopContainer()` and `GetLogs()` wrap Docker commands. |
+| `command.go` | Shell command execution. Routes to local shell or SSM based on mode. `runSSMCommand()` executes commands on remote EC2 instances via AWS SSM `SendCommand`. `isInstanceGone()` detects terminated instances and Fargate Spot interruptions (via `errSpotInterruption` sentinel). |
+| `command_test.go` | Tests for `isInstanceGone` (SSM errors, sentinel spot interruption, wrapped errors), `shellEscape`, and `isHexString`. |
+| `fargate.go` | Fargate container lifecycle management. Implements `dockerClient` for ECS tasks. `RunAgent()` launches ECS tasks with capacity provider strategy (Fargate Spot with on-demand fallback). `InspectContainer()` maps ECS task states to `ContainerStatus`, fetches CloudWatch logs, and parses `BACKFLOW_STATUS_JSON:` lines for agent completion status. Detects Fargate Spot interruptions via `isSpotInterruptionReason()` matching specific ECS stop reasons. |
+| `fargate_test.go` | Tests for Fargate — env var building, ECS task status mapping, status JSON parsing from log events (including `Complete` field), log stream name construction, and `isSpotInterruptionReason` edge cases. |
 | `ec2.go` | EC2 API wrapper. `LaunchSpotInstance()` creates one-time spot instances using either a launch template or AMI + instance type. `TerminateInstance()` and `DescribeInstance()` wrap the corresponding EC2 API calls. Lazy-initializes the AWS EC2 client. |
-| `local.go` | No-op `localScaler` struct that satisfies the `scaler` interface. Used in local mode where no EC2 instances need management. |
-| `spot.go` | Spot interruption handler. `CheckInterruptions()` polls running instances for termination signals. `handleInterruption()` marks the instance as draining and re-queues all running tasks on that instance back to `pending` with an incremented retry count. |
+| `local.go` | No-op `localScaler` struct that satisfies the `scaler` interface. Used in local and Fargate modes where no EC2 instances need management. |
+| `spot.go` | EC2 Spot interruption handler. `CheckInterruptions()` polls running instances for termination signals. `handleInterruption()` marks the instance as draining and re-queues all running tasks on that instance back to `pending` with an incremented retry count. |
 
 ## `internal/store/`
 
@@ -96,7 +100,7 @@ Agent container image.
 | File | Description |
 |------|-------------|
 | `Dockerfile` | Multi-arch Docker image based on `node:20-slim`. Installs git, curl, jq, Python 3, GitHub CLI, and Claude Code CLI (`@anthropic-ai/claude-code`). Creates an `agent` user, configures git defaults, and copies the entrypoint script. |
-| `entrypoint.sh` | Agent lifecycle script run inside each container. Supports two modes: `code` (default) and `review` (PR review). Supports two harnesses: `claude_code` (stream-json output) and `codex` (plain text output). Clones the repo (depth 50), checks out the target branch, creates a working branch, optionally injects CLAUDE.md content, runs the selected harness with retries (up to 3 attempts), parses output for completion/needs-input/error status, writes `status.json`, and optionally creates a PR + self-review. |
+| `entrypoint.sh` | Agent lifecycle script run inside each container. Supports two modes: `code` (default) and `review` (PR review). Supports two harnesses: `claude_code` (stream-json output) and `codex` (plain text output). Clones the repo (depth 50), checks out the target branch, creates a working branch, optionally injects CLAUDE.md content, runs the selected harness with retries (up to 3 attempts), parses output for completion/needs-input/error status, writes `status.json` (for Docker-based modes) and emits a `BACKFLOW_STATUS_JSON:` log line (for Fargate log parsing), and optionally creates a PR + self-review. |
 
 ## `scripts/`
 
@@ -107,5 +111,5 @@ Operational and development helper scripts.
 | `build-agent-image.sh` | Builds and pushes the multi-arch agent Docker image to ECR. Authenticates with ECR, creates a buildx builder, and pushes with `linux/amd64,linux/arm64` platforms. |
 | `create-task.sh` | CLI helper to submit tasks via the REST API. Accepts repo URL and prompt as positional args, plus flags for branch, model, effort, budget, runtime, turns, PR options, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `jq` and posts to the API with `curl`. |
 | `db-status.sh` | Dumps the SQLite database state. Shows all tasks, task status summary, all instances, and instance status summary using `sqlite3` queries. |
-| `setup-aws.sh` | One-time AWS infrastructure setup. Creates an ECR repository, IAM role with SSM and ECR policies, instance profile, security group (outbound-only), and launch template with user-data. Outputs the launch template ID for `.env` configuration. |
+| `setup-aws.sh` | One-time AWS infrastructure setup. Creates shared resources (ECR repo, security group, S3 bucket), EC2-mode resources (IAM role with SSM/ECR policies, instance profile, launch template), and Fargate-mode resources (CloudWatch log group, ECS task execution and task roles, ECS cluster with FARGATE/FARGATE_SPOT capacity providers, task definition). Discovers default VPC subnets. Outputs `.env` values for both EC2 and Fargate modes. |
 | `user-data.sh` | EC2 instance bootstrap script (run via launch template user-data). Installs Docker and SSM agent, authenticates with ECR using IMDSv2, and pulls the `backflow-agent` image. |

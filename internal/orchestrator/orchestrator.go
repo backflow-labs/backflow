@@ -36,21 +36,25 @@ type Orchestrator struct {
 }
 
 func New(s store.Store, cfg *config.Config, notifier notify.Notifier, s3 *S3Uploader) *Orchestrator {
-	docker := NewDockerManager(cfg)
-
 	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
 		notifier:        notifier,
-		docker:          docker,
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
 		s3:              s3,
 	}
 
-	if cfg.Mode == config.ModeLocal {
+	switch cfg.Mode {
+	case config.ModeLocal:
+		o.docker = NewDockerManager(cfg)
 		o.initLocalMode(s, cfg)
-	} else {
+	case config.ModeFargate:
+		o.docker = NewFargateManager(cfg)
+		o.initFargateMode(s, cfg)
+	default:
+		docker := NewDockerManager(cfg)
+		o.docker = docker
 		o.initEC2Mode(s, cfg, docker)
 	}
 
@@ -80,6 +84,55 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 			UpdatedAt:     now,
 		}
 		s.CreateInstance(context.Background(), inst)
+	}
+}
+
+// initFargateMode seeds a synthetic "fargate" instance so the orchestrator can
+// track capacity without managing VM lifecycle.
+func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
+	o.scaler = localScaler{}
+
+	now := time.Now().UTC()
+	inst, err := s.GetInstance(context.Background(), "fargate")
+	if err != nil {
+		log.Error().Err(err).Msg("fargate init: failed to get synthetic instance")
+	}
+	if inst != nil {
+		inst.Status = models.InstanceStatusRunning
+		inst.MaxContainers = cfg.MaxConcurrentTasks
+		inst.RunningContainers = 0
+		inst.UpdatedAt = now
+		if err := s.UpdateInstance(context.Background(), inst); err != nil {
+			log.Error().Err(err).Msg("fargate init: failed to update synthetic instance")
+		}
+	} else {
+		inst = &models.Instance{
+			InstanceID:    "fargate",
+			InstanceType:  "fargate",
+			Status:        models.InstanceStatusRunning,
+			MaxContainers: cfg.MaxConcurrentTasks,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		if err := s.CreateInstance(context.Background(), inst); err != nil {
+			log.Error().Err(err).Msg("fargate init: failed to create synthetic instance")
+		}
+	}
+
+	instances, err := s.ListInstances(context.Background(), nil)
+	if err != nil {
+		log.Error().Err(err).Msg("fargate init: failed to list instances for cleanup")
+		return
+	}
+	for _, other := range instances {
+		if other.InstanceID == "fargate" || other.Status == models.InstanceStatusTerminated {
+			continue
+		}
+		other.Status = models.InstanceStatusTerminated
+		other.RunningContainers = 0
+		if err := s.UpdateInstance(context.Background(), other); err != nil {
+			log.Error().Err(err).Str("instance_id", other.InstanceID).Msg("fargate init: failed to terminate stale instance")
+		}
 	}
 }
 

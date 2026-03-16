@@ -11,8 +11,9 @@ import (
 type Mode string
 
 const (
-	ModeEC2   Mode = "ec2"
-	ModeLocal Mode = "local"
+	ModeEC2     Mode = "ec2"
+	ModeLocal   Mode = "local"
+	ModeFargate Mode = "fargate"
 
 	MaxLocalContainers = 6
 )
@@ -44,10 +45,24 @@ type Config struct {
 	MaxInstances      int
 	ContainersPerInst int
 	LaunchTemplateID  string
+	ECSCluster        string
+	ECSTaskDefinition string
+	ECSSubnets        []string
+	ECSSecurityGroups []string
+	ECSLaunchType     string
+	ECSContainerName  string
+	ECSAssignPublicIP bool
 
 	// Container resources
 	ContainerCPUs  int
 	ContainerMemGB int
+
+	// CloudWatch Logs
+	CloudWatchLogGroup string
+	ECSLogStreamPrefix string
+
+	// Task concurrency
+	MaxConcurrentTasks int
 
 	// Agent defaults
 	DefaultHarness    string
@@ -76,6 +91,9 @@ type Config struct {
 }
 
 func (c *Config) MaxConcurrent() int {
+	if c.Mode == ModeFargate {
+		return c.MaxConcurrentTasks
+	}
 	if c.AuthMode == AuthModeMaxSubscription {
 		return 1
 	}
@@ -98,9 +116,19 @@ func Load() (*Config, error) {
 		AMI:                   os.Getenv("BACKFLOW_AMI"),
 		MaxInstances:          envInt("BACKFLOW_MAX_INSTANCES", 5),
 		ContainersPerInst:     envInt("BACKFLOW_CONTAINERS_PER_INSTANCE", 1),
+		ECSCluster:            os.Getenv("BACKFLOW_ECS_CLUSTER"),
+		ECSTaskDefinition:     os.Getenv("BACKFLOW_ECS_TASK_DEFINITION"),
+		ECSSubnets:            envCSV("BACKFLOW_ECS_SUBNETS"),
+		ECSSecurityGroups:     envCSV("BACKFLOW_ECS_SECURITY_GROUPS"),
+		ECSLaunchType:         strings.ToUpper(envOr("BACKFLOW_ECS_LAUNCH_TYPE", "FARGATE_SPOT")),
+		ECSContainerName:      envOr("BACKFLOW_ECS_CONTAINER_NAME", "backflow-agent"),
+		ECSAssignPublicIP:     envBool("BACKFLOW_ECS_ASSIGN_PUBLIC_IP", true),
 		ContainerCPUs:         envInt("BACKFLOW_CONTAINER_CPUS", 2),
 		ContainerMemGB:        envInt("BACKFLOW_CONTAINER_MEMORY_GB", 8),
 		LaunchTemplateID:      os.Getenv("BACKFLOW_LAUNCH_TEMPLATE_ID"),
+		CloudWatchLogGroup:    os.Getenv("BACKFLOW_CLOUDWATCH_LOG_GROUP"),
+		ECSLogStreamPrefix:    envOr("BACKFLOW_ECS_LOG_STREAM_PREFIX", "ecs"),
+		MaxConcurrentTasks:    envInt("BACKFLOW_MAX_CONCURRENT_TASKS", 5),
 		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "claude_code"),
 		DefaultModel:          envOr("BACKFLOW_DEFAULT_MODEL", "claude-sonnet-4-6"),
 		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4"),
@@ -122,8 +150,8 @@ func Load() (*Config, error) {
 		}
 	}
 
-	if c.Mode != ModeEC2 && c.Mode != ModeLocal {
-		return nil, fmt.Errorf("invalid BACKFLOW_MODE: %q (must be %q or %q)", c.Mode, ModeEC2, ModeLocal)
+	if c.Mode != ModeEC2 && c.Mode != ModeLocal && c.Mode != ModeFargate {
+		return nil, fmt.Errorf("invalid BACKFLOW_MODE: %q (must be %q, %q, or %q)", c.Mode, ModeEC2, ModeLocal, ModeFargate)
 	}
 
 	if c.AuthMode != AuthModeAPIKey && c.AuthMode != AuthModeMaxSubscription {
@@ -143,6 +171,27 @@ func Load() (*Config, error) {
 	}
 	if c.ContainerMemGB < 1 {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINER_MEMORY_GB must be >= 1, got %d", c.ContainerMemGB)
+	}
+
+	if c.Mode == ModeFargate {
+		if c.ECSLaunchType != "FARGATE" && c.ECSLaunchType != "FARGATE_SPOT" {
+			return nil, fmt.Errorf("invalid BACKFLOW_ECS_LAUNCH_TYPE: %q (must be %q or %q)", c.ECSLaunchType, "FARGATE", "FARGATE_SPOT")
+		}
+		if c.MaxConcurrentTasks < 1 {
+			return nil, fmt.Errorf("BACKFLOW_MAX_CONCURRENT_TASKS must be >= 1, got %d", c.MaxConcurrentTasks)
+		}
+		switch {
+		case c.AuthMode == AuthModeMaxSubscription:
+			return nil, fmt.Errorf("BACKFLOW_AUTH_MODE=%s is not supported in %s mode", AuthModeMaxSubscription, ModeFargate)
+		case c.ECSCluster == "":
+			return nil, fmt.Errorf("BACKFLOW_ECS_CLUSTER is required when BACKFLOW_MODE=%s", ModeFargate)
+		case c.ECSTaskDefinition == "":
+			return nil, fmt.Errorf("BACKFLOW_ECS_TASK_DEFINITION is required when BACKFLOW_MODE=%s", ModeFargate)
+		case len(c.ECSSubnets) == 0:
+			return nil, fmt.Errorf("BACKFLOW_ECS_SUBNETS is required when BACKFLOW_MODE=%s", ModeFargate)
+		case c.CloudWatchLogGroup == "":
+			return nil, fmt.Errorf("BACKFLOW_CLOUDWATCH_LOG_GROUP is required when BACKFLOW_MODE=%s", ModeFargate)
+		}
 	}
 
 	return c, nil
@@ -171,4 +220,33 @@ func envFloat(key string, fallback float64) float64 {
 		}
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	v := strings.ToLower(os.Getenv(key))
+	switch v {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func envCSV(key string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+
+	parts := strings.Split(v, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
 }

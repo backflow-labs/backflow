@@ -728,6 +728,38 @@ func TestHandleInspectError_InstanceGone(t *testing.T) {
 	}
 }
 
+func TestHandleInspectError_InstanceGone_FargatePreservesSyntheticInstance(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "fargate",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     5,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_gone_fargate",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "fargate",
+		ContainerID: "arn:aws:ecs:us-east-1:123456789012:task/backflow/abc",
+		StartedAt:   &now,
+	})
+
+	n := &mockNotifier{}
+	o := newTestOrchestrator(s, n)
+	o.config.Mode = config.ModeFargate
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_gone_fargate")
+	o.handleInspectError(context.Background(), task, fmt.Errorf("%w: Fargate Spot capacity reclaimed", errSpotInterruption))
+
+	inst, _ := s.GetInstance(context.Background(), "fargate")
+	if inst.Status != models.InstanceStatusRunning {
+		t.Errorf("instance status = %q, want running", inst.Status)
+	}
+}
+
 func TestHandleInspectError_AccumulatesFailures(t *testing.T) {
 	s := newMockStore()
 	now := time.Now().UTC()

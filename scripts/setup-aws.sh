@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Backflow AWS infrastructure setup
-# Creates: ECR repo, IAM role, security group, launch template
+# Creates: ECR repo, IAM roles, security group, S3 bucket,
+#          launch template (EC2 mode), and ECS cluster + task definition (Fargate mode)
 
 REGION="${AWS_REGION:-us-east-1}"
 ECR_REPO="backflow-agent"
@@ -10,6 +11,13 @@ IAM_ROLE="backflow-ec2-role"
 SG_NAME="backflow-agent-sg"
 LT_NAME="backflow-agent-lt"
 INSTANCE_TYPE="${BACKFLOW_INSTANCE_TYPE:-m7g.xlarge}"
+ECS_CLUSTER="backflow"
+ECS_CONTAINER_NAME="backflow-agent"
+CW_LOG_GROUP="/ecs/backflow"
+ECS_EXECUTION_ROLE="backflow-ecs-execution-role"
+ECS_TASK_ROLE="backflow-ecs-task-role"
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # Resolve AMI: use provided value or look up latest Amazon Linux 2023 for the instance arch
 AMI_ID="${BACKFLOW_AMI:-}"
@@ -135,7 +143,6 @@ aws ec2 revoke-security-group-ingress \
 echo "    Security group: ${SG_ID}"
 
 # --- S3 Bucket (agent output storage) ---
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 S3_BUCKET="backflow-agent-output-${ACCOUNT_ID}-${REGION}"
 echo "==> Creating S3 bucket for agent output..."
 if aws s3api head-bucket --bucket "$S3_BUCKET" --region "$REGION" 2>/dev/null; then
@@ -253,15 +260,166 @@ LT_ID=$(aws ec2 describe-launch-templates \
 
 echo "    Launch template: ${LT_ID}"
 
+# =============================================================================
+# Fargate mode infrastructure
+# =============================================================================
+
+# --- CloudWatch Log Group ---
+echo "==> Creating CloudWatch log group..."
+if aws logs describe-log-groups \
+    --log-group-name-prefix "$CW_LOG_GROUP" \
+    --region "$REGION" \
+    --query "logGroups[?logGroupName=='${CW_LOG_GROUP}'].logGroupName" \
+    --output text | grep -q "$CW_LOG_GROUP"; then
+    echo "    Log group already exists"
+else
+    aws logs create-log-group \
+        --log-group-name "$CW_LOG_GROUP" \
+        --region "$REGION"
+    aws logs put-retention-policy \
+        --log-group-name "$CW_LOG_GROUP" \
+        --retention-in-days 14 \
+        --region "$REGION"
+fi
+echo "    Log group: ${CW_LOG_GROUP}"
+
+# --- ECS Task Execution Role ---
+echo "==> Creating ECS task execution role..."
+ECS_TRUST_POLICY=$(cat <<'ECSEOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+ECSEOF
+)
+
+if aws iam get-role --role-name "$ECS_EXECUTION_ROLE" &>/dev/null; then
+    echo "    Execution role already exists"
+else
+    aws iam create-role \
+        --role-name "$ECS_EXECUTION_ROLE" \
+        --assume-role-policy-document "$ECS_TRUST_POLICY"
+fi
+
+aws iam attach-role-policy \
+    --role-name "$ECS_EXECUTION_ROLE" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+echo "    Execution role: ${ECS_EXECUTION_ROLE}"
+
+# --- ECS Task Role ---
+echo "==> Creating ECS task role..."
+if aws iam get-role --role-name "$ECS_TASK_ROLE" &>/dev/null; then
+    echo "    Task role already exists"
+else
+    aws iam create-role \
+        --role-name "$ECS_TASK_ROLE" \
+        --assume-role-policy-document "$ECS_TRUST_POLICY"
+fi
+
+# Attach S3 output policy (same bucket as EC2 mode)
+aws iam attach-role-policy \
+    --role-name "$ECS_TASK_ROLE" \
+    --policy-arn "$S3_POLICY_ARN"
+
+echo "    Task role: ${ECS_TASK_ROLE}"
+
+# --- ECS Service-Linked Role ---
+# Required before first ECS cluster creation in an account
+echo "==> Ensuring ECS service-linked role exists..."
+aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com 2>/dev/null || true
+
+# --- ECS Cluster ---
+echo "==> Creating ECS cluster..."
+if aws ecs describe-clusters \
+    --clusters "$ECS_CLUSTER" \
+    --region "$REGION" \
+    --query "clusters[?status=='ACTIVE'].clusterName" \
+    --output text 2>/dev/null | grep -q "$ECS_CLUSTER"; then
+    echo "    ECS cluster already exists"
+else
+    aws ecs create-cluster \
+        --cluster-name "$ECS_CLUSTER" \
+        --capacity-providers FARGATE FARGATE_SPOT \
+        --default-capacity-provider-strategy \
+            capacityProvider=FARGATE_SPOT,weight=1 \
+            capacityProvider=FARGATE,weight=0 \
+        --region "$REGION"
+fi
+echo "    ECS cluster: ${ECS_CLUSTER}"
+
+# --- Discover subnets ---
+echo "==> Discovering subnets in default VPC..."
+SUBNET_IDS=$(aws ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=${VPC_ID}" \
+    --query 'Subnets[*].SubnetId' \
+    --output text \
+    --region "$REGION" | tr '\t' ',')
+echo "    Subnets: ${SUBNET_IDS}"
+
+# --- ECS Task Definition ---
+echo "==> Registering ECS task definition..."
+TASK_DEF=$(cat <<TDEOF
+{
+  "family": "${ECS_CONTAINER_NAME}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "8192",
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE}",
+  "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/${ECS_TASK_ROLE}",
+  "containerDefinitions": [
+    {
+      "name": "${ECS_CONTAINER_NAME}",
+      "image": "${ECR_URI}:latest",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${CW_LOG_GROUP}",
+          "awslogs-region": "${REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
+TDEOF
+)
+
+TASK_DEF_ARN=$(aws ecs register-task-definition \
+    --cli-input-json "$TASK_DEF" \
+    --region "$REGION" \
+    --query 'taskDefinition.taskDefinitionArn' \
+    --output text)
+echo "    Task definition: ${TASK_DEF_ARN}"
+
 echo ""
 echo "==> Setup complete!"
 echo ""
-echo "Add these to your environment:"
-echo "  export BACKFLOW_LAUNCH_TEMPLATE_ID=${LT_ID}"
-echo "  export BACKFLOW_S3_BUCKET=${S3_BUCKET}"
-echo "  export AWS_REGION=${REGION}"
+echo "For EC2 mode, add these to your .env:"
+echo "  BACKFLOW_MODE=ec2"
+echo "  BACKFLOW_LAUNCH_TEMPLATE_ID=${LT_ID}"
+echo "  BACKFLOW_S3_BUCKET=${S3_BUCKET}"
+echo "  AWS_REGION=${REGION}"
+echo ""
+echo "For Fargate mode, add these to your .env:"
+echo "  BACKFLOW_MODE=fargate"
+echo "  BACKFLOW_ECS_CLUSTER=${ECS_CLUSTER}"
+echo "  BACKFLOW_ECS_TASK_DEFINITION=${ECS_CONTAINER_NAME}"
+echo "  BACKFLOW_ECS_SUBNETS=${SUBNET_IDS}"
+echo "  BACKFLOW_ECS_SECURITY_GROUPS=${SG_ID}"
+echo "  BACKFLOW_CLOUDWATCH_LOG_GROUP=${CW_LOG_GROUP}"
+echo "  BACKFLOW_S3_BUCKET=${S3_BUCKET}"
+echo "  AWS_REGION=${REGION}"
 echo ""
 echo "Next steps:"
 echo "  1. Build and push the agent image: make docker-build && make docker-push REGISTRY=${ECR_URI}"
-echo "  2. Set ANTHROPIC_API_KEY and GITHUB_TOKEN"
+echo "  2. Set ANTHROPIC_API_KEY and GITHUB_TOKEN in .env"
 echo "  3. Run: make run"
