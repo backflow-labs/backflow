@@ -188,6 +188,7 @@ func (m *FargateManager) InspectContainer(ctx context.Context, _, containerID st
 			status.NeedsInput = agent.NeedsInput
 			status.Question = agent.Question
 			status.PRURL = agent.PRURL
+			status.CostUSD = agent.CostUSD
 			if agent.Error != "" {
 				status.Error = agent.Error
 			}

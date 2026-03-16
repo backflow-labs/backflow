@@ -23,6 +23,7 @@ type ContainerStatus struct {
 	Error      string
 	LogTail    string
 	PRURL      string
+	CostUSD    float64
 }
 
 // dockerClient is the interface used by the orchestrator to manage containers.
@@ -189,11 +190,12 @@ func envFlag(key, value string) string {
 // agentStatus is the JSON structure written by the agent entrypoint to
 // /home/agent/workspace/status.json inside the container.
 type agentStatus struct {
-	NeedsInput bool   `json:"needs_input"`
-	Question   string `json:"question"`
-	Complete   bool   `json:"complete"`
-	Error      string `json:"error"`
-	PRURL      string `json:"pr_url"`
+	NeedsInput bool    `json:"needs_input"`
+	Question   string  `json:"question"`
+	Complete   bool    `json:"complete"`
+	Error      string  `json:"error"`
+	PRURL      string  `json:"pr_url"`
+	CostUSD    float64 `json:"cost_usd,omitempty"`
 }
 
 // parseInspectOutput parses the combined output of `docker inspect` +
@@ -248,6 +250,7 @@ func (m *DockerManager) enrichFromStatusJSON(ctx context.Context, instanceID, co
 	status.Question = agent.Question
 	status.Complete = agent.Complete
 	status.PRURL = agent.PRURL
+	status.CostUSD = agent.CostUSD
 	if agent.Error != "" {
 		status.Error = agent.Error
 	}

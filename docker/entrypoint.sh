@@ -44,6 +44,7 @@ fetch_s3_var "PR_BODY_S3_URL" "PR_BODY"
 
 WORKSPACE="/home/agent/workspace"
 STATUS_FILE="${WORKSPACE}/status.json"
+START_TIME=$(date +%s)
 
 write_status() {
     local exit_code="$1"
@@ -52,6 +53,7 @@ write_status() {
     local question="$4"
     local error_msg="$5"
     local pr_url="${6:-}"
+    local cost_usd="${7:-0}"
 
     cat > "$STATUS_FILE" <<STATUSEOF
 {
@@ -60,7 +62,8 @@ write_status() {
   "needs_input": ${needs_input},
   "question": $(echo "$question" | jq -R .),
   "error": $(echo "$error_msg" | jq -R .),
-  "pr_url": $(echo "$pr_url" | jq -R .)
+  "pr_url": $(echo "$pr_url" | jq -R .),
+  "cost_usd": ${cost_usd}
 }
 STATUSEOF
 
@@ -196,7 +199,8 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
         PR_URL=$(gh pr view "$REVIEW_PR_NUMBER" --json url --jq '.url' 2>/dev/null || true)
     fi
 
-    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL"
+    REVIEW_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL" "$REVIEW_COST"
     echo "==> Done (exit code: ${CLAUDE_EXIT})"
     exit $CLAUDE_EXIT
 fi
@@ -411,6 +415,13 @@ if [ -n "$PR_URL" ]; then
     # Extract actual cost from agent output (stream-json result line)
     ACTUAL_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // empty' 2>/dev/null || true)
 
+    # Compute elapsed time
+    END_TIME=$(date +%s)
+    ELAPSED_SEC=$((END_TIME - START_TIME))
+    ELAPSED_MIN=$((ELAPSED_SEC / 60))
+    ELAPSED_REM_SEC=$((ELAPSED_SEC % 60))
+    ELAPSED_DISPLAY="${ELAPSED_MIN}m ${ELAPSED_REM_SEC}s"
+
     # Format prompt as markdown quote
     QUOTED_PROMPT=$(echo "$PROMPT" | sed 's/^/> /')
 
@@ -430,6 +441,7 @@ ${QUOTED_PROMPT}
 | Cost | \`\$${ACTUAL_COST}\` |"
     fi
     COMMENT_BODY="${COMMENT_BODY}
+| Elapsed Time | \`${ELAPSED_DISPLAY}\` |
 | Max Turns | \`${MAX_TURNS}\` |
 | Auth Mode | \`${AUTH_MODE}\` |
 | Attempts | \`${ATTEMPT}/${MAX_RETRIES}\` |"
@@ -504,8 +516,14 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
     fi
 fi
 
+# --- Extract cost for status ---
+FINAL_COST="0"
+if [ "$HARNESS" != "codex" ]; then
+    FINAL_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+fi
+
 # --- Write status ---
-write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL"
+write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL" "$FINAL_COST"
 
 echo "==> Done (exit code: ${CLAUDE_EXIT})"
 exit $CLAUDE_EXIT
