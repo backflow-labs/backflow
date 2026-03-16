@@ -3,6 +3,9 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -44,6 +47,7 @@ type Task struct {
 	RepoURL         string            `json:"repo_url"`
 	Branch          string            `json:"branch"`
 	TargetBranch    string            `json:"target_branch"`
+	ReviewPRURL     string            `json:"review_pr_url,omitempty"`
 	ReviewPRNumber  int               `json:"review_pr_number,omitempty"`
 	Prompt          string            `json:"prompt"`
 	Context         string            `json:"context,omitempty"`
@@ -66,11 +70,24 @@ type Task struct {
 	ContainerID     string            `json:"container_id,omitempty"`
 	RetryCount      int               `json:"retry_count"`
 	CostUSD         float64           `json:"cost_usd,omitempty"`
+	ReplyChannel    string            `json:"reply_channel,omitempty"`
 	Error           string            `json:"error,omitempty"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	StartedAt       *time.Time        `json:"started_at,omitempty"`
 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
+}
+
+// RedactReplyChannel replaces the full reply channel (e.g. "sms:+15551234567")
+// with just the channel type (e.g. "sms") to avoid exposing phone numbers in
+// API responses.
+func (t *Task) RedactReplyChannel() {
+	if t.ReplyChannel == "" {
+		return
+	}
+	if idx := strings.Index(t.ReplyChannel, ":"); idx >= 0 {
+		t.ReplyChannel = t.ReplyChannel[:idx]
+	}
 }
 
 // AllowedToolsJSON returns the JSON representation for DB storage.
@@ -98,6 +115,7 @@ type CreateTaskRequest struct {
 	RepoURL         string            `json:"repo_url"`
 	Branch          string            `json:"branch,omitempty"`
 	TargetBranch    string            `json:"target_branch,omitempty"`
+	ReviewPRURL     string            `json:"review_pr_url,omitempty"`
 	ReviewPRNumber  int               `json:"review_pr_number,omitempty"`
 	Prompt          string            `json:"prompt,omitempty"`
 	Context         string            `json:"context,omitempty"`
@@ -116,21 +134,60 @@ type CreateTaskRequest struct {
 	EnvVars         map[string]string `json:"env_vars,omitempty"`
 }
 
-func (r *CreateTaskRequest) Validate() error {
-	if r.RepoURL == "" {
-		return fmt.Errorf("repo_url is required")
+// ParsePullRequestURL extracts the repository URL and PR number from a GitHub PR URL.
+// It accepts URLs like https://github.com/owner/repo/pull/123 (with optional trailing path).
+func ParsePullRequestURL(prURL string) (repoURL string, prNumber int, err error) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid PR URL: %w", err)
+	}
+	if u.Host == "" || u.Path == "" {
+		return "", 0, fmt.Errorf("invalid PR URL: missing host or path")
 	}
 
+	// Path looks like /owner/repo/pull/123 or /owner/repo/pull/123/files
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 || parts[2] != "pull" {
+		return "", 0, fmt.Errorf("invalid PR URL: expected format https://host/owner/repo/pull/NUMBER")
+	}
+
+	prNumber, err = strconv.Atoi(parts[3])
+	if err != nil || prNumber <= 0 {
+		return "", 0, fmt.Errorf("invalid PR URL: PR number must be a positive integer")
+	}
+
+	repoURL = fmt.Sprintf("%s://%s/%s/%s", u.Scheme, u.Host, parts[0], parts[1])
+	return repoURL, prNumber, nil
+}
+
+func (r *CreateTaskRequest) Validate() error {
 	// Validate task_mode
 	switch r.TaskMode {
 	case "", TaskModeCode:
-		// In code mode, prompt is required
+		// In code mode, repo_url and prompt are required
+		if r.RepoURL == "" {
+			return fmt.Errorf("repo_url is required")
+		}
 		if r.Prompt == "" {
 			return fmt.Errorf("prompt is required")
 		}
 	case TaskModeReview:
-		if r.ReviewPRNumber <= 0 {
-			return fmt.Errorf("review_pr_number is required and must be positive for review mode")
+		if r.ReviewPRURL != "" {
+			if r.RepoURL != "" || r.ReviewPRNumber > 0 {
+				return fmt.Errorf("review_pr_url cannot be combined with repo_url or review_pr_number; use one or the other")
+			}
+			// Parse the PR URL to derive repo_url and review_pr_number
+			repoURL, prNumber, err := ParsePullRequestURL(r.ReviewPRURL)
+			if err != nil {
+				return err
+			}
+			r.RepoURL = repoURL
+			r.ReviewPRNumber = prNumber
+		} else if r.RepoURL != "" && r.ReviewPRNumber > 0 {
+			// Backward compat: construct the PR URL from repo_url + review_pr_number
+			r.ReviewPRURL = fmt.Sprintf("%s/pull/%d", strings.TrimRight(r.RepoURL, "/"), r.ReviewPRNumber)
+		} else {
+			return fmt.Errorf("review_pr_url is required for review mode (e.g. https://github.com/owner/repo/pull/123)")
 		}
 	default:
 		return fmt.Errorf("task_mode must be 'code' or 'review'")

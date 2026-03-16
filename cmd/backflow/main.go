@@ -13,6 +13,7 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/api"
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/messaging"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/orchestrator"
 	"github.com/backflow-labs/backflow/internal/store"
@@ -41,6 +42,20 @@ func main() {
 		notifier = notify.NoopNotifier{}
 	}
 
+	// Initialize messaging
+	var messenger messaging.Messenger
+	switch cfg.SMSProvider {
+	case "twilio":
+		messenger = messaging.NewTwilioMessenger(cfg.TwilioAccountSID, cfg.TwilioAuthToken, cfg.SMSFromNumber)
+		log.Info().Str("from", cfg.SMSFromNumber).Msg("twilio SMS messaging enabled")
+	default:
+		messenger = messaging.NoopMessenger{}
+	}
+
+	if cfg.SMSProvider != "" {
+		notifier = notify.NewMessagingNotifier(notifier, messenger, db, cfg.SMSEvents)
+	}
+
 	s3Uploader, err := orchestrator.NewS3Uploader(context.Background(), cfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create S3 uploader")
@@ -51,9 +66,17 @@ func main() {
 
 	orch := orchestrator.New(db, cfg, notifier, s3Uploader)
 
+	router := api.NewServer(db, cfg, orch.Docker())
+
+	// Mount SMS inbound webhook if provider is configured
+	if cfg.SMSProvider != "" {
+		router.Post("/webhooks/sms/inbound", messaging.InboundHandler(db, cfg, messenger))
+		log.Info().Msg("SMS inbound webhook mounted at /webhooks/sms/inbound")
+	}
+
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      api.NewServer(db, cfg, orch.Docker()),
+		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

@@ -197,6 +197,7 @@ func TestReviewTaskCRUD(t *testing.T) {
 		Status:         models.TaskStatusPending,
 		TaskMode:       models.TaskModeReview,
 		RepoURL:        "https://github.com/test/repo",
+		ReviewPRURL:    "https://github.com/test/repo/pull/42",
 		ReviewPRNumber: 42,
 		Prompt:         "Focus on security",
 		Model:          "claude-sonnet-4-6",
@@ -219,6 +220,9 @@ func TestReviewTaskCRUD(t *testing.T) {
 	}
 	if got.TaskMode != models.TaskModeReview {
 		t.Errorf("TaskMode = %q, want %q", got.TaskMode, models.TaskModeReview)
+	}
+	if got.ReviewPRURL != "https://github.com/test/repo/pull/42" {
+		t.Errorf("ReviewPRURL = %q, want %q", got.ReviewPRURL, "https://github.com/test/repo/pull/42")
 	}
 	if got.ReviewPRNumber != 42 {
 		t.Errorf("ReviewPRNumber = %d, want 42", got.ReviewPRNumber)
