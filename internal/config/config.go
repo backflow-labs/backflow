@@ -166,21 +166,20 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINERS_PER_INSTANCE must be <= %d in local mode, got %d", MaxLocalContainers, c.ContainersPerInst)
 	}
 
-	if c.ECSLaunchType != "FARGATE" && c.ECSLaunchType != "FARGATE_SPOT" {
-		return nil, fmt.Errorf("invalid BACKFLOW_ECS_LAUNCH_TYPE: %q (must be %q or %q)", c.ECSLaunchType, "FARGATE", "FARGATE_SPOT")
-	}
-
 	if c.ContainerCPUs < 1 {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINER_CPUS must be >= 1, got %d", c.ContainerCPUs)
 	}
 	if c.ContainerMemGB < 1 {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINER_MEMORY_GB must be >= 1, got %d", c.ContainerMemGB)
 	}
-	if c.MaxConcurrentTasks < 1 {
-		return nil, fmt.Errorf("BACKFLOW_MAX_CONCURRENT_TASKS must be >= 1, got %d", c.MaxConcurrentTasks)
-	}
 
 	if c.Mode == ModeFargate {
+		if c.ECSLaunchType != "FARGATE" && c.ECSLaunchType != "FARGATE_SPOT" {
+			return nil, fmt.Errorf("invalid BACKFLOW_ECS_LAUNCH_TYPE: %q (must be %q or %q)", c.ECSLaunchType, "FARGATE", "FARGATE_SPOT")
+		}
+		if c.MaxConcurrentTasks < 1 {
+			return nil, fmt.Errorf("BACKFLOW_MAX_CONCURRENT_TASKS must be >= 1, got %d", c.MaxConcurrentTasks)
+		}
 		switch {
 		case c.AuthMode == AuthModeMaxSubscription:
 			return nil, fmt.Errorf("BACKFLOW_AUTH_MODE=%s is not supported in %s mode", AuthModeMaxSubscription, ModeFargate)
