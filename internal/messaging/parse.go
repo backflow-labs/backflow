@@ -40,12 +40,30 @@ func looksLikeURL(s string) bool {
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		return true
 	}
-	// Require domain/path pattern: the part before the first "/" must contain
-	// a "." (e.g. "github.com/org/repo"). This avoids false positives like
-	// "Fix/update" or "refactor/api.handler".
+	// Require domain/path pattern: the part before the first "/" must look
+	// like a hostname (e.g. "github.com/org/repo"). Both sides of the dot
+	// must contain a letter to avoid false positives like "v2.0/migration".
+	// Also require at least two path segments (host/a/b) to filter out
+	// patterns like "config.yaml/broken".
 	slashIdx := strings.Index(s, "/")
-	if slashIdx > 0 && strings.Contains(s[:slashIdx], ".") {
-		return true
+	if slashIdx > 0 {
+		host := lower[:slashIdx]
+		path := s[slashIdx+1:]
+		dotIdx := strings.LastIndex(host, ".")
+		if dotIdx > 0 && dotIdx < len(host)-1 &&
+			containsLetter(host[:dotIdx]) && containsLetter(host[dotIdx+1:]) &&
+			strings.Contains(path, "/") {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLetter(s string) bool {
+	for _, c := range s {
+		if c >= 'a' && c <= 'z' {
+			return true
+		}
 	}
 	return false
 }

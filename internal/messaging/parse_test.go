@@ -85,6 +85,20 @@ func TestParseTaskFromSMS(t *testing.T) {
 			wantRepo:    "https://github.com/example/repo",
 			wantPrompt:  "refactor/api.handler cleanup",
 		},
+		{
+			name:        "versioned path not mistaken for URL",
+			body:        "v2.0/migration update the schema",
+			defaultRepo: "https://github.com/example/repo",
+			wantRepo:    "https://github.com/example/repo",
+			wantPrompt:  "v2.0/migration update the schema",
+		},
+		{
+			name:        "file path not mistaken for URL",
+			body:        "config.yaml/broken fix it",
+			defaultRepo: "https://github.com/example/repo",
+			wantRepo:    "https://github.com/example/repo",
+			wantPrompt:  "config.yaml/broken fix it",
+		},
 	}
 
 	for _, tt := range tests {
