@@ -752,7 +752,7 @@ func TestHandleInspectError_InstanceGone_FargatePreservesSyntheticInstance(t *te
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_gone_fargate")
-	o.handleInspectError(context.Background(), task, fmt.Errorf("spot interruption: Fargate Spot capacity reclaimed"))
+	o.handleInspectError(context.Background(), task, fmt.Errorf("%w: Fargate Spot capacity reclaimed", errSpotInterruption))
 
 	inst, _ := s.GetInstance(context.Background(), "fargate")
 	if inst.Status != models.InstanceStatusRunning {

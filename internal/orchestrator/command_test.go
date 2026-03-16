@@ -29,9 +29,19 @@ func TestIsInstanceGone(t *testing.T) {
 			true,
 		},
 		{
-			"spot interruption",
-			fmt.Errorf("spot interruption: Host EC2 (spot) terminated"),
+			"spot interruption sentinel",
+			fmt.Errorf("%w: Host EC2 (spot) terminated", errSpotInterruption),
 			true,
+		},
+		{
+			"wrapped spot interruption",
+			fmt.Errorf("describe ecs task: %w", fmt.Errorf("%w: Fargate Spot capacity reclaimed", errSpotInterruption)),
+			true,
+		},
+		{
+			"plain string spot not matched",
+			fmt.Errorf("spot interruption: Host EC2 (spot) terminated"),
+			false,
 		},
 	}
 	for _, tt := range tests {

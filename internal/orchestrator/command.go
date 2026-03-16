@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -115,14 +116,17 @@ func shellEscape(s string) string {
 }
 
 // isInstanceGone returns true if the error indicates the EC2 instance no
-// longer exists or is not reachable via SSM (e.g. terminated, shutting down).
+// longer exists or is not reachable via SSM (e.g. terminated, shutting down),
+// or if a Fargate Spot task was interrupted.
 func isInstanceGone(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, errSpotInterruption) {
+		return true
+	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "invalidinstanceid") ||
-		strings.Contains(msg, "spot interruption")
+	return strings.Contains(msg, "invalidinstanceid")
 }
 
 // isHexString returns true if s is a non-empty string of hex characters (used

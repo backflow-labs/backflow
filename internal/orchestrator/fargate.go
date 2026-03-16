@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -21,6 +22,10 @@ import (
 )
 
 const backflowStatusLogPrefix = "BACKFLOW_STATUS_JSON:"
+
+// errSpotInterruption is returned when an ECS task is stopped due to Fargate
+// Spot capacity reclamation. It is checked via errors.Is in isInstanceGone.
+var errSpotInterruption = errors.New("spot interruption")
 
 // FargateManager manages agent containers as standalone ECS tasks.
 type FargateManager struct {
@@ -147,7 +152,7 @@ func (m *FargateManager) InspectContainer(ctx context.Context, _, containerID st
 
 	task := output.Tasks[0]
 	if isSpotInterruptionReason(aws.ToString(task.StoppedReason)) {
-		return ContainerStatus{}, fmt.Errorf("spot interruption: %s", aws.ToString(task.StoppedReason))
+		return ContainerStatus{}, fmt.Errorf("%w: %s", errSpotInterruption, aws.ToString(task.StoppedReason))
 	}
 
 	status, err := mapECSTaskStatus(task, m.containerName())
