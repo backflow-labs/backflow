@@ -6,11 +6,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type noopLogFetcher struct{}
@@ -21,16 +26,34 @@ func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, er
 
 func testServer(t *testing.T) http.Handler {
 	t.Helper()
-	f, err := os.CreateTemp("", "backflow-api-test-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	ctx := context.Background()
 
-	s, err := store.NewSQLite(f.Name())
+	pgContainer, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("backflow_test"),
+		postgres.WithUsername("test"),
+		postgres.WithPassword("test"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(30*time.Second),
+		),
+	)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("start postgres container: %v", err)
+	}
+	t.Cleanup(func() { pgContainer.Terminate(ctx) })
+
+	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("get connection string: %v", err)
+	}
+
+	_, thisFile, _, _ := runtime.Caller(0)
+	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
+
+	s, err := store.NewPostgres(ctx, connStr, migrationsDir)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
 
