@@ -18,6 +18,10 @@ type mockStore struct {
 	tasks     map[string]*models.Task
 	instances map[string]*models.Instance
 	mu        sync.Mutex
+
+	// Error injection: if set, GetInstance returns this error instead of
+	// looking up the instance map.
+	getInstanceErr error
 }
 
 func newMockStore() *mockStore {
@@ -81,6 +85,9 @@ func (s *mockStore) CreateInstance(_ context.Context, inst *models.Instance) err
 func (s *mockStore) GetInstance(_ context.Context, id string) (*models.Instance, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.getInstanceErr != nil {
+		return nil, s.getInstanceErr
+	}
 	i, ok := s.instances[id]
 	if !ok {
 		return nil, store.ErrNotFound

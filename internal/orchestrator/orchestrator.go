@@ -68,10 +68,7 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 
 	now := time.Now().UTC()
 	_, err := s.GetInstance(context.Background(), "local")
-	if err == nil {
-		s.UpdateInstanceStatus(context.Background(), "local", models.InstanceStatusRunning)
-		s.ResetRunningContainers(context.Background(), "local")
-	} else {
+	if errors.Is(err, store.ErrNotFound) {
 		s.CreateInstance(context.Background(), &models.Instance{
 			InstanceID:    "local",
 			InstanceType:  "local",
@@ -81,6 +78,11 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		})
+	} else if err != nil {
+		log.Error().Err(err).Msg("local init: failed to get synthetic instance")
+	} else {
+		s.UpdateInstanceStatus(context.Background(), "local", models.InstanceStatusRunning)
+		s.ResetRunningContainers(context.Background(), "local")
 	}
 }
 
@@ -91,13 +93,7 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 
 	now := time.Now().UTC()
 	_, err := s.GetInstance(context.Background(), "fargate")
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Error().Err(err).Msg("fargate init: failed to get synthetic instance")
-	}
-	if err == nil {
-		s.UpdateInstanceStatus(context.Background(), "fargate", models.InstanceStatusRunning)
-		s.ResetRunningContainers(context.Background(), "fargate")
-	} else {
+	if errors.Is(err, store.ErrNotFound) {
 		if err := s.CreateInstance(context.Background(), &models.Instance{
 			InstanceID:    "fargate",
 			InstanceType:  "fargate",
@@ -108,6 +104,12 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 		}); err != nil {
 			log.Error().Err(err).Msg("fargate init: failed to create synthetic instance")
 		}
+	} else if err != nil {
+		log.Error().Err(err).Msg("fargate init: failed to get synthetic instance")
+		return
+	} else {
+		s.UpdateInstanceStatus(context.Background(), "fargate", models.InstanceStatusRunning)
+		s.ResetRunningContainers(context.Background(), "fargate")
 	}
 
 	instances, err := s.ListInstances(context.Background(), nil)
