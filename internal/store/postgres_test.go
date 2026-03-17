@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -61,8 +64,9 @@ func pgTestInstance(t *testing.T, s *PostgresStore) *models.Instance {
 	return inst
 }
 
-func testPostgresStore(t *testing.T) *PostgresStore {
-	t.Helper()
+var sharedConnStr string
+
+func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	pgContainer, err := postgres.Run(ctx, "postgres:16-alpine",
@@ -76,23 +80,45 @@ func testPostgresStore(t *testing.T) *PostgresStore {
 		),
 	)
 	if err != nil {
-		t.Fatalf("start postgres container: %v", err)
+		log.Fatalf("start postgres container: %v", err)
 	}
-	t.Cleanup(func() { pgContainer.Terminate(ctx) })
 
-	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	sharedConnStr, err = pgContainer.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		t.Fatalf("get connection string: %v", err)
+		log.Fatalf("get connection string: %v", err)
 	}
 
+	// Run migrations once.
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
-
-	s, err := NewPostgres(ctx, connStr, migrationsDir)
+	s, err := NewPostgres(ctx, sharedConnStr, migrationsDir)
 	if err != nil {
-		t.Fatalf("NewPostgres: %v", err)
+		log.Fatalf("NewPostgres: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	s.Close()
+
+	code := m.Run()
+
+	pgContainer.Terminate(ctx)
+	os.Exit(code)
+}
+
+func testPostgresStore(t *testing.T) *PostgresStore {
+	t.Helper()
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, sharedConnStr)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+
+	s := &PostgresStore{pool: pool, q: pool}
+
+	// Clean slate for test isolation.
+	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
 	return s
 }
 

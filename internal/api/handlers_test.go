@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -24,8 +27,12 @@ func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, er
 	return "test logs\n", nil
 }
 
-func testServer(t *testing.T) http.Handler {
-	t.Helper()
+var (
+	sharedConnStr string
+	truncatePool  *pgxpool.Pool
+)
+
+func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	pgContainer, err := postgres.Run(ctx, "postgres:16-alpine",
@@ -39,19 +46,48 @@ func testServer(t *testing.T) http.Handler {
 		),
 	)
 	if err != nil {
-		t.Fatalf("start postgres container: %v", err)
+		log.Fatalf("start postgres container: %v", err)
 	}
-	t.Cleanup(func() { pgContainer.Terminate(ctx) })
 
-	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	sharedConnStr, err = pgContainer.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		t.Fatalf("get connection string: %v", err)
+		log.Fatalf("get connection string: %v", err)
+	}
+
+	// Run migrations once.
+	_, thisFile, _, _ := runtime.Caller(0)
+	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
+	s, err := store.NewPostgres(ctx, sharedConnStr, migrationsDir)
+	if err != nil {
+		log.Fatalf("NewPostgres: %v", err)
+	}
+	s.Close()
+
+	truncatePool, err = pgxpool.New(ctx, sharedConnStr)
+	if err != nil {
+		log.Fatalf("truncate pool: %v", err)
+	}
+
+	code := m.Run()
+
+	truncatePool.Close()
+	pgContainer.Terminate(ctx)
+	os.Exit(code)
+}
+
+func testServer(t *testing.T) http.Handler {
+	t.Helper()
+	ctx := context.Background()
+
+	// Clean slate for test isolation.
+	if _, err := truncatePool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
 	}
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
 
-	s, err := store.NewPostgres(ctx, connStr, migrationsDir)
+	s, err := store.NewPostgres(ctx, sharedConnStr, migrationsDir)
 	if err != nil {
 		t.Fatalf("NewPostgres: %v", err)
 	}
