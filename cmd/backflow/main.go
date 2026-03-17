@@ -28,11 +28,17 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	db, err := store.NewSQLite(cfg.DBPath)
+	startupCtx := context.Background()
+
+	db, err := store.NewPostgres(startupCtx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open database")
 	}
 	defer db.Close()
+
+	if err := db.Migrate(startupCtx); err != nil {
+		log.Fatal().Err(err).Msg("failed to run database migrations")
+	}
 
 	var notifier notify.Notifier
 	if cfg.WebhookURL != "" {

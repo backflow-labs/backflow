@@ -20,7 +20,7 @@ Entry point for the server binary.
 
 | File | Description |
 |------|-------------|
-| `main.go` | Application entry point. Loads config, opens SQLite, initializes the notifier, orchestrator, and HTTP server, then runs both the orchestrator poll loop and the chi-based API server as concurrent goroutines. Handles graceful shutdown on SIGINT/SIGTERM. |
+| `main.go` | Application entry point. Loads config, opens Postgres, runs goose migrations, initializes the notifier, orchestrator, and HTTP server, then runs both the orchestrator poll loop and the chi-based API server as concurrent goroutines. Handles graceful shutdown on SIGINT/SIGTERM. |
 
 ## `internal/api/`
 
@@ -39,7 +39,7 @@ Environment-variable-based configuration.
 
 | File | Description |
 |------|-------------|
-| `config.go` | Defines the `Config` struct with all server settings (mode, auth, AWS, ECS/Fargate, agent defaults, webhooks, DB, polling). `Load()` reads from environment variables with sensible defaults. Supports three modes (`ec2`, `local`, `fargate`), two auth modes (`api_key`, `max_subscription`), and two harnesses (`claude_code`, `codex`) with per-harness default models. Fargate-specific validation (required ECS fields, launch type, max concurrent tasks, no `max_subscription`) runs only when mode is `fargate`. `MaxConcurrent()` computes the concurrency limit based on mode, auth mode, and instance capacity. |
+| `config.go` | Defines the `Config` struct with all server settings (mode, auth, AWS, ECS/Fargate, agent defaults, webhooks, Postgres URL, polling). `Load()` reads from environment variables with sensible defaults. Supports three modes (`ec2`, `local`, `fargate`), two auth modes (`api_key`, `max_subscription`), and two harnesses (`claude_code`, `codex`) with per-harness default models. Fargate-specific validation (required ECS fields, launch type, max concurrent tasks, no `max_subscription`) runs only when mode is `fargate`. `MaxConcurrent()` computes the concurrency limit based on mode, auth mode, and instance capacity. |
 
 ## `internal/models/`
 
@@ -89,9 +89,9 @@ Persistence layer.
 
 | File | Description |
 |------|-------------|
-| `store.go` | `Store` interface defining CRUD operations for tasks (`Create`, `Get`, `List`, `Update`, `Delete`) and instances (`Create`, `Get`, `List`, `Update`), plus `Close()`. `TaskFilter` struct for list queries with status filter, limit, and offset. |
-| `sqlite.go` | SQLite implementation of `Store`. Opens the database in WAL mode with busy timeout and foreign keys. `migrate()` creates the `tasks` and `instances` tables with indexes on status and created_at. Implements all CRUD operations with full field scanning, JSON serialization for `allowed_tools` and `env_vars`, and RFC3339 timestamp handling. |
-| `sqlite_test.go` | Tests for SQLite store — full task CRUD cycle (create, get, update, list with filter, delete) including harness and task_mode fields, review task CRUD, not-found handling, and instance CRUD (create, get, update, list by status). Uses temp DB files with cleanup. |
+| `store.go` | `Store` interface defining task CRUD, named task updates, instance CRUD, named instance updates, allowed sender operations, transactional execution via `WithTx`, and `Close()`. `TaskFilter` controls listing by status, limit, and offset. |
+| `postgres.go` | Postgres implementation of `Store` using `pgxpool` and `pgx.Tx` behind a shared `querier` interface. Includes goose migration support, JSONB handling for `allowed_tools` and `env_vars`, TIMESTAMPTZ scanning, and transaction-scoped stores for `WithTx`. |
+| `postgres_test.go` | Postgres store integration tests. Uses testcontainers-go to launch ephemeral Postgres, runs goose migrations, truncates tables between tests, and covers CRUD, named update methods, transaction commit/rollback, allowed senders, and `ErrNotFound` behavior. |
 
 ## `docker/`
 
@@ -110,6 +110,6 @@ Operational and development helper scripts.
 |------|-------------|
 | `build-agent-image.sh` | Builds and pushes the multi-arch agent Docker image to ECR. Authenticates with ECR, creates a buildx builder, and pushes with `linux/amd64,linux/arm64` platforms. |
 | `create-task.sh` | CLI helper to submit tasks via the REST API. Accepts repo URL and prompt as positional args, plus flags for branch, model, effort, budget, runtime, turns, PR options, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `jq` and posts to the API with `curl`. |
-| `db-status.sh` | Dumps the SQLite database state. Shows all tasks, task status summary, all instances, and instance status summary using `sqlite3` queries. |
+| `db-status.sh` | Dumps the Postgres database state. Shows all tasks, task status summary, all instances, and instance status summary using `psql` queries against `BACKFLOW_DATABASE_URL`. |
 | `setup-aws.sh` | One-time AWS infrastructure setup. Creates shared resources (ECR repo, security group, S3 bucket), EC2-mode resources (IAM role with SSM/ECR policies, instance profile, launch template), and Fargate-mode resources (CloudWatch log group, ECS task execution and task roles, ECS cluster with FARGATE/FARGATE_SPOT capacity providers, task definition). Discovers default VPC subnets. Outputs `.env` values for both EC2 and Fargate modes. |
 | `user-data.sh` | EC2 instance bootstrap script (run via launch template user-data). Installs Docker and SSM agent, authenticates with ECR using IMDSv2, and pulls the `backflow-agent` image. |

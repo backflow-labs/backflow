@@ -4,28 +4,91 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-func testStore(t *testing.T) *SQLiteStore {
-	t.Helper()
-	f, err := os.CreateTemp("", "backflow-test-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+var (
+	testSetupOnce   sync.Once
+	testSetupErr    error
+	testDatabaseURL string
+	testDBLock      sync.Mutex
+)
 
-	s, err := NewSQLite(f.Name())
+func testStore(t *testing.T) *PostgresStore {
+	t.Helper()
+
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+	ensurePostgresTestEnv(t)
+
+	testDBLock.Lock()
+	t.Cleanup(testDBLock.Unlock)
+
+	ctx := context.Background()
+
+	s, err := NewPostgres(ctx, testDatabaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
+
+	if err := resetTestDatabase(ctx, s); err != nil {
+		t.Fatalf("reset test database: %v", err)
+	}
+
 	return s
+}
+
+func ensurePostgresTestEnv(t *testing.T) {
+	t.Helper()
+
+	testSetupOnce.Do(func() {
+		ctx := context.Background()
+
+		container, err := tcpostgres.Run(
+			ctx,
+			"postgres:17-alpine",
+			tcpostgres.BasicWaitStrategies(),
+			tcpostgres.WithDatabase("backflow"),
+			tcpostgres.WithUsername("postgres"),
+			tcpostgres.WithPassword("postgres"),
+		)
+		if err != nil {
+			testSetupErr = fmt.Errorf("start postgres container: %w", err)
+			return
+		}
+
+		testDatabaseURL, err = container.ConnectionString(ctx, "sslmode=disable")
+		if err != nil {
+			testSetupErr = fmt.Errorf("build connection string: %w", err)
+			return
+		}
+
+		store, err := NewPostgres(ctx, testDatabaseURL)
+		if err != nil {
+			testSetupErr = fmt.Errorf("create postgres store: %w", err)
+			return
+		}
+		defer store.Close()
+
+		if err := store.Migrate(ctx); err != nil {
+			testSetupErr = fmt.Errorf("run migrations: %w", err)
+		}
+	})
+
+	if testSetupErr != nil {
+		t.Fatal(testSetupErr)
+	}
+}
+
+func resetTestDatabase(ctx context.Context, s *PostgresStore) error {
+	_, err := s.pool.Exec(ctx, "TRUNCATE TABLE allowed_senders, instances, tasks")
+	return err
 }
 
 func TestTaskCRUD(t *testing.T) {
@@ -34,31 +97,32 @@ func TestTaskCRUD(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	task := &models.Task{
-		ID:           "bf_TEST001",
-		Status:       models.TaskStatusPending,
-		TaskMode:     models.TaskModeCode,
-		Harness:      models.HarnessClaudeCode,
-		RepoURL:      "https://github.com/test/repo",
-		Branch:       "backflow/test",
-		TargetBranch: "main",
-		Prompt:       "Fix the bug",
-		Model:        "claude-sonnet-4-6",
-		MaxBudgetUSD: 10.0,
-		MaxTurns:     200,
-		CreatePR:     true,
-		PRTitle:      "Fix bug",
-		AllowedTools: []string{"Read", "Write"},
-		EnvVars:      map[string]string{"FOO": "bar"},
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:              "bf_TEST001",
+		Status:          models.TaskStatusPending,
+		TaskMode:        models.TaskModeCode,
+		Harness:         models.HarnessClaudeCode,
+		RepoURL:         "https://github.com/test/repo",
+		Branch:          "backflow/test",
+		TargetBranch:    "main",
+		ReviewPRURL:     "",
+		ReviewPRNumber:  0,
+		Prompt:          "Fix the bug",
+		Model:           "claude-sonnet-4-6",
+		MaxBudgetUSD:    10.0,
+		MaxTurns:        200,
+		CreatePR:        true,
+		SaveAgentOutput: true,
+		PRTitle:         "Fix bug",
+		AllowedTools:    []string{"Read", "Write"},
+		EnvVars:         map[string]string{"FOO": "bar"},
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
-	// Create
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	// Get
 	got, err := s.GetTask(ctx, "bf_TEST001")
 	if err != nil {
 		t.Fatalf("GetTask: %v", err)
@@ -81,6 +145,9 @@ func TestTaskCRUD(t *testing.T) {
 	if !got.CreatePR {
 		t.Error("CreatePR should be true")
 	}
+	if !got.SaveAgentOutput {
+		t.Error("SaveAgentOutput should be true")
+	}
 	if len(got.AllowedTools) != 2 {
 		t.Errorf("AllowedTools len = %d, want 2", len(got.AllowedTools))
 	}
@@ -88,7 +155,6 @@ func TestTaskCRUD(t *testing.T) {
 		t.Errorf("EnvVars[FOO] = %q, want %q", got.EnvVars["FOO"], "bar")
 	}
 
-	// Update via named methods
 	if err := s.StartTask(ctx, "bf_TEST001", "container-1"); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
@@ -97,7 +163,6 @@ func TestTaskCRUD(t *testing.T) {
 		t.Errorf("Status = %q, want %q", got2.Status, models.TaskStatusRunning)
 	}
 
-	// List
 	tasks, err := s.ListTasks(ctx, TaskFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("ListTasks: %v", err)
@@ -106,14 +171,12 @@ func TestTaskCRUD(t *testing.T) {
 		t.Errorf("ListTasks len = %d, want 1", len(tasks))
 	}
 
-	// List with filter
 	pending := models.TaskStatusPending
 	tasks, _ = s.ListTasks(ctx, TaskFilter{Status: &pending})
 	if len(tasks) != 0 {
 		t.Errorf("ListTasks(pending) len = %d, want 0", len(tasks))
 	}
 
-	// Delete
 	if err := s.DeleteTask(ctx, "bf_TEST001"); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
@@ -180,11 +243,13 @@ func TestInstanceCRUD(t *testing.T) {
 		t.Errorf("MaxContainers = %d, want 4", got.MaxContainers)
 	}
 
-	// Update via named methods
-	s.IncrementRunningContainers(ctx, "i-test123")
-	s.IncrementRunningContainers(ctx, "i-test123")
+	if err := s.IncrementRunningContainers(ctx, "i-test123"); err != nil {
+		t.Fatalf("IncrementRunningContainers: %v", err)
+	}
+	if err := s.IncrementRunningContainers(ctx, "i-test123"); err != nil {
+		t.Fatalf("IncrementRunningContainers: %v", err)
+	}
 
-	// List
 	running := models.InstanceStatusRunning
 	instances, err := s.ListInstances(ctx, &running)
 	if err != nil {
@@ -204,18 +269,20 @@ func TestReviewTaskCRUD(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	task := &models.Task{
-		ID:             "bf_REVIEW01",
-		Status:         models.TaskStatusPending,
-		TaskMode:       models.TaskModeReview,
-		RepoURL:        "https://github.com/test/repo",
-		ReviewPRURL:    "https://github.com/test/repo/pull/42",
-		ReviewPRNumber: 42,
-		Prompt:         "Focus on security",
-		Model:          "claude-sonnet-4-6",
-		MaxBudgetUSD:   5.0,
-		MaxTurns:       50,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:              "bf_REVIEW01",
+		Status:          models.TaskStatusPending,
+		TaskMode:        models.TaskModeReview,
+		Harness:         models.HarnessClaudeCode,
+		RepoURL:         "https://github.com/test/repo",
+		ReviewPRURL:     "https://github.com/test/repo/pull/42",
+		ReviewPRNumber:  42,
+		Prompt:          "Focus on security",
+		Model:           "claude-sonnet-4-6",
+		MaxBudgetUSD:    5.0,
+		MaxTurns:        50,
+		SaveAgentOutput: true,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
 	if err := s.CreateTask(ctx, task); err != nil {
@@ -243,24 +310,23 @@ func TestReviewTaskCRUD(t *testing.T) {
 	}
 }
 
-// --- Named update method tests ---
-
-func createTestTask(t *testing.T, s *SQLiteStore) *models.Task {
+func createTestTask(t *testing.T, s *PostgresStore) *models.Task {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
 	task := &models.Task{
-		ID:        "bf_TEST001",
-		Status:    models.TaskStatusPending,
-		TaskMode:  models.TaskModeCode,
-		Harness:   models.HarnessClaudeCode,
-		RepoURL:   "https://github.com/test/repo",
-		Branch:    "backflow/test",
-		Prompt:    "Fix the bug",
-		Model:     "claude-sonnet-4-6",
-		CreatePR:  true,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:              "bf_TEST001",
+		Status:          models.TaskStatusPending,
+		TaskMode:        models.TaskModeCode,
+		Harness:         models.HarnessClaudeCode,
+		RepoURL:         "https://github.com/test/repo",
+		Branch:          "backflow/test",
+		Prompt:          "Fix the bug",
+		Model:           "claude-sonnet-4-6",
+		CreatePR:        true,
+		SaveAgentOutput: true,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -268,7 +334,7 @@ func createTestTask(t *testing.T, s *SQLiteStore) *models.Task {
 	return task
 }
 
-func createTestInstance(t *testing.T, s *SQLiteStore) *models.Instance {
+func createTestInstance(t *testing.T, s *PostgresStore) *models.Instance {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -308,7 +374,6 @@ func TestUpdateTaskStatus(t *testing.T) {
 	if got.Error != "something broke" {
 		t.Errorf("Error = %q, want %q", got.Error, "something broke")
 	}
-	// Verify other fields aren't clobbered
 	if got.Prompt != "Fix the bug" {
 		t.Errorf("Prompt was clobbered: %q", got.Prompt)
 	}
@@ -417,9 +482,12 @@ func TestRequeueTask(t *testing.T) {
 	ctx := context.Background()
 	task := createTestTask(t, s)
 
-	// Set task to running with instance/container first
-	s.AssignTask(ctx, task.ID, "i-abc123")
-	s.StartTask(ctx, task.ID, "container-abc")
+	if err := s.AssignTask(ctx, task.ID, "i-abc123"); err != nil {
+		t.Fatalf("AssignTask: %v", err)
+	}
+	if err := s.StartTask(ctx, task.ID, "container-abc"); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
 
 	if err := s.RequeueTask(ctx, task.ID, "instance terminated"); err != nil {
 		t.Fatalf("RequeueTask: %v", err)
@@ -475,8 +543,12 @@ func TestClearTaskAssignment(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s)
 
-	s.AssignTask(ctx, "bf_TEST001", "i-abc123")
-	s.StartTask(ctx, "bf_TEST001", "container-abc")
+	if err := s.AssignTask(ctx, "bf_TEST001", "i-abc123"); err != nil {
+		t.Fatalf("AssignTask: %v", err)
+	}
+	if err := s.StartTask(ctx, "bf_TEST001", "container-abc"); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
 
 	if err := s.ClearTaskAssignment(ctx, "bf_TEST001"); err != nil {
 		t.Fatalf("ClearTaskAssignment: %v", err)
@@ -503,7 +575,10 @@ func TestUpdateInstanceStatus(t *testing.T) {
 		t.Fatalf("UpdateInstanceStatus: %v", err)
 	}
 
-	got, _ := s.GetInstance(ctx, "i-test123")
+	got, err := s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.Status != models.InstanceStatusTerminated {
 		t.Errorf("Status = %q, want %q", got.Status, models.InstanceStatusTerminated)
 	}
@@ -523,13 +598,21 @@ func TestIncrementDecrementRunningContainers(t *testing.T) {
 	if err := s.IncrementRunningContainers(ctx, "i-test123"); err != nil {
 		t.Fatalf("IncrementRunningContainers: %v", err)
 	}
-	got, _ := s.GetInstance(ctx, "i-test123")
+	got, err := s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.RunningContainers != 1 {
 		t.Errorf("RunningContainers = %d, want 1", got.RunningContainers)
 	}
 
-	s.IncrementRunningContainers(ctx, "i-test123")
-	got, _ = s.GetInstance(ctx, "i-test123")
+	if err := s.IncrementRunningContainers(ctx, "i-test123"); err != nil {
+		t.Fatalf("IncrementRunningContainers: %v", err)
+	}
+	got, err = s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.RunningContainers != 2 {
 		t.Errorf("RunningContainers = %d, want 2", got.RunningContainers)
 	}
@@ -537,15 +620,24 @@ func TestIncrementDecrementRunningContainers(t *testing.T) {
 	if err := s.DecrementRunningContainers(ctx, "i-test123"); err != nil {
 		t.Fatalf("DecrementRunningContainers: %v", err)
 	}
-	got, _ = s.GetInstance(ctx, "i-test123")
+	got, err = s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.RunningContainers != 1 {
 		t.Errorf("RunningContainers = %d, want 1", got.RunningContainers)
 	}
 
-	// Decrement to zero, then once more — should floor at 0
-	s.DecrementRunningContainers(ctx, "i-test123")
-	s.DecrementRunningContainers(ctx, "i-test123")
-	got, _ = s.GetInstance(ctx, "i-test123")
+	if err := s.DecrementRunningContainers(ctx, "i-test123"); err != nil {
+		t.Fatalf("DecrementRunningContainers: %v", err)
+	}
+	if err := s.DecrementRunningContainers(ctx, "i-test123"); err != nil {
+		t.Fatalf("DecrementRunningContainers: %v", err)
+	}
+	got, err = s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.RunningContainers != 0 {
 		t.Errorf("RunningContainers = %d, want 0 (should floor at zero)", got.RunningContainers)
 	}
@@ -562,13 +654,18 @@ func TestUpdateInstanceDetails(t *testing.T) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	s.CreateInstance(ctx, inst)
+	if err := s.CreateInstance(ctx, inst); err != nil {
+		t.Fatalf("CreateInstance: %v", err)
+	}
 
 	if err := s.UpdateInstanceDetails(ctx, "i-new", "10.0.1.99", "us-west-2b"); err != nil {
 		t.Fatalf("UpdateInstanceDetails: %v", err)
 	}
 
-	got, _ := s.GetInstance(ctx, "i-new")
+	got, err := s.GetInstance(ctx, "i-new")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.PrivateIP != "10.0.1.99" {
 		t.Errorf("PrivateIP = %q, want 10.0.1.99", got.PrivateIP)
 	}
@@ -582,14 +679,21 @@ func TestResetRunningContainers(t *testing.T) {
 	ctx := context.Background()
 	inst := createTestInstance(t, s)
 
-	s.IncrementRunningContainers(ctx, inst.InstanceID)
-	s.IncrementRunningContainers(ctx, inst.InstanceID)
+	if err := s.IncrementRunningContainers(ctx, inst.InstanceID); err != nil {
+		t.Fatalf("IncrementRunningContainers: %v", err)
+	}
+	if err := s.IncrementRunningContainers(ctx, inst.InstanceID); err != nil {
+		t.Fatalf("IncrementRunningContainers: %v", err)
+	}
 
 	if err := s.ResetRunningContainers(ctx, inst.InstanceID); err != nil {
 		t.Fatalf("ResetRunningContainers: %v", err)
 	}
 
-	got, _ := s.GetInstance(ctx, inst.InstanceID)
+	got, err := s.GetInstance(ctx, inst.InstanceID)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if got.RunningContainers != 0 {
 		t.Errorf("RunningContainers = %d, want 0", got.RunningContainers)
 	}
@@ -629,7 +733,7 @@ func TestCreateAllowedSender(t *testing.T) {
 	}
 }
 
-func TestWithTx_Commit(t *testing.T) {
+func TestWithTxCommit(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
@@ -645,37 +749,52 @@ func TestWithTx_Commit(t *testing.T) {
 		t.Fatalf("WithTx: %v", err)
 	}
 
-	task, _ := s.GetTask(ctx, "bf_TEST001")
+	task, err := s.GetTask(ctx, "bf_TEST001")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
 	if task.Status != models.TaskStatusProvisioning {
 		t.Errorf("Status = %q, want provisioning", task.Status)
 	}
-	inst, _ := s.GetInstance(ctx, "i-test123")
+	inst, err := s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if inst.RunningContainers != 1 {
 		t.Errorf("RunningContainers = %d, want 1", inst.RunningContainers)
 	}
 }
 
-func TestWithTx_Rollback(t *testing.T) {
+func TestWithTxRollback(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 	createTestInstance(t, s)
 
 	err := s.WithTx(ctx, func(tx Store) error {
-		tx.AssignTask(ctx, "bf_TEST001", "i-test123")
-		tx.IncrementRunningContainers(ctx, "i-test123")
+		if err := tx.AssignTask(ctx, "bf_TEST001", "i-test123"); err != nil {
+			return err
+		}
+		if err := tx.IncrementRunningContainers(ctx, "i-test123"); err != nil {
+			return err
+		}
 		return fmt.Errorf("something failed")
 	})
 	if err == nil {
 		t.Fatal("expected error from WithTx")
 	}
 
-	// Both should be rolled back
-	task, _ := s.GetTask(ctx, "bf_TEST001")
+	task, err := s.GetTask(ctx, "bf_TEST001")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
 	if task.Status != models.TaskStatusPending {
 		t.Errorf("Status = %q, want pending (should have rolled back)", task.Status)
 	}
-	inst, _ := s.GetInstance(ctx, "i-test123")
+	inst, err := s.GetInstance(ctx, "i-test123")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
 	if inst.RunningContainers != 0 {
 		t.Errorf("RunningContainers = %d, want 0 (should have rolled back)", inst.RunningContainers)
 	}

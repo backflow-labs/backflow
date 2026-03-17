@@ -13,7 +13,7 @@ make test               # go test ./... -v -count=1
 make lint               # go vet ./...
 make deps               # go mod tidy
 make clean              # Remove bin/ directory
-make db-status          # Dump SQLite state
+make db-status          # Dump Postgres state
 make docker-build       # Buildx multi-platform (amd64+arm64) image
 make docker-build-local # Single-architecture build
 make docker-push        # Tag + push to ECR (requires REGISTRY=<ecr-uri>)
@@ -27,7 +27,7 @@ Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
 Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Three operating modes: `ec2` (default, spot instances), `local` (Docker on local machine), and `fargate` (one ECS task per Backflow task, no instance management).
 
-**Flow:** Client → API → SQLite → Orchestrator → Docker on EC2 via SSM, local Docker, or ECS/Fargate → Webhooks.
+**Flow:** Client → API → Postgres → Orchestrator → Docker on EC2 via SSM, local Docker, or ECS/Fargate → Webhooks.
 
 ### API endpoints (`/api/v1`)
 
@@ -42,7 +42,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
 - **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), Fargate ECS/CloudWatch runner (`fargate.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
-- **store/** — `Store` interface + SQLite (WAL mode, auto-migrated)
+- **store/** — `Store` interface + Postgres implementation (`pgxpool`, goose migrations)
 - **models/** — `Task` and `Instance` structs with status enums
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`
@@ -78,7 +78,7 @@ PR comments include actual cost for `claude_code` (extracted from `total_cost_us
 
 ## Fargate mode
 
-Set `BACKFLOW_MODE=fargate` to run each Backflow task as a standalone ECS task. Capacity is tracked through a synthetic `fargate` instance in SQLite; there are no EC2 instances to launch or drain.
+Set `BACKFLOW_MODE=fargate` to run each Backflow task as a standalone ECS task. Capacity is tracked through a synthetic `fargate` instance in Postgres; there are no EC2 instances to launch or drain.
 
 Required env vars:
 
@@ -115,10 +115,10 @@ ECS prerequisites:
 
 ## Database
 
-SQLite with WAL mode. Schema auto-migrates on startup via `CREATE TABLE IF NOT EXISTS` in `internal/store/sqlite.go:migrate()`. No separate migration files — add new columns with `ALTER TABLE` idempotently in the same function.
+Postgres with `pgxpool` for runtime queries and goose for versioned SQL migrations. The current schema starts in `migrations/001_initial_schema.sql` and migrations run on startup.
 
 ## Documentation
 
 Additional docs in `docs/`:
-- `schema.md` — SQLite database schema reference
+- `schema.md` — Postgres database schema reference
 - `file-reference.md` — Codebase file reference guide

@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/backflow-labs/backflow/internal/config"
-	"github.com/backflow-labs/backflow/internal/store"
 )
 
 type noopLogFetcher struct{}
@@ -21,18 +19,7 @@ func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, er
 
 func testServer(t *testing.T) http.Handler {
 	t.Helper()
-	f, err := os.CreateTemp("", "backflow-api-test-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
-
-	s, err := store.NewSQLite(f.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := newMemoryStore()
 
 	cfg := &config.Config{
 		AuthMode:          config.AuthModeAPIKey,

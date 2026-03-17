@@ -13,7 +13,7 @@ Agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral c
 
 ```bash
 cp .env.example .env
-# Edit .env — at minimum set ANTHROPIC_API_KEY and GITHUB_TOKEN
+# Edit .env — at minimum set ANTHROPIC_API_KEY, GITHUB_TOKEN, and BACKFLOW_DATABASE_URL
 # Set BACKFLOW_MODE=local for local Docker (no AWS needed)
 ```
 
@@ -28,7 +28,7 @@ make clean          # Remove bin/
 
 Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
-Tests create temporary SQLite databases — no external services needed.
+Store tests use testcontainers with ephemeral Postgres. Docker must be available when running `go test`.
 
 ### Local Tunnel (for SMS/webhooks)
 
@@ -179,17 +179,17 @@ Interrupted/failed tasks can enter `recovering` -> re-queued as `pending`.
 
 ### Database
 
-SQLite in WAL mode. Auto-migrates on startup. Configured via `BACKFLOW_DB_PATH` (default: `backflow.db`).
+Postgres. Migrations live in `migrations/` and run automatically on startup via goose. Configure the server with `BACKFLOW_DATABASE_URL`.
 
 ```bash
-make db-status                              # Dump all tasks and instances
-sqlite3 backflow.db ".schema"               # Show schema
-sqlite3 backflow.db "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
+make db-status
+psql "$BACKFLOW_DATABASE_URL" -c '\dt'
+psql "$BACKFLOW_DATABASE_URL" -c "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
 ```
 
-To reset: delete `backflow.db`. Recreated on next startup.
+To reset locally, point `BACKFLOW_DATABASE_URL` at a fresh database or drop and recreate the schema.
 
-To add a column: add an idempotent `ALTER TABLE` to `internal/store/sqlite.go:migrate()`, then update the model and queries.
+To add a column or table, create a new goose migration under `migrations/` and update the store queries and models alongside it.
 
 ## Deployment
 
@@ -239,7 +239,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `OPENAI_API_KEY` | | Required for `codex` harness |
 | `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
 | `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
-| `BACKFLOW_DB_PATH` | `backflow.db` | SQLite database path |
+| `BACKFLOW_DATABASE_URL` | | Postgres connection string (required) |
 | `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (seconds) |
 | `BACKFLOW_S3_BUCKET` | | S3 bucket for agent output and large prompt offload |
 
