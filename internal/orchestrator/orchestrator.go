@@ -135,7 +135,10 @@ func (o *Orchestrator) initEC2Mode(s store.Store, cfg *config.Config, docker *Do
 	o.spot = NewSpotHandler(s, ec2)
 
 	// Clean up leftover local instance from a previous local-mode run.
-	if inst, _ := s.GetInstance(context.Background(), "local"); inst != nil && inst.Status != models.InstanceStatusTerminated {
+	inst, err := s.GetInstance(context.Background(), "local")
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Error().Err(err).Msg("ec2 init: failed to check for leftover local instance")
+	} else if err == nil && inst.Status != models.InstanceStatusTerminated {
 		s.UpdateInstanceStatus(context.Background(), "local", models.InstanceStatusTerminated)
 	}
 }
