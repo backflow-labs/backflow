@@ -186,6 +186,10 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINERS_PER_INSTANCE must be <= %d in local mode, got %d", MaxLocalContainers, c.ContainersPerInst)
 	}
 
+	if c.DatabaseURL == "" {
+		return nil, fmt.Errorf("BACKFLOW_DATABASE_URL is required")
+	}
+
 	if c.ContainerCPUs < 1 {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINER_CPUS must be >= 1, got %d", c.ContainerCPUs)
 	}
