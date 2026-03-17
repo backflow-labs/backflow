@@ -4,34 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/models"
 )
 
-func testStore(t *testing.T) *SQLiteStore {
+func testPostgresStore(t *testing.T) *PostgresStore {
 	t.Helper()
-	f, err := os.CreateTemp("", "backflow-test-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	ctx := context.Background()
 
-	s, err := NewSQLite(f.Name())
+	connStr := SetupTestDB(t)
+	s, err := NewPostgres(ctx, connStr)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NewPostgres: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
 }
 
 func TestTaskCRUD(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	task := &models.Task{
 		ID:           "bf_TEST001",
@@ -127,7 +122,7 @@ func TestTaskCRUD(t *testing.T) {
 }
 
 func TestGetTaskNotFound(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	got, err := s.GetTask(context.Background(), "nonexistent")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
@@ -138,7 +133,7 @@ func TestGetTaskNotFound(t *testing.T) {
 }
 
 func TestGetInstanceNotFound(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	got, err := s.GetInstance(context.Background(), "nonexistent")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
@@ -149,9 +144,9 @@ func TestGetInstanceNotFound(t *testing.T) {
 }
 
 func TestInstanceCRUD(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	inst := &models.Instance{
 		InstanceID:        "i-test123",
@@ -199,9 +194,9 @@ func TestInstanceCRUD(t *testing.T) {
 }
 
 func TestReviewTaskCRUD(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	task := &models.Task{
 		ID:             "bf_REVIEW01",
@@ -245,10 +240,10 @@ func TestReviewTaskCRUD(t *testing.T) {
 
 // --- Named update method tests ---
 
-func createTestTask(t *testing.T, s *SQLiteStore) *models.Task {
+func createTestTask(t *testing.T, s *PostgresStore) *models.Task {
 	t.Helper()
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	task := &models.Task{
 		ID:        "bf_TEST001",
 		Status:    models.TaskStatusPending,
@@ -268,10 +263,10 @@ func createTestTask(t *testing.T, s *SQLiteStore) *models.Task {
 	return task
 }
 
-func createTestInstance(t *testing.T, s *SQLiteStore) *models.Instance {
+func createTestInstance(t *testing.T, s *PostgresStore) *models.Instance {
 	t.Helper()
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	inst := &models.Instance{
 		InstanceID:        "i-test123",
 		InstanceType:      "m7g.xlarge",
@@ -290,7 +285,7 @@ func createTestInstance(t *testing.T, s *SQLiteStore) *models.Instance {
 }
 
 func TestUpdateTaskStatus(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	task := createTestTask(t, s)
 
@@ -318,7 +313,7 @@ func TestUpdateTaskStatus(t *testing.T) {
 }
 
 func TestAssignTask(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 
@@ -342,7 +337,7 @@ func TestAssignTask(t *testing.T) {
 }
 
 func TestStartTask(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 
@@ -369,7 +364,7 @@ func TestStartTask(t *testing.T) {
 }
 
 func TestCompleteTask(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 
@@ -413,7 +408,7 @@ func TestCompleteTask(t *testing.T) {
 }
 
 func TestRequeueTask(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	task := createTestTask(t, s)
 
@@ -450,7 +445,7 @@ func TestRequeueTask(t *testing.T) {
 }
 
 func TestCancelTask(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 
@@ -471,7 +466,7 @@ func TestCancelTask(t *testing.T) {
 }
 
 func TestClearTaskAssignment(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 
@@ -495,7 +490,7 @@ func TestClearTaskAssignment(t *testing.T) {
 }
 
 func TestUpdateInstanceStatus(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestInstance(t, s)
 
@@ -516,7 +511,7 @@ func TestUpdateInstanceStatus(t *testing.T) {
 }
 
 func TestIncrementDecrementRunningContainers(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestInstance(t, s)
 
@@ -552,9 +547,9 @@ func TestIncrementDecrementRunningContainers(t *testing.T) {
 }
 
 func TestUpdateInstanceDetails(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	inst := &models.Instance{
 		InstanceID:   "i-new",
 		InstanceType: "m7g.xlarge",
@@ -578,7 +573,7 @@ func TestUpdateInstanceDetails(t *testing.T) {
 }
 
 func TestResetRunningContainers(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	inst := createTestInstance(t, s)
 
@@ -596,7 +591,7 @@ func TestResetRunningContainers(t *testing.T) {
 }
 
 func TestCreateAllowedSender(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 
 	sender := &models.AllowedSender{
@@ -604,7 +599,7 @@ func TestCreateAllowedSender(t *testing.T) {
 		Address:     "+15551234567",
 		DefaultRepo: "https://github.com/test/repo",
 		Enabled:     true,
-		CreatedAt:   time.Now().UTC().Truncate(time.Second),
+		CreatedAt:   time.Now().UTC().Truncate(time.Microsecond),
 	}
 
 	if err := s.CreateAllowedSender(ctx, sender); err != nil {
@@ -629,8 +624,19 @@ func TestCreateAllowedSender(t *testing.T) {
 	}
 }
 
+func TestGetAllowedSenderNotFound(t *testing.T) {
+	s := testPostgresStore(t)
+	got, err := s.GetAllowedSender(context.Background(), "sms", "+10000000000")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil for nonexistent sender")
+	}
+}
+
 func TestWithTx_Commit(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 	createTestInstance(t, s)
@@ -656,7 +662,7 @@ func TestWithTx_Commit(t *testing.T) {
 }
 
 func TestWithTx_Rollback(t *testing.T) {
-	s := testStore(t)
+	s := testPostgresStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 	createTestInstance(t, s)

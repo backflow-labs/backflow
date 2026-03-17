@@ -3,11 +3,18 @@ package api
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/store"
@@ -19,20 +26,65 @@ func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, er
 	return "test logs\n", nil
 }
 
-func testServer(t *testing.T) http.Handler {
+func setupTestPostgres(t *testing.T) *store.PostgresStore {
 	t.Helper()
-	f, err := os.CreateTemp("", "backflow-api-test-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	ctx := context.Background()
 
-	s, err := store.NewSQLite(f.Name())
+	req := testcontainers.ContainerRequest{
+		Image:        "postgres:16-alpine",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "test",
+			"POSTGRES_PASSWORD": "test",
+			"POSTGRES_DB":       "backflow_test",
+		},
+		WaitingFor: wait.ForListeningPort("5432/tcp").WithStartupTimeout(60 * time.Second),
+	}
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("start postgres container: %v", err)
+	}
+	t.Cleanup(func() { container.Terminate(context.Background()) })
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("get container host: %v", err)
+	}
+	port, err := container.MappedPort(ctx, "5432")
+	if err != nil {
+		t.Fatalf("get container port: %v", err)
+	}
+
+	connStr := fmt.Sprintf("postgres://test:test@%s:%s/backflow_test?sslmode=disable", host, port.Port())
+
+	db, err := sql.Open("pgx", connStr)
+	if err != nil {
+		t.Fatalf("open db for migrations: %v", err)
+	}
+	defer db.Close()
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		t.Fatalf("goose set dialect: %v", err)
+	}
+	if err := goose.Up(db, "../../migrations"); err != nil {
+		t.Fatalf("goose up: %v", err)
+	}
+
+	s, err := store.NewPostgres(ctx, connStr)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func testServer(t *testing.T) http.Handler {
+	t.Helper()
+
+	s := setupTestPostgres(t)
 
 	cfg := &config.Config{
 		AuthMode:          config.AuthModeAPIKey,

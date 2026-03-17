@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -28,7 +31,20 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	db, err := store.NewSQLite(cfg.DBPath)
+	// Run goose migrations
+	migDB, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to open database for migrations")
+	}
+	if err := goose.SetDialect("postgres"); err != nil {
+		log.Fatal().Err(err).Msg("failed to set goose dialect")
+	}
+	if err := goose.Up(migDB, "migrations"); err != nil {
+		log.Fatal().Err(err).Msg("failed to run database migrations")
+	}
+	migDB.Close()
+
+	db, err := store.NewPostgres(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open database")
 	}
