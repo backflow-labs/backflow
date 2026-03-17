@@ -61,7 +61,16 @@ func migrate(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) error 
 }
 
 func parseTimestamp(s string) (time.Time, error) {
-	return time.Parse(time.RFC3339, s)
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05-07:00",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("parsing time %q: unsupported format", s)
 }
 
 func parseNullableTimestamp(s *string) (*time.Time, error) {
