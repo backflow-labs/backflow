@@ -49,7 +49,11 @@ type stubStore struct {
 }
 
 func (s *stubStore) GetTask(_ context.Context, id string) (*models.Task, error) {
-	return s.tasks[id], nil
+	t, ok := s.tasks[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return t, nil
 }
 
 // Unused Store methods
@@ -57,9 +61,11 @@ func (s *stubStore) CreateTask(context.Context, *models.Task) error { return nil
 func (s *stubStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error) {
 	return nil, nil
 }
-func (s *stubStore) DeleteTask(context.Context, string) error                      { return nil }
-func (s *stubStore) CreateInstance(context.Context, *models.Instance) error        { return nil }
-func (s *stubStore) GetInstance(context.Context, string) (*models.Instance, error) { return nil, nil }
+func (s *stubStore) DeleteTask(context.Context, string) error               { return nil }
+func (s *stubStore) CreateInstance(context.Context, *models.Instance) error { return nil }
+func (s *stubStore) GetInstance(context.Context, string) (*models.Instance, error) {
+	return nil, store.ErrNotFound
+}
 func (s *stubStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
 	return nil, nil
 }
@@ -87,10 +93,36 @@ func (s *stubStore) CreateAllowedSender(context.Context, *models.AllowedSender) 
 	return nil
 }
 func (s *stubStore) GetAllowedSender(context.Context, string, string) (*models.AllowedSender, error) {
-	return nil, nil
+	return nil, store.ErrNotFound
 }
 func (s *stubStore) WithTx(_ context.Context, fn func(store.Store) error) error { return fn(s) }
 func (s *stubStore) Close() error                                               { return nil }
+
+// --- stub contract tests ---
+
+func TestStubStore_GetTask_ReturnsErrNotFound(t *testing.T) {
+	s := &stubStore{tasks: map[string]*models.Task{}}
+	_, err := s.GetTask(context.Background(), "nonexistent")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expected store.ErrNotFound, got %v", err)
+	}
+}
+
+func TestStubStore_GetAllowedSender_ReturnsErrNotFound(t *testing.T) {
+	s := &stubStore{tasks: map[string]*models.Task{}}
+	_, err := s.GetAllowedSender(context.Background(), "sms", "+10000000000")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expected store.ErrNotFound, got %v", err)
+	}
+}
+
+func TestStubStore_GetInstance_ReturnsErrNotFound(t *testing.T) {
+	s := &stubStore{tasks: map[string]*models.Task{}}
+	_, err := s.GetInstance(context.Background(), "nonexistent")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expected store.ErrNotFound, got %v", err)
+	}
+}
 
 // --- tests ---
 
