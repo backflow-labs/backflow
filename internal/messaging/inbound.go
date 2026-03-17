@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -120,12 +121,17 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 
 		// Look up sender
 		sender, err := db.GetAllowedSender(r.Context(), string(ChannelSMS), from)
+		if errors.Is(err, store.ErrNotFound) {
+			log.Warn().Str("from", from).Msg("sms: rejected message from unknown sender")
+			writeTwiML(w, "Sorry, this number is not authorized to create tasks.")
+			return
+		}
 		if err != nil {
 			log.Error().Err(err).Str("from", from).Msg("sms: failed to look up sender")
 			writeTwiML(w, "Error: internal error.")
 			return
 		}
-		if sender == nil || !sender.Enabled {
+		if !sender.Enabled {
 			log.Warn().Str("from", from).Msg("sms: rejected message from unknown/disabled sender")
 			writeTwiML(w, "Sorry, this number is not authorized to create tasks.")
 			return

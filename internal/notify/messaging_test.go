@@ -57,18 +57,40 @@ func (s *stubStore) CreateTask(context.Context, *models.Task) error { return nil
 func (s *stubStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error) {
 	return nil, nil
 }
-func (s *stubStore) UpdateTask(context.Context, *models.Task) error                { return nil }
 func (s *stubStore) DeleteTask(context.Context, string) error                      { return nil }
 func (s *stubStore) CreateInstance(context.Context, *models.Instance) error        { return nil }
 func (s *stubStore) GetInstance(context.Context, string) (*models.Instance, error) { return nil, nil }
 func (s *stubStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
 	return nil, nil
 }
-func (s *stubStore) UpdateInstance(context.Context, *models.Instance) error { return nil }
+func (s *stubStore) UpdateTaskStatus(context.Context, string, models.TaskStatus, string) error {
+	return nil
+}
+func (s *stubStore) AssignTask(context.Context, string, string) error { return nil }
+func (s *stubStore) StartTask(context.Context, string, string) error  { return nil }
+func (s *stubStore) CompleteTask(context.Context, string, store.TaskResult) error {
+	return nil
+}
+func (s *stubStore) RequeueTask(context.Context, string, string) error { return nil }
+func (s *stubStore) CancelTask(context.Context, string) error          { return nil }
+func (s *stubStore) ClearTaskAssignment(context.Context, string) error { return nil }
+func (s *stubStore) UpdateInstanceStatus(context.Context, string, models.InstanceStatus) error {
+	return nil
+}
+func (s *stubStore) IncrementRunningContainers(context.Context, string) error { return nil }
+func (s *stubStore) DecrementRunningContainers(context.Context, string) error { return nil }
+func (s *stubStore) UpdateInstanceDetails(context.Context, string, string, string) error {
+	return nil
+}
+func (s *stubStore) ResetRunningContainers(context.Context, string) error { return nil }
+func (s *stubStore) CreateAllowedSender(context.Context, *models.AllowedSender) error {
+	return nil
+}
 func (s *stubStore) GetAllowedSender(context.Context, string, string) (*models.AllowedSender, error) {
 	return nil, nil
 }
-func (s *stubStore) Close() error { return nil }
+func (s *stubStore) WithTx(_ context.Context, fn func(store.Store) error) error { return fn(s) }
+func (s *stubStore) Close() error                                               { return nil }
 
 // --- tests ---
 

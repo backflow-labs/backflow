@@ -2,9 +2,23 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/backflow-labs/backflow/internal/models"
 )
+
+// ErrNotFound is returned when a requested record does not exist.
+var ErrNotFound = errors.New("not found")
+
+// TaskResult holds the fields set when a task finishes (completed or failed).
+type TaskResult struct {
+	Status         models.TaskStatus
+	Error          string
+	PRURL          string
+	OutputURL      string
+	CostUSD        float64
+	ElapsedTimeSec int
+}
 
 // TaskFilter controls listing behavior.
 type TaskFilter struct {
@@ -19,17 +33,35 @@ type Store interface {
 	CreateTask(ctx context.Context, task *models.Task) error
 	GetTask(ctx context.Context, id string) (*models.Task, error)
 	ListTasks(ctx context.Context, filter TaskFilter) ([]*models.Task, error)
-	UpdateTask(ctx context.Context, task *models.Task) error
 	DeleteTask(ctx context.Context, id string) error
+
+	// Named task updates
+	UpdateTaskStatus(ctx context.Context, id string, status models.TaskStatus, taskErr string) error
+	AssignTask(ctx context.Context, id string, instanceID string) error
+	StartTask(ctx context.Context, id string, containerID string) error
+	CompleteTask(ctx context.Context, id string, result TaskResult) error
+	RequeueTask(ctx context.Context, id string, reason string) error
+	CancelTask(ctx context.Context, id string) error
+	ClearTaskAssignment(ctx context.Context, id string) error
 
 	// Instances
 	CreateInstance(ctx context.Context, inst *models.Instance) error
 	GetInstance(ctx context.Context, id string) (*models.Instance, error)
 	ListInstances(ctx context.Context, status *models.InstanceStatus) ([]*models.Instance, error)
-	UpdateInstance(ctx context.Context, inst *models.Instance) error
+
+	// Named instance updates
+	UpdateInstanceStatus(ctx context.Context, id string, status models.InstanceStatus) error
+	IncrementRunningContainers(ctx context.Context, id string) error
+	DecrementRunningContainers(ctx context.Context, id string) error
+	UpdateInstanceDetails(ctx context.Context, id string, privateIP, az string) error
+	ResetRunningContainers(ctx context.Context, id string) error
 
 	// Allowed senders
 	GetAllowedSender(ctx context.Context, channelType, address string) (*models.AllowedSender, error)
+	CreateAllowedSender(ctx context.Context, sender *models.AllowedSender) error
+
+	// Transactions
+	WithTx(ctx context.Context, fn func(Store) error) error
 
 	Close() error
 }

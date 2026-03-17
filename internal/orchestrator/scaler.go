@@ -149,8 +149,7 @@ func (s *Scaler) reconcilePending(ctx context.Context) {
 			// If instance not found, mark terminated
 			log.Warn().Err(err).Str("instance_id", inst.InstanceID).Msg("scaler: failed to describe pending instance")
 			if time.Since(inst.CreatedAt) > 5*time.Minute {
-				inst.Status = models.InstanceStatusTerminated
-				s.store.UpdateInstance(ctx, inst)
+				s.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusTerminated)
 			}
 			continue
 		}
@@ -166,19 +165,19 @@ func (s *Scaler) reconcilePending(ctx context.Context) {
 				log.Debug().Str("instance_id", inst.InstanceID).Msg("scaler: instance running but Docker/image not ready yet")
 				break
 			}
-			inst.Status = models.InstanceStatusRunning
+			var ip, az string
 			if ec2Inst.PrivateIpAddress != nil {
-				inst.PrivateIP = *ec2Inst.PrivateIpAddress
+				ip = *ec2Inst.PrivateIpAddress
 			}
 			if ec2Inst.Placement != nil && ec2Inst.Placement.AvailabilityZone != nil {
-				inst.AvailabilityZone = *ec2Inst.Placement.AvailabilityZone
+				az = *ec2Inst.Placement.AvailabilityZone
 			}
-			s.store.UpdateInstance(ctx, inst)
-			log.Info().Str("instance_id", inst.InstanceID).Str("ip", inst.PrivateIP).Msg("scaler: instance ready")
+			s.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusRunning)
+			s.store.UpdateInstanceDetails(ctx, inst.InstanceID, ip, az)
+			log.Info().Str("instance_id", inst.InstanceID).Str("ip", ip).Msg("scaler: instance ready")
 
 		case types.InstanceStateNameTerminated, types.InstanceStateNameShuttingDown:
-			inst.Status = models.InstanceStatusTerminated
-			s.store.UpdateInstance(ctx, inst)
+			s.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusTerminated)
 			log.Warn().Str("instance_id", inst.InstanceID).Msg("scaler: pending instance terminated")
 
 		default:
@@ -200,17 +199,13 @@ func (s *Scaler) reconcileRunning(ctx context.Context) {
 		ec2Inst, err := s.ec2.DescribeInstance(ctx, inst.InstanceID)
 		if err != nil {
 			log.Warn().Err(err).Str("instance_id", inst.InstanceID).Msg("scaler: failed to describe running instance, marking terminated")
-			inst.Status = models.InstanceStatusTerminated
-			inst.RunningContainers = 0
-			s.store.UpdateInstance(ctx, inst)
+			s.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusTerminated)
 			continue
 		}
 
 		if ec2Inst.State.Name == types.InstanceStateNameTerminated || ec2Inst.State.Name == types.InstanceStateNameShuttingDown {
 			log.Warn().Str("instance_id", inst.InstanceID).Str("ec2_state", string(ec2Inst.State.Name)).Msg("scaler: running instance was terminated externally")
-			inst.Status = models.InstanceStatusTerminated
-			inst.RunningContainers = 0
-			s.store.UpdateInstance(ctx, inst)
+			s.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusTerminated)
 		}
 	}
 }
@@ -239,7 +234,6 @@ func (s *Scaler) scaleDown(ctx context.Context) {
 			continue
 		}
 
-		inst.Status = models.InstanceStatusTerminated
-		s.store.UpdateInstance(ctx, inst)
+		s.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusTerminated)
 	}
 }

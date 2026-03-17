@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -61,8 +60,7 @@ func (h *SpotHandler) isInterrupted(ctx context.Context, instanceID string) (boo
 
 func (h *SpotHandler) handleInterruption(ctx context.Context, inst *models.Instance) {
 	// Mark instance as draining
-	inst.Status = models.InstanceStatusDraining
-	h.store.UpdateInstance(ctx, inst)
+	h.store.UpdateInstanceStatus(ctx, inst.InstanceID, models.InstanceStatusDraining)
 
 	// Find all running tasks on this instance and re-queue them
 	running := models.TaskStatusRunning
@@ -79,14 +77,7 @@ func (h *SpotHandler) handleInterruption(ctx context.Context, inst *models.Insta
 
 		log.Info().Str("task_id", task.ID).Msg("spot: re-queuing interrupted task")
 
-		task.Status = models.TaskStatusPending
-		task.InstanceID = ""
-		task.ContainerID = ""
-		task.StartedAt = nil
-		task.Error = "re-queued due to spot interruption at " + time.Now().UTC().Format(time.RFC3339)
-		task.RetryCount++
-
-		if err := h.store.UpdateTask(ctx, task); err != nil {
+		if err := h.store.RequeueTask(ctx, task.ID, "spot interruption"); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("spot: failed to re-queue task")
 		}
 	}

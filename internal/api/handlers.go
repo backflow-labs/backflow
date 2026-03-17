@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -92,12 +93,12 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := h.store.GetTask(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get task")
 		return
 	}
 	task.RedactReplyChannel()
@@ -141,21 +142,18 @@ func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := h.store.GetTask(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get task")
 		return
 	}
 
 	// If running, mark as cancelled (orchestrator will kill the container)
 	if task.Status == models.TaskStatusRunning || task.Status == models.TaskStatusProvisioning || task.Status == models.TaskStatusRecovering {
-		task.Status = models.TaskStatusCancelled
-		now := time.Now().UTC()
-		task.CompletedAt = &now
-		if err := h.store.UpdateTask(r.Context(), task); err != nil {
+		if err := h.store.CancelTask(r.Context(), id); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to cancel task")
 			return
 		}
@@ -172,12 +170,12 @@ func (h *Handlers) DeleteTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetTaskLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := h.store.GetTask(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if task == nil {
-		writeError(w, http.StatusNotFound, "task not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get task")
 		return
 	}
 

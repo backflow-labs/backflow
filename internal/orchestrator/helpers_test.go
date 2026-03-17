@@ -40,7 +40,7 @@ func (s *mockStore) GetTask(_ context.Context, id string) (*models.Task, error) 
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
 	if !ok {
-		return nil, nil
+		return nil, store.ErrNotFound
 	}
 	cp := *t
 	return &cp, nil
@@ -63,14 +63,6 @@ func (s *mockStore) ListTasks(_ context.Context, filter store.TaskFilter) ([]*mo
 	return result, nil
 }
 
-func (s *mockStore) UpdateTask(_ context.Context, task *models.Task) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cp := *task
-	s.tasks[task.ID] = &cp
-	return nil
-}
-
 func (s *mockStore) DeleteTask(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -91,7 +83,7 @@ func (s *mockStore) GetInstance(_ context.Context, id string) (*models.Instance,
 	defer s.mu.Unlock()
 	i, ok := s.instances[id]
 	if !ok {
-		return nil, nil
+		return nil, store.ErrNotFound
 	}
 	cp := *i
 	return &cp, nil
@@ -111,16 +103,151 @@ func (s *mockStore) ListInstances(_ context.Context, status *models.InstanceStat
 	return result, nil
 }
 
-func (s *mockStore) UpdateInstance(_ context.Context, inst *models.Instance) error {
+func (s *mockStore) UpdateTaskStatus(_ context.Context, id string, status models.TaskStatus, taskErr string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cp := *inst
-	s.instances[inst.InstanceID] = &cp
+	if t, ok := s.tasks[id]; ok {
+		t.Status = status
+		t.Error = taskErr
+	}
+	return nil
+}
+
+func (s *mockStore) AssignTask(_ context.Context, id string, instanceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.Status = models.TaskStatusProvisioning
+		t.InstanceID = instanceID
+	}
+	return nil
+}
+
+func (s *mockStore) StartTask(_ context.Context, id string, containerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.Status = models.TaskStatusRunning
+		t.ContainerID = containerID
+		now := time.Now().UTC()
+		t.StartedAt = &now
+	}
+	return nil
+}
+
+func (s *mockStore) CompleteTask(_ context.Context, id string, result store.TaskResult) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.Status = result.Status
+		t.Error = result.Error
+		t.PRURL = result.PRURL
+		t.OutputURL = result.OutputURL
+		t.CostUSD = result.CostUSD
+		t.ElapsedTimeSec = result.ElapsedTimeSec
+		now := time.Now().UTC()
+		t.CompletedAt = &now
+	}
+	return nil
+}
+
+func (s *mockStore) RequeueTask(_ context.Context, id string, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.Status = models.TaskStatusPending
+		t.InstanceID = ""
+		t.ContainerID = ""
+		t.StartedAt = nil
+		t.RetryCount++
+		t.Error = "re-queued: " + reason
+	}
+	return nil
+}
+
+func (s *mockStore) CancelTask(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.Status = models.TaskStatusCancelled
+		now := time.Now().UTC()
+		t.CompletedAt = &now
+	}
+	return nil
+}
+
+func (s *mockStore) ClearTaskAssignment(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.InstanceID = ""
+		t.ContainerID = ""
+	}
+	return nil
+}
+
+func (s *mockStore) UpdateInstanceStatus(_ context.Context, id string, status models.InstanceStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i, ok := s.instances[id]; ok {
+		i.Status = status
+		if status == models.InstanceStatusTerminated {
+			i.RunningContainers = 0
+		}
+	}
+	return nil
+}
+
+func (s *mockStore) IncrementRunningContainers(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i, ok := s.instances[id]; ok {
+		i.RunningContainers++
+	}
+	return nil
+}
+
+func (s *mockStore) DecrementRunningContainers(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i, ok := s.instances[id]; ok {
+		i.RunningContainers--
+		if i.RunningContainers < 0 {
+			i.RunningContainers = 0
+		}
+	}
+	return nil
+}
+
+func (s *mockStore) UpdateInstanceDetails(_ context.Context, id string, privateIP, az string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i, ok := s.instances[id]; ok {
+		i.PrivateIP = privateIP
+		i.AvailabilityZone = az
+	}
+	return nil
+}
+
+func (s *mockStore) ResetRunningContainers(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i, ok := s.instances[id]; ok {
+		i.RunningContainers = 0
+	}
 	return nil
 }
 
 func (s *mockStore) GetAllowedSender(_ context.Context, channelType, address string) (*models.AllowedSender, error) {
-	return nil, nil
+	return nil, store.ErrNotFound
+}
+
+func (s *mockStore) CreateAllowedSender(_ context.Context, sender *models.AllowedSender) error {
+	return nil
+}
+
+func (s *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error {
+	return fn(s)
 }
 
 func (s *mockStore) Close() error { return nil }

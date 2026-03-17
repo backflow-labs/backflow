@@ -33,9 +33,8 @@ func (o *Orchestrator) monitorCancelled(ctx context.Context) {
 		o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID)
 		o.releaseSlot(ctx, task)
 
-		// Clear ContainerID so we don't process this task again
-		task.ContainerID = ""
-		o.store.UpdateTask(ctx, task)
+		// Clear assignment so we don't process this task again
+		o.store.ClearTaskAssignment(ctx, task.ID)
 
 		log.Info().Str("task_id", task.ID).Msg("cleaned up cancelled task")
 	}
@@ -106,21 +105,22 @@ func (o *Orchestrator) handleInspectError(ctx context.Context, task *models.Task
 // updates the task, sends notifications, and releases the instance slot.
 func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, status ContainerStatus) {
 	now := time.Now().UTC()
-	task.CompletedAt = &now
-	task.PRURL = status.PRURL
-	if status.CostUSD > 0 {
-		task.CostUSD = status.CostUSD
+
+	elapsed := status.ElapsedTimeSec
+	if elapsed <= 0 && task.StartedAt != nil {
+		elapsed = int(now.Sub(*task.StartedAt).Seconds())
 	}
-	if status.ElapsedTimeSec > 0 {
-		task.ElapsedTimeSec = status.ElapsedTimeSec
-	} else if task.StartedAt != nil {
-		task.ElapsedTimeSec = int(now.Sub(*task.StartedAt).Seconds())
+
+	result := store.TaskResult{
+		PRURL:          status.PRURL,
+		OutputURL:      task.OutputURL,
+		CostUSD:        status.CostUSD,
+		ElapsedTimeSec: elapsed,
 	}
 
 	switch {
 	case status.Complete || (status.ExitCode == 0 && !status.NeedsInput):
-		task.Status = models.TaskStatusCompleted
-		task.Error = ""
+		result.Status = models.TaskStatusCompleted
 		o.notifier.Notify(notify.Event{
 			Type:         notify.EventTaskCompleted,
 			TaskID:       task.ID,
@@ -131,8 +131,8 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 			Timestamp:    now,
 		})
 	case status.NeedsInput:
-		task.Status = models.TaskStatusFailed
-		task.Error = "agent needs input"
+		result.Status = models.TaskStatusFailed
+		result.Error = "agent needs input"
 		o.notifier.Notify(notify.Event{
 			Type:         notify.EventTaskNeedsInput,
 			TaskID:       task.ID,
@@ -143,8 +143,8 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 			Timestamp:    now,
 		})
 	default:
-		task.Status = models.TaskStatusFailed
-		task.Error = status.Error
+		result.Status = models.TaskStatusFailed
+		result.Error = status.Error
 		o.notifier.Notify(notify.Event{
 			Type:         notify.EventTaskFailed,
 			TaskID:       task.ID,
@@ -156,10 +156,10 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 		})
 	}
 
-	o.store.UpdateTask(ctx, task)
+	o.store.CompleteTask(ctx, task.ID, result)
 	o.releaseSlot(ctx, task)
 
-	log.Info().Str("task_id", task.ID).Str("status", string(task.Status)).Msg("task completed")
+	log.Info().Str("task_id", task.ID).Str("status", string(result.Status)).Msg("task completed")
 }
 
 // saveAgentOutput extracts the agent's output log from the container and uploads
@@ -279,14 +279,15 @@ func (o *Orchestrator) killTask(ctx context.Context, task *models.Task, reason s
 		o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID)
 	}
 
-	now := time.Now().UTC()
-	task.Status = models.TaskStatusFailed
-	task.Error = reason
-	task.CompletedAt = &now
+	elapsed := 0
 	if task.StartedAt != nil {
-		task.ElapsedTimeSec = int(now.Sub(*task.StartedAt).Seconds())
+		elapsed = int(time.Since(*task.StartedAt).Seconds())
 	}
-	o.store.UpdateTask(ctx, task)
+	o.store.CompleteTask(ctx, task.ID, store.TaskResult{
+		Status:         models.TaskStatusFailed,
+		Error:          reason,
+		ElapsedTimeSec: elapsed,
+	})
 
 	o.releaseSlot(ctx, task)
 
@@ -296,7 +297,7 @@ func (o *Orchestrator) killTask(ctx context.Context, task *models.Task, reason s
 		RepoURL:   task.RepoURL,
 		Prompt:    task.Prompt,
 		Message:   reason,
-		Timestamp: now,
+		Timestamp: time.Now().UTC(),
 	})
 }
 
@@ -308,13 +309,7 @@ func (o *Orchestrator) requeueTask(ctx context.Context, task *models.Task, reaso
 	}
 	o.decrementRunning()
 
-	task.Status = models.TaskStatusPending
-	task.InstanceID = ""
-	task.ContainerID = ""
-	task.StartedAt = nil
-	task.Error = "re-queued: " + reason + " at " + time.Now().UTC().Format(time.RFC3339)
-	task.RetryCount++
-	if err := o.store.UpdateTask(ctx, task); err != nil {
+	if err := o.store.RequeueTask(ctx, task.ID, reason); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("failed to re-queue task")
 	}
 
