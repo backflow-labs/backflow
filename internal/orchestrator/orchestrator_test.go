@@ -1,8 +1,13 @@
 package orchestrator
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/models"
 )
@@ -50,5 +55,28 @@ func TestInitFargateMode_DBError_DoesNotCreateInstance(t *testing.T) {
 	// On a real DB error, initFargateMode should bail out — not create an instance.
 	if _, exists := ms.instances["fargate"]; exists {
 		t.Fatal("expected no instance to be created when GetInstance returns a real DB error")
+	}
+}
+
+func TestLogRunningTasks_LogsCurrentCount(t *testing.T) {
+	ms := newMockStore()
+	o := newTestOrchestrator(ms, &mockNotifier{})
+	o.running = 3
+
+	var buf bytes.Buffer
+	prevLogger := log.Logger
+	log.Logger = zerolog.New(&buf)
+	defer func() {
+		log.Logger = prevLogger
+	}()
+
+	o.logRunningTasks()
+
+	output := buf.String()
+	if !strings.Contains(output, `"message":"orchestrator: running task count"`) {
+		t.Fatalf("log output = %q, want running task count message", output)
+	}
+	if !strings.Contains(output, `"running_tasks":3`) {
+		t.Fatalf("log output = %q, want running_tasks count", output)
 	}
 }

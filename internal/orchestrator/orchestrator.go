@@ -17,6 +17,7 @@ import (
 // maxInspectFailures is the number of consecutive container inspect failures
 // before a task is killed or requeued.
 const maxInspectFailures = 3
+const runningTasksLogInterval = 30 * time.Second
 
 // Orchestrator manages the lifecycle of tasks: dispatching them to instances,
 // monitoring their containers, handling completions, and recovering from restarts.
@@ -160,7 +161,9 @@ func (o *Orchestrator) Start(ctx context.Context) {
 	o.recoverOnStartup(ctx)
 
 	ticker := time.NewTicker(o.config.PollInterval)
+	logTicker := time.NewTicker(runningTasksLogInterval)
 	defer ticker.Stop()
+	defer logTicker.Stop()
 
 	for {
 		select {
@@ -172,6 +175,8 @@ func (o *Orchestrator) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			o.tick(ctx)
+		case <-logTicker.C:
+			o.logRunningTasks()
 		}
 	}
 }
@@ -206,6 +211,16 @@ func (o *Orchestrator) decrementRunning() {
 		o.running--
 	}
 	o.mu.Unlock()
+}
+
+func (o *Orchestrator) runningCount() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.running
+}
+
+func (o *Orchestrator) logRunningTasks() {
+	log.Info().Int("running_tasks", o.runningCount()).Msg("orchestrator: running task count")
 }
 
 // releaseInstanceSlot decrements the running container count for an instance.
