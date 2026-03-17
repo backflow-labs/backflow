@@ -91,7 +91,7 @@ type Config struct {
 	S3Bucket string
 
 	// Database
-	DBPath string
+	DatabaseURL string
 
 	// Orchestrator
 	PollInterval time.Duration
@@ -146,7 +146,7 @@ func Load() (*Config, error) {
 		S3Bucket:              os.Getenv("BACKFLOW_S3_BUCKET"),
 		GitHubToken:           os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:            os.Getenv("BACKFLOW_WEBHOOK_URL"),
-		DBPath:                envOr("BACKFLOW_DB_PATH", "backflow.db"),
+		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}
 
@@ -184,6 +184,10 @@ func Load() (*Config, error) {
 
 	if c.Mode == ModeLocal && c.ContainersPerInst > MaxLocalContainers {
 		return nil, fmt.Errorf("BACKFLOW_CONTAINERS_PER_INSTANCE must be <= %d in local mode, got %d", MaxLocalContainers, c.ContainersPerInst)
+	}
+
+	if c.DatabaseURL == "" {
+		return nil, fmt.Errorf("BACKFLOW_DATABASE_URL is required")
 	}
 
 	if c.ContainerCPUs < 1 {

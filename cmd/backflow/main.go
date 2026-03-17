@@ -28,7 +28,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	db, err := store.NewSQLite(cfg.DBPath)
+	db, err := store.NewPostgres(context.Background(), cfg.DatabaseURL, "migrations")
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open database")
 	}

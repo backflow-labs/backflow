@@ -20,7 +20,7 @@ Entry point for the server binary.
 
 | File | Description |
 |------|-------------|
-| `main.go` | Application entry point. Loads config, opens SQLite, initializes the notifier, orchestrator, and HTTP server, then runs both the orchestrator poll loop and the chi-based API server as concurrent goroutines. Handles graceful shutdown on SIGINT/SIGTERM. |
+| `main.go` | Application entry point. Loads config, connects to PostgreSQL via `store.NewPostgres`, initializes the notifier, orchestrator, and HTTP server, then runs both the orchestrator poll loop and the chi-based API server as concurrent goroutines. Handles graceful shutdown on SIGINT/SIGTERM. |
 
 ## `internal/api/`
 
@@ -30,7 +30,7 @@ REST API layer built on the chi router.
 |------|-------------|
 | `server.go` | Creates the chi router with middleware (RequestID, RealIP, Logger, Recoverer, JSON content-type) and registers all `/api/v1` routes: health check, and CRUD + logs endpoints for tasks. |
 | `handlers.go` | HTTP handler methods for the API. `CreateTask` validates input and writes to the store. `GetTask`, `ListTasks`, `DeleteTask` handle retrieval, listing with filters (status/limit/offset), and cancellation or deletion. `GetTaskLogs` fetches live container logs via the `LogFetcher` interface. `HealthCheck` returns status and auth mode. |
-| `handlers_test.go` | Tests for API handlers — health check, create/get task, list tasks, input validation (including harness validation), codex harness default model selection, 404 on missing task, and delete. Uses an in-memory SQLite store and `httptest`. |
+| `handlers_test.go` | Tests for API handlers — health check, create/get task, list tasks, input validation (including harness validation), codex harness default model selection, 404 on missing task, and delete. Uses a testcontainers PostgreSQL instance and `httptest`. |
 | `responses.go` | JSON response helpers. Defines the `envelope` struct (`{data, error}`) and `writeJSON`/`writeError` functions used by all handlers. |
 
 ## `internal/config/`
@@ -85,13 +85,21 @@ Core orchestration loop and infrastructure management.
 
 ## `internal/store/`
 
-Persistence layer.
+Persistence layer (PostgreSQL via pgxpool).
 
 | File | Description |
 |------|-------------|
-| `store.go` | `Store` interface defining CRUD operations for tasks (`Create`, `Get`, `List`, `Update`, `Delete`) and instances (`Create`, `Get`, `List`, `Update`), plus `Close()`. `TaskFilter` struct for list queries with status filter, limit, and offset. |
-| `sqlite.go` | SQLite implementation of `Store`. Opens the database in WAL mode with busy timeout and foreign keys. `migrate()` creates the `tasks` and `instances` tables with indexes on status and created_at. Implements all CRUD operations with full field scanning, JSON serialization for `allowed_tools` and `env_vars`, and RFC3339 timestamp handling. |
-| `sqlite_test.go` | Tests for SQLite store — full task CRUD cycle (create, get, update, list with filter, delete) including harness and task_mode fields, review task CRUD, not-found handling, and instance CRUD (create, get, update, list by status). Uses temp DB files with cleanup. |
+| `store.go` | `Store` interface defining named update methods for tasks (`CreateTask`, `GetTask`, `ListTasks`, `DeleteTask`, `UpdateTaskStatus`, `AssignTask`, `StartTask`, `CompleteTask`, `RequeueTask`, `CancelTask`, `ClearTaskAssignment`) and instances (`CreateInstance`, `GetInstance`, `ListInstances`, `UpdateInstanceStatus`, `IncrementRunningContainers`, `DecrementRunningContainers`, `UpdateInstanceDetails`, `ResetRunningContainers`), plus `AllowedSender` CRUD, `WithTx`, and `Close()`. `TaskFilter` struct for list queries with status filter, limit, and offset. `TaskResult` struct for task completion. |
+| `postgres.go` | PostgreSQL implementation of `Store` using `pgxpool`. `NewPostgres()` connects, pings, and runs goose migrations. Implements all CRUD and named update operations with `$N` placeholders, JSONB serialization for `allowed_tools` and `env_vars`, and `TIMESTAMPTZ` handling. `WithTx` provides transactional execution via `pgx.Tx`. Uses a `querier` interface to abstract over pool and transaction contexts. |
+| `postgres_test.go` | Tests for PostgreSQL store using testcontainers — task round-trip (create/get with all fields), transaction commit and rollback, not-found handling, list/delete tasks, all named task updates (status, assign, start, complete, requeue, cancel, clear assignment), instance CRUD and named updates (status, increment/decrement/reset containers, update details), allowed sender CRUD, and review task mode. |
+
+## `migrations/`
+
+Goose SQL migration files.
+
+| File | Description |
+|------|-------------|
+| `001_initial_schema.sql` | Creates `tasks`, `instances`, and `allowed_senders` tables with indexes. Uses PostgreSQL-native types: `BOOLEAN`, `DOUBLE PRECISION`, `JSONB`, `TIMESTAMPTZ`. Includes `+goose Down` to drop all tables. |
 
 ## `docker/`
 
@@ -110,6 +118,6 @@ Operational and development helper scripts.
 |------|-------------|
 | `build-agent-image.sh` | Builds and pushes the multi-arch agent Docker image to ECR. Authenticates with ECR, creates a buildx builder, and pushes with `linux/amd64,linux/arm64` platforms. |
 | `create-task.sh` | CLI helper to submit tasks via the REST API. Accepts repo URL and prompt as positional args, plus flags for branch, model, effort, budget, runtime, turns, PR options, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `jq` and posts to the API with `curl`. |
-| `db-status.sh` | Dumps the SQLite database state. Shows all tasks, task status summary, all instances, and instance status summary using `sqlite3` queries. |
+| `review-pr.sh` | CLI helper to submit PR review tasks via the REST API. Accepts a PR URL as a positional arg, plus flags for prompt, model, effort, budget, runtime, turns, CLAUDE.md injection, context, and env vars. Builds a JSON payload with `task_mode: "review"` and posts to the API with `curl`. |
 | `setup-aws.sh` | One-time AWS infrastructure setup. Creates shared resources (ECR repo, security group, S3 bucket), EC2-mode resources (IAM role with SSM/ECR policies, instance profile, launch template), and Fargate-mode resources (CloudWatch log group, ECS task execution and task roles, ECS cluster with FARGATE/FARGATE_SPOT capacity providers, task definition). Discovers default VPC subnets. Outputs `.env` values for both EC2 and Fargate modes. |
 | `user-data.sh` | EC2 instance bootstrap script (run via launch template user-data). Installs Docker and SSM agent, authenticates with ECR using IMDSv2, and pulls the `backflow-agent` image. |
