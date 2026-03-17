@@ -39,10 +39,8 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 	// Provisioning tasks: mark recovering, clear instance/container
 	// (dispatch never incremented o.running for these)
 	for _, task := range provTasks {
-		task.Status = models.TaskStatusRecovering
-		task.InstanceID = ""
-		task.ContainerID = ""
-		o.store.UpdateTask(ctx, task)
+		o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, "")
+		o.store.ClearTaskAssignment(ctx, task.ID)
 		o.notifier.Notify(notify.Event{
 			Type:      notify.EventTaskRecovering,
 			TaskID:    task.ID,
@@ -56,8 +54,7 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 	// Running tasks: mark recovering, preserve instance/container for inspection
 	instanceContainers := make(map[string]int)
 	for _, task := range runningTasks {
-		task.Status = models.TaskStatusRecovering
-		o.store.UpdateTask(ctx, task)
+		o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, "")
 		o.notifier.Notify(notify.Event{
 			Type:      notify.EventTaskRecovering,
 			TaskID:    task.ID,
@@ -79,9 +76,9 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 
 	// Fix up RunningContainers for each referenced instance
 	for instID, count := range instanceContainers {
-		if inst, err := o.store.GetInstance(ctx, instID); err == nil && inst != nil {
-			inst.RunningContainers = count
-			o.store.UpdateInstance(ctx, inst)
+		o.store.ResetRunningContainers(ctx, instID)
+		for i := 0; i < count; i++ {
+			o.store.IncrementRunningContainers(ctx, instID)
 		}
 	}
 
@@ -131,9 +128,7 @@ func (o *Orchestrator) monitorRecovering(ctx context.Context) {
 		} else {
 			// Container still running — promote back to running
 			log.Info().Str("task_id", task.ID).Msg("recovery: container still running, promoting to running")
-			task.Status = models.TaskStatusRunning
-			task.Error = ""
-			o.store.UpdateTask(ctx, task)
+			o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRunning, "")
 			o.notifier.Notify(notify.Event{
 				Type:      notify.EventTaskRunning,
 				TaskID:    task.ID,
@@ -176,13 +171,7 @@ func (o *Orchestrator) requeueRecoveringTask(ctx context.Context, task *models.T
 		o.decrementRunning()
 	}
 
-	task.Status = models.TaskStatusPending
-	task.InstanceID = ""
-	task.ContainerID = ""
-	task.StartedAt = nil
-	task.Error = "re-queued: " + reason + " at " + time.Now().UTC().Format(time.RFC3339)
-	task.RetryCount++
-	if err := o.store.UpdateTask(ctx, task); err != nil {
+	if err := o.store.RequeueTask(ctx, task.ID, reason); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("failed to re-queue recovering task")
 	}
 

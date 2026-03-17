@@ -38,9 +38,7 @@ func (o *Orchestrator) dispatchPending(ctx context.Context) {
 	for _, task := range tasks {
 		if err := o.dispatch(ctx, task); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("failed to dispatch task")
-			task.Status = models.TaskStatusFailed
-			task.Error = err.Error()
-			o.store.UpdateTask(ctx, task)
+			o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusFailed, err.Error())
 			o.notifier.Notify(notify.Event{
 				Type:      notify.EventTaskFailed,
 				TaskID:    task.ID,
@@ -63,9 +61,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
 		return nil
 	}
 
-	task.Status = models.TaskStatusProvisioning
-	task.InstanceID = instance.InstanceID
-	if err := o.store.UpdateTask(ctx, task); err != nil {
+	if err := o.store.AssignTask(ctx, task.ID, instance.InstanceID); err != nil {
 		return err
 	}
 
@@ -74,25 +70,23 @@ func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
 		return err
 	}
 
-	now := time.Now().UTC()
-	task.Status = models.TaskStatusRunning
-	task.ContainerID = containerID
-	task.StartedAt = &now
-	if err := o.store.UpdateTask(ctx, task); err != nil {
+	if err := o.store.WithTx(ctx, func(tx store.Store) error {
+		if err := tx.StartTask(ctx, task.ID, containerID); err != nil {
+			return err
+		}
+		return tx.IncrementRunningContainers(ctx, instance.InstanceID)
+	}); err != nil {
 		return err
 	}
 
 	o.incrementRunning()
-
-	instance.RunningContainers++
-	o.store.UpdateInstance(ctx, instance)
 
 	o.notifier.Notify(notify.Event{
 		Type:      notify.EventTaskRunning,
 		TaskID:    task.ID,
 		RepoURL:   task.RepoURL,
 		Prompt:    task.Prompt,
-		Timestamp: now,
+		Timestamp: time.Now().UTC(),
 	})
 
 	log.Info().Str("task_id", task.ID).Str("container", containerID).Str("instance", instance.InstanceID).Msg("task dispatched")

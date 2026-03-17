@@ -26,7 +26,11 @@ type mockStore struct {
 }
 
 func (m *mockStore) GetAllowedSender(_ context.Context, channelType, address string) (*models.AllowedSender, error) {
-	return m.senders[channelType+":"+address], nil
+	s, ok := m.senders[channelType+":"+address]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return s, nil
 }
 
 func (m *mockStore) CreateTask(_ context.Context, task *models.Task) error {
@@ -35,19 +39,45 @@ func (m *mockStore) CreateTask(_ context.Context, task *models.Task) error {
 }
 
 // Unused Store methods — satisfy the interface.
-func (m *mockStore) GetTask(context.Context, string) (*models.Task, error) { return nil, nil }
+func (m *mockStore) GetTask(context.Context, string) (*models.Task, error) {
+	return nil, store.ErrNotFound
+}
 func (m *mockStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateTask(context.Context, *models.Task) error                { return nil }
-func (m *mockStore) DeleteTask(context.Context, string) error                      { return nil }
-func (m *mockStore) CreateInstance(context.Context, *models.Instance) error        { return nil }
-func (m *mockStore) GetInstance(context.Context, string) (*models.Instance, error) { return nil, nil }
+func (m *mockStore) DeleteTask(context.Context, string) error               { return nil }
+func (m *mockStore) CreateInstance(context.Context, *models.Instance) error { return nil }
+func (m *mockStore) GetInstance(context.Context, string) (*models.Instance, error) {
+	return nil, store.ErrNotFound
+}
 func (m *mockStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateInstance(context.Context, *models.Instance) error { return nil }
-func (m *mockStore) Close() error                                           { return nil }
+func (m *mockStore) UpdateTaskStatus(context.Context, string, models.TaskStatus, string) error {
+	return nil
+}
+func (m *mockStore) AssignTask(context.Context, string, string) error { return nil }
+func (m *mockStore) StartTask(context.Context, string, string) error  { return nil }
+func (m *mockStore) CompleteTask(context.Context, string, store.TaskResult) error {
+	return nil
+}
+func (m *mockStore) RequeueTask(context.Context, string, string) error { return nil }
+func (m *mockStore) CancelTask(context.Context, string) error          { return nil }
+func (m *mockStore) ClearTaskAssignment(context.Context, string) error { return nil }
+func (m *mockStore) UpdateInstanceStatus(context.Context, string, models.InstanceStatus) error {
+	return nil
+}
+func (m *mockStore) IncrementRunningContainers(context.Context, string) error { return nil }
+func (m *mockStore) DecrementRunningContainers(context.Context, string) error { return nil }
+func (m *mockStore) UpdateInstanceDetails(context.Context, string, string, string) error {
+	return nil
+}
+func (m *mockStore) ResetRunningContainers(context.Context, string) error { return nil }
+func (m *mockStore) CreateAllowedSender(context.Context, *models.AllowedSender) error {
+	return nil
+}
+func (m *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error { return fn(m) }
+func (m *mockStore) Close() error                                               { return nil }
 
 func newTestConfig() *config.Config {
 	return &config.Config{

@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -66,15 +67,9 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 	o.scaler = localScaler{}
 
 	now := time.Now().UTC()
-	inst, _ := s.GetInstance(context.Background(), "local")
-	if inst != nil {
-		inst.Status = models.InstanceStatusRunning
-		inst.MaxContainers = cfg.ContainersPerInst
-		inst.RunningContainers = 0
-		inst.UpdatedAt = now
-		s.UpdateInstance(context.Background(), inst)
-	} else {
-		inst = &models.Instance{
+	_, err := s.GetInstance(context.Background(), "local")
+	if errors.Is(err, store.ErrNotFound) {
+		s.CreateInstance(context.Background(), &models.Instance{
 			InstanceID:    "local",
 			InstanceType:  "local",
 			Status:        models.InstanceStatusRunning,
@@ -82,8 +77,12 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 			PrivateIP:     "127.0.0.1",
 			CreatedAt:     now,
 			UpdatedAt:     now,
-		}
-		s.CreateInstance(context.Background(), inst)
+		})
+	} else if err != nil {
+		log.Error().Err(err).Msg("local init: failed to get synthetic instance")
+	} else {
+		s.UpdateInstanceStatus(context.Background(), "local", models.InstanceStatusRunning)
+		s.ResetRunningContainers(context.Background(), "local")
 	}
 }
 
@@ -93,30 +92,24 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 	o.scaler = localScaler{}
 
 	now := time.Now().UTC()
-	inst, err := s.GetInstance(context.Background(), "fargate")
-	if err != nil {
-		log.Error().Err(err).Msg("fargate init: failed to get synthetic instance")
-	}
-	if inst != nil {
-		inst.Status = models.InstanceStatusRunning
-		inst.MaxContainers = cfg.MaxConcurrentTasks
-		inst.RunningContainers = 0
-		inst.UpdatedAt = now
-		if err := s.UpdateInstance(context.Background(), inst); err != nil {
-			log.Error().Err(err).Msg("fargate init: failed to update synthetic instance")
-		}
-	} else {
-		inst = &models.Instance{
+	_, err := s.GetInstance(context.Background(), "fargate")
+	if errors.Is(err, store.ErrNotFound) {
+		if err := s.CreateInstance(context.Background(), &models.Instance{
 			InstanceID:    "fargate",
 			InstanceType:  "fargate",
 			Status:        models.InstanceStatusRunning,
 			MaxContainers: cfg.MaxConcurrentTasks,
 			CreatedAt:     now,
 			UpdatedAt:     now,
-		}
-		if err := s.CreateInstance(context.Background(), inst); err != nil {
+		}); err != nil {
 			log.Error().Err(err).Msg("fargate init: failed to create synthetic instance")
 		}
+	} else if err != nil {
+		log.Error().Err(err).Msg("fargate init: failed to get synthetic instance")
+		return
+	} else {
+		s.UpdateInstanceStatus(context.Background(), "fargate", models.InstanceStatusRunning)
+		s.ResetRunningContainers(context.Background(), "fargate")
 	}
 
 	instances, err := s.ListInstances(context.Background(), nil)
@@ -128,9 +121,7 @@ func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 		if other.InstanceID == "fargate" || other.Status == models.InstanceStatusTerminated {
 			continue
 		}
-		other.Status = models.InstanceStatusTerminated
-		other.RunningContainers = 0
-		if err := s.UpdateInstance(context.Background(), other); err != nil {
+		if err := s.UpdateInstanceStatus(context.Background(), other.InstanceID, models.InstanceStatusTerminated); err != nil {
 			log.Error().Err(err).Str("instance_id", other.InstanceID).Msg("fargate init: failed to terminate stale instance")
 		}
 	}
@@ -144,10 +135,11 @@ func (o *Orchestrator) initEC2Mode(s store.Store, cfg *config.Config, docker *Do
 	o.spot = NewSpotHandler(s, ec2)
 
 	// Clean up leftover local instance from a previous local-mode run.
-	if inst, _ := s.GetInstance(context.Background(), "local"); inst != nil && inst.Status != models.InstanceStatusTerminated {
-		inst.Status = models.InstanceStatusTerminated
-		inst.RunningContainers = 0
-		s.UpdateInstance(context.Background(), inst)
+	inst, err := s.GetInstance(context.Background(), "local")
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Error().Err(err).Msg("ec2 init: failed to check for leftover local instance")
+	} else if err == nil && inst.Status != models.InstanceStatusTerminated {
+		s.UpdateInstanceStatus(context.Background(), "local", models.InstanceStatusTerminated)
 	}
 }
 
@@ -221,15 +213,7 @@ func (o *Orchestrator) releaseInstanceSlot(ctx context.Context, instanceID strin
 	if instanceID == "" {
 		return
 	}
-	inst, err := o.store.GetInstance(ctx, instanceID)
-	if err != nil || inst == nil {
-		return
-	}
-	inst.RunningContainers--
-	if inst.RunningContainers < 0 {
-		inst.RunningContainers = 0
-	}
-	o.store.UpdateInstance(ctx, inst)
+	o.store.DecrementRunningContainers(ctx, instanceID)
 }
 
 // releaseSlot decrements both the running counter and the instance container count.
@@ -243,13 +227,5 @@ func (o *Orchestrator) markInstanceTerminated(ctx context.Context, instanceID st
 	if instanceID == "" {
 		return
 	}
-	inst, err := o.store.GetInstance(ctx, instanceID)
-	if err != nil || inst == nil {
-		return
-	}
-	if inst.Status != models.InstanceStatusTerminated {
-		inst.Status = models.InstanceStatusTerminated
-		inst.RunningContainers = 0
-		o.store.UpdateInstance(ctx, inst)
-	}
+	o.store.UpdateInstanceStatus(ctx, instanceID, models.InstanceStatusTerminated)
 }

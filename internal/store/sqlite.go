@@ -34,6 +34,290 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+func (s *SQLiteStore) WithTx(ctx context.Context, fn func(Store) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	txs := &txStore{tx: tx}
+	if err := fn(txs); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// txStore wraps a *sql.Tx and implements Store for use inside WithTx.
+type txStore struct {
+	tx *sql.Tx
+}
+
+func (t *txStore) CreateTask(ctx context.Context, task *models.Task) error {
+	_, err := t.tx.ExecContext(ctx, `
+		INSERT INTO tasks (
+			id, status, task_mode, harness, repo_url, branch, target_branch,
+			review_pr_url, review_pr_number,
+			prompt, context,
+			model, effort, max_budget_usd, max_runtime_min, max_turns,
+			create_pr, self_review, save_agent_output, pr_title, pr_body, pr_url, output_url,
+			allowed_tools, claude_md, env_vars,
+			instance_id, container_id, retry_count, cost_usd, elapsed_time_sec, error,
+			reply_channel,
+			created_at, updated_at, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		task.ID, task.Status, task.TaskMode, task.Harness, task.RepoURL, task.Branch, task.TargetBranch,
+		task.ReviewPRURL, task.ReviewPRNumber,
+		task.Prompt, task.Context, task.Model, task.Effort,
+		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
+		boolToInt(task.CreatePR), boolToInt(task.SelfReview), boolToInt(task.SaveAgentOutput),
+		task.PRTitle, task.PRBody, task.PRURL, task.OutputURL,
+		task.AllowedToolsJSON(), task.ClaudeMD, task.EnvVarsJSON(),
+		task.InstanceID, task.ContainerID, task.RetryCount, task.CostUSD, task.ElapsedTimeSec, task.Error,
+		task.ReplyChannel,
+		task.CreatedAt.Format(time.RFC3339), task.UpdatedAt.Format(time.RFC3339),
+		timePtr(task.StartedAt), timePtr(task.CompletedAt),
+	)
+	return err
+}
+
+func (t *txStore) GetTask(ctx context.Context, id string) (*models.Task, error) {
+	row := t.tx.QueryRowContext(ctx, `SELECT
+		id, status, task_mode, harness, repo_url, branch, target_branch,
+		review_pr_url, review_pr_number,
+		prompt, context,
+		model, effort, max_budget_usd, max_runtime_min, max_turns,
+		create_pr, self_review, save_agent_output, pr_title, pr_body, pr_url, output_url,
+		allowed_tools, claude_md, env_vars,
+		instance_id, container_id, retry_count, cost_usd, elapsed_time_sec, error,
+		reply_channel,
+		created_at, updated_at, started_at, completed_at
+		FROM tasks WHERE id = ?`, id)
+	return scanTask(row)
+}
+
+func (t *txStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*models.Task, error) {
+	query := "SELECT id, status, task_mode, harness, repo_url, branch, target_branch, review_pr_url, review_pr_number, prompt, context, model, effort, max_budget_usd, max_runtime_min, max_turns, create_pr, self_review, save_agent_output, pr_title, pr_body, pr_url, output_url, allowed_tools, claude_md, env_vars, instance_id, container_id, retry_count, cost_usd, elapsed_time_sec, error, reply_channel, created_at, updated_at, started_at, completed_at FROM tasks"
+	var args []any
+	var where []string
+	if filter.Status != nil {
+		where = append(where, "status = ?")
+		args = append(args, string(*filter.Status))
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY created_at ASC"
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
+	}
+	if filter.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET %d", filter.Offset)
+	}
+	rows, err := t.tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []*models.Task
+	for rows.Next() {
+		task, err := scanTaskRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, rows.Err()
+}
+
+func (t *txStore) DeleteTask(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+	return err
+}
+
+func (t *txStore) UpdateTaskStatus(ctx context.Context, id string, status models.TaskStatus, taskErr string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE tasks SET status=?, error=?, updated_at=? WHERE id=?",
+		status, taskErr, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) AssignTask(ctx context.Context, id string, instanceID string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE tasks SET status=?, instance_id=?, updated_at=? WHERE id=?",
+		models.TaskStatusProvisioning, instanceID, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) StartTask(ctx context.Context, id string, containerID string) error {
+	now := time.Now().UTC()
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE tasks SET status=?, container_id=?, started_at=?, updated_at=? WHERE id=?",
+		models.TaskStatusRunning, containerID, now.Format(time.RFC3339), now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) CompleteTask(ctx context.Context, id string, result TaskResult) error {
+	now := time.Now().UTC()
+	_, err := t.tx.ExecContext(ctx,
+		`UPDATE tasks SET status=?, error=?, pr_url=?, output_url=?, cost_usd=?, elapsed_time_sec=?, completed_at=?, updated_at=? WHERE id=?`,
+		result.Status, result.Error, result.PRURL, result.OutputURL, result.CostUSD, result.ElapsedTimeSec,
+		now.Format(time.RFC3339), now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) RequeueTask(ctx context.Context, id string, reason string) error {
+	now := time.Now().UTC()
+	_, err := t.tx.ExecContext(ctx,
+		`UPDATE tasks SET status=?, instance_id='', container_id='', started_at=NULL,
+		 retry_count=retry_count+1, error=?, updated_at=? WHERE id=?`,
+		models.TaskStatusPending, "re-queued: "+reason+" at "+now.Format(time.RFC3339),
+		now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) CancelTask(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE tasks SET status=?, completed_at=?, updated_at=? WHERE id=?",
+		models.TaskStatusCancelled, now.Format(time.RFC3339), now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) ClearTaskAssignment(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE tasks SET instance_id='', container_id='', updated_at=? WHERE id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) CreateInstance(ctx context.Context, inst *models.Instance) error {
+	_, err := t.tx.ExecContext(ctx, `
+		INSERT INTO instances (instance_id, instance_type, availability_zone, private_ip, status, max_containers, running_containers, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		inst.InstanceID, inst.InstanceType, inst.AvailabilityZone, inst.PrivateIP,
+		inst.Status, inst.MaxContainers, inst.RunningContainers,
+		inst.CreatedAt.Format(time.RFC3339), inst.UpdatedAt.Format(time.RFC3339),
+	)
+	return err
+}
+
+func (t *txStore) GetInstance(ctx context.Context, id string) (*models.Instance, error) {
+	row := t.tx.QueryRowContext(ctx, `SELECT instance_id, instance_type, availability_zone, private_ip, status, max_containers, running_containers, created_at, updated_at FROM instances WHERE instance_id = ?`, id)
+	return scanInstance(row)
+}
+
+func (t *txStore) ListInstances(ctx context.Context, status *models.InstanceStatus) ([]*models.Instance, error) {
+	query := "SELECT instance_id, instance_type, availability_zone, private_ip, status, max_containers, running_containers, created_at, updated_at FROM instances"
+	var args []any
+	if status != nil {
+		query += " WHERE status = ?"
+		args = append(args, string(*status))
+	}
+	query += " ORDER BY created_at ASC"
+	rows, err := t.tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var instances []*models.Instance
+	for rows.Next() {
+		inst, err := scanInstanceRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, inst)
+	}
+	return instances, rows.Err()
+}
+
+func (t *txStore) UpdateInstanceStatus(ctx context.Context, id string, status models.InstanceStatus) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	var query string
+	if status == models.InstanceStatusTerminated {
+		query = "UPDATE instances SET status=?, running_containers=0, updated_at=? WHERE instance_id=?"
+	} else {
+		query = "UPDATE instances SET status=?, updated_at=? WHERE instance_id=?"
+	}
+	_, err := t.tx.ExecContext(ctx, query, status, now, id)
+	return err
+}
+
+func (t *txStore) IncrementRunningContainers(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE instances SET running_containers=running_containers+1, updated_at=? WHERE instance_id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) DecrementRunningContainers(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE instances SET running_containers=MAX(running_containers-1, 0), updated_at=? WHERE instance_id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) UpdateInstanceDetails(ctx context.Context, id string, privateIP, az string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE instances SET private_ip=?, availability_zone=?, updated_at=? WHERE instance_id=?",
+		privateIP, az, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) ResetRunningContainers(ctx context.Context, id string) error {
+	_, err := t.tx.ExecContext(ctx,
+		"UPDATE instances SET running_containers=0, updated_at=? WHERE instance_id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (t *txStore) GetAllowedSender(ctx context.Context, channelType, address string) (*models.AllowedSender, error) {
+	row := t.tx.QueryRowContext(ctx,
+		"SELECT channel_type, address, default_repo, enabled, created_at FROM allowed_senders WHERE channel_type = ? AND address = ?",
+		channelType, address,
+	)
+	var sender models.AllowedSender
+	var enabled int
+	var createdAt string
+	err := row.Scan(&sender.ChannelType, &sender.Address, &sender.DefaultRepo, &enabled, &createdAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	sender.Enabled = enabled != 0
+	sender.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	return &sender, nil
+}
+
+func (t *txStore) CreateAllowedSender(ctx context.Context, sender *models.AllowedSender) error {
+	_, err := t.tx.ExecContext(ctx,
+		"INSERT INTO allowed_senders (channel_type, address, default_repo, enabled, created_at) VALUES (?, ?, ?, ?, ?)",
+		sender.ChannelType, sender.Address, sender.DefaultRepo, boolToInt(sender.Enabled),
+		sender.CreatedAt.Format(time.RFC3339),
+	)
+	return err
+}
+
+func (t *txStore) WithTx(_ context.Context, _ func(Store) error) error {
+	return fmt.Errorf("nested transactions are not supported")
+}
+
+func (t *txStore) Close() error {
+	return fmt.Errorf("cannot close a transaction store")
+}
+
 func (s *SQLiteStore) migrate() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS tasks (
@@ -201,29 +485,65 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*mode
 	return tasks, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateTask(ctx context.Context, task *models.Task) error {
-	task.UpdatedAt = time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks SET
-			status=?, task_mode=?, harness=?, repo_url=?, branch=?, target_branch=?,
-			review_pr_url=?, review_pr_number=?, prompt=?, context=?,
-			model=?, effort=?, max_budget_usd=?, max_runtime_min=?, max_turns=?,
-			create_pr=?, self_review=?, save_agent_output=?, pr_title=?, pr_body=?, pr_url=?, output_url=?,
-			allowed_tools=?, claude_md=?, env_vars=?,
-			instance_id=?, container_id=?, retry_count=?, cost_usd=?, elapsed_time_sec=?, error=?,
-			reply_channel=?,
-			updated_at=?, started_at=?, completed_at=?
-		WHERE id = ?`,
-		task.Status, task.TaskMode, task.Harness, task.RepoURL, task.Branch, task.TargetBranch,
-		task.ReviewPRURL, task.ReviewPRNumber, task.Prompt, task.Context, task.Model, task.Effort,
-		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
-		boolToInt(task.CreatePR), boolToInt(task.SelfReview), boolToInt(task.SaveAgentOutput),
-		task.PRTitle, task.PRBody, task.PRURL, task.OutputURL,
-		task.AllowedToolsJSON(), task.ClaudeMD, task.EnvVarsJSON(),
-		task.InstanceID, task.ContainerID, task.RetryCount, task.CostUSD, task.ElapsedTimeSec, task.Error,
-		task.ReplyChannel,
-		task.UpdatedAt.Format(time.RFC3339), timePtr(task.StartedAt), timePtr(task.CompletedAt),
-		task.ID,
+func (s *SQLiteStore) CancelTask(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET status=?, completed_at=?, updated_at=? WHERE id=?",
+		models.TaskStatusCancelled, now.Format(time.RFC3339), now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) ClearTaskAssignment(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET instance_id='', container_id='', updated_at=? WHERE id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) RequeueTask(ctx context.Context, id string, reason string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status=?, instance_id='', container_id='', started_at=NULL,
+		 retry_count=retry_count+1, error=?, updated_at=? WHERE id=?`,
+		models.TaskStatusPending, "re-queued: "+reason+" at "+now.Format(time.RFC3339),
+		now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) CompleteTask(ctx context.Context, id string, result TaskResult) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status=?, error=?, pr_url=?, output_url=?, cost_usd=?, elapsed_time_sec=?, completed_at=?, updated_at=? WHERE id=?`,
+		result.Status, result.Error, result.PRURL, result.OutputURL, result.CostUSD, result.ElapsedTimeSec,
+		now.Format(time.RFC3339), now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) StartTask(ctx context.Context, id string, containerID string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET status=?, container_id=?, started_at=?, updated_at=? WHERE id=?",
+		models.TaskStatusRunning, containerID, now.Format(time.RFC3339), now.Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) AssignTask(ctx context.Context, id string, instanceID string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET status=?, instance_id=?, updated_at=? WHERE id=?",
+		models.TaskStatusProvisioning, instanceID, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) UpdateTaskStatus(ctx context.Context, id string, status models.TaskStatus, taskErr string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET status=?, error=?, updated_at=? WHERE id=?",
+		status, taskErr, time.Now().UTC().Format(time.RFC3339), id,
 	)
 	return err
 }
@@ -277,16 +597,46 @@ func (s *SQLiteStore) ListInstances(ctx context.Context, status *models.Instance
 	return instances, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateInstance(ctx context.Context, inst *models.Instance) error {
-	inst.UpdatedAt = time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE instances SET
-			instance_type=?, availability_zone=?, private_ip=?, status=?,
-			max_containers=?, running_containers=?, updated_at=?
-		WHERE instance_id = ?`,
-		inst.InstanceType, inst.AvailabilityZone, inst.PrivateIP, inst.Status,
-		inst.MaxContainers, inst.RunningContainers, inst.UpdatedAt.Format(time.RFC3339),
-		inst.InstanceID,
+func (s *SQLiteStore) UpdateInstanceStatus(ctx context.Context, id string, status models.InstanceStatus) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	var query string
+	if status == models.InstanceStatusTerminated {
+		query = "UPDATE instances SET status=?, running_containers=0, updated_at=? WHERE instance_id=?"
+	} else {
+		query = "UPDATE instances SET status=?, updated_at=? WHERE instance_id=?"
+	}
+	_, err := s.db.ExecContext(ctx, query, status, now, id)
+	return err
+}
+
+func (s *SQLiteStore) IncrementRunningContainers(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE instances SET running_containers=running_containers+1, updated_at=? WHERE instance_id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) DecrementRunningContainers(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE instances SET running_containers=MAX(running_containers-1, 0), updated_at=? WHERE instance_id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) UpdateInstanceDetails(ctx context.Context, id string, privateIP, az string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE instances SET private_ip=?, availability_zone=?, updated_at=? WHERE instance_id=?",
+		privateIP, az, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) ResetRunningContainers(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE instances SET running_containers=0, updated_at=? WHERE instance_id=?",
+		time.Now().UTC().Format(time.RFC3339), id,
 	)
 	return err
 }
@@ -317,7 +667,7 @@ func scanTask(row scanner) (*models.Task, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
@@ -356,7 +706,7 @@ func scanInstance(row scanner) (*models.Instance, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
@@ -372,6 +722,15 @@ func scanInstanceRows(rows *sql.Rows) (*models.Instance, error) {
 
 // --- Allowed senders ---
 
+func (s *SQLiteStore) CreateAllowedSender(ctx context.Context, sender *models.AllowedSender) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO allowed_senders (channel_type, address, default_repo, enabled, created_at) VALUES (?, ?, ?, ?, ?)",
+		sender.ChannelType, sender.Address, sender.DefaultRepo, boolToInt(sender.Enabled),
+		sender.CreatedAt.Format(time.RFC3339),
+	)
+	return err
+}
+
 func (s *SQLiteStore) GetAllowedSender(ctx context.Context, channelType, address string) (*models.AllowedSender, error) {
 	row := s.db.QueryRowContext(ctx,
 		"SELECT channel_type, address, default_repo, enabled, created_at FROM allowed_senders WHERE channel_type = ? AND address = ?",
@@ -385,7 +744,7 @@ func (s *SQLiteStore) GetAllowedSender(ctx context.Context, channelType, address
 	err := row.Scan(&sender.ChannelType, &sender.Address, &sender.DefaultRepo, &enabled, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
