@@ -196,6 +196,16 @@ psql "$BACKFLOW_DATABASE_URL" -c "SELECT id, status, created_at FROM tasks ORDER
 
 To add a migration: create a new file in `migrations/` (e.g. `002_add_column.sql`) with `-- +goose Up` and `-- +goose Down` sections.
 
+To migrate an existing SQLite database into Postgres:
+
+```bash
+BACKFLOW_DB_PATH=/path/to/backflow.db \
+BACKFLOW_DATABASE_URL=postgres://... \
+go run ./cmd/migrate-to-postgres
+```
+
+The migration tool applies the Postgres schema, copies `tasks`, `instances`, and `allowed_senders`, and uses `ON CONFLICT DO NOTHING` so it can be run multiple times safely.
+
 ## Deployment
 
 ### Agent Image
