@@ -13,7 +13,7 @@ make test               # go test ./... -v -count=1
 make lint               # go vet ./...
 make deps               # go mod tidy
 make clean              # Remove bin/ directory
-make db-status          # Dump SQLite state
+make db-running         # Show running tasks (also: db-pending, db-completed, db-failed, etc.)
 make docker-build       # Buildx multi-platform (amd64+arm64) image
 make docker-build-local # Single-architecture build
 make docker-push        # Tag + push to ECR (requires REGISTRY=<ecr-uri>)
@@ -115,10 +115,9 @@ ECS prerequisites:
 
 ## Database
 
-SQLite with WAL mode. Schema auto-migrates on startup via `CREATE TABLE IF NOT EXISTS` in `internal/store/sqlite.go:migrate()`. No separate migration files — add new columns with `ALTER TABLE` idempotently in the same function.
+PostgreSQL via Supabase (session pooler). Migrations managed by [goose](https://github.com/pressly/goose) and live in `migrations/`. The store implementation is in `internal/store/postgres.go` using `pgxpool`. Set `BACKFLOW_DATABASE_URL` to the Supabase session pooler connection string.
 
 ## Documentation
 
 Additional docs in `docs/`:
-- `schema.md` — SQLite database schema reference
 - `file-reference.md` — Codebase file reference guide

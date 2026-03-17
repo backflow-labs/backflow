@@ -1,4 +1,6 @@
-.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint db-status setup-aws deps
+.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint \
+       db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
+       setup-aws deps
 
 BINARY := backflow
 PKG := github.com/backflow-labs/backflow
@@ -52,8 +54,31 @@ docker-deploy:
 		docker/ && \
 	echo "Pushed to $$ECR/backflow-agent:latest"
 
-db-status:
-	@bash scripts/db-status.sh
+DB_QUERY = @$(ENV); psql "$$BACKFLOW_DATABASE_URL" -c
+
+db-pending:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, created_at FROM tasks WHERE status = 'pending' ORDER BY created_at ASC;"
+
+db-provisioning:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, instance_id, created_at FROM tasks WHERE status = 'provisioning' ORDER BY created_at ASC;"
+
+db-running:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, instance_id, started_at, elapsed_time_sec FROM tasks WHERE status = 'running' ORDER BY started_at ASC;"
+
+db-completed:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, pr_url, cost_usd, elapsed_time_sec, completed_at FROM tasks WHERE status = 'completed' ORDER BY completed_at DESC;"
+
+db-failed:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, error, completed_at FROM tasks WHERE status = 'failed' ORDER BY completed_at DESC;"
+
+db-interrupted:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, error, retry_count, updated_at FROM tasks WHERE status = 'interrupted' ORDER BY updated_at DESC;"
+
+db-cancelled:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, completed_at FROM tasks WHERE status = 'cancelled' ORDER BY completed_at DESC;"
+
+db-recovering:
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, instance_id, container_id, updated_at FROM tasks WHERE status = 'recovering' ORDER BY updated_at ASC;"
 
 setup-aws:
 	@$(ENV); bash scripts/setup-aws.sh

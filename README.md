@@ -6,6 +6,7 @@ Agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral c
 
 - Go 1.24+
 - Docker
+- PostgreSQL (or Supabase)
 - `jq` (for helper scripts)
 - AWS CLI (for EC2/Fargate modes)
 
@@ -13,7 +14,7 @@ Agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral c
 
 ```bash
 cp .env.example .env
-# Edit .env — at minimum set ANTHROPIC_API_KEY and GITHUB_TOKEN
+# Edit .env — at minimum set BACKFLOW_DATABASE_URL, ANTHROPIC_API_KEY, and GITHUB_TOKEN
 # Set BACKFLOW_MODE=local for local Docker (no AWS needed)
 ```
 
@@ -28,7 +29,7 @@ make clean          # Remove bin/
 
 Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
-Tests create temporary SQLite databases — no external services needed.
+Tests use [testcontainers](https://testcontainers.com/) to spin up ephemeral PostgreSQL instances — Docker must be running.
 
 ### Local Tunnel (for SMS/webhooks)
 
@@ -155,8 +156,11 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 ## Monitoring and Operations
 
 ```bash
-# Database state
-make db-status
+# Tasks by status
+make db-running
+make db-pending
+make db-completed
+make db-failed
 
 # Task details
 curl -s http://localhost:8080/api/v1/tasks/{id} | jq .
@@ -179,17 +183,18 @@ Interrupted/failed tasks can enter `recovering` -> re-queued as `pending`.
 
 ### Database
 
-SQLite in WAL mode. Auto-migrates on startup. Configured via `BACKFLOW_DB_PATH` (default: `backflow.db`).
+PostgreSQL (hosted on Supabase, connected via session pooler). Migrations managed by [goose](https://github.com/pressly/goose) in `migrations/`. Auto-runs on startup. Configured via `BACKFLOW_DATABASE_URL`.
 
 ```bash
-make db-status                              # Dump all tasks and instances
-sqlite3 backflow.db ".schema"               # Show schema
-sqlite3 backflow.db "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
+make db-running                             # Show running tasks
+make db-pending                             # Show pending tasks
+make db-completed                           # Show completed tasks
+make db-failed                              # Show failed tasks
+psql "$BACKFLOW_DATABASE_URL" -c "\dt"      # List tables
+psql "$BACKFLOW_DATABASE_URL" -c "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
 ```
 
-To reset: delete `backflow.db`. Recreated on next startup.
-
-To add a column: add an idempotent `ALTER TABLE` to `internal/store/sqlite.go:migrate()`, then update the model and queries.
+To add a migration: create a new file in `migrations/` (e.g. `002_add_column.sql`) with `-- +goose Up` and `-- +goose Down` sections.
 
 ## Deployment
 
@@ -239,7 +244,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `OPENAI_API_KEY` | | Required for `codex` harness |
 | `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
 | `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
-| `BACKFLOW_DB_PATH` | `backflow.db` | SQLite database path |
+| `BACKFLOW_DATABASE_URL` | | PostgreSQL connection string (Supabase session pooler recommended) |
 | `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (seconds) |
 | `BACKFLOW_S3_BUCKET` | | S3 bucket for agent output and large prompt offload |
 
