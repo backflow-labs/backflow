@@ -28,7 +28,14 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	db, err := store.NewSQLite(cfg.DBPath)
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer startupCancel()
+
+	if err := store.RunMigrations(startupCtx, cfg.DatabaseURL); err != nil {
+		log.Fatal().Err(err).Msg("failed to run database migrations")
+	}
+
+	db, err := store.NewPostgres(startupCtx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open database")
 	}

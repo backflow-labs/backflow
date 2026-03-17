@@ -6,14 +6,21 @@ Agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral c
 
 - Go 1.24+
 - Docker
+- PostgreSQL 16+ (or a hosted Postgres instance such as Supabase)
 - `jq` (for helper scripts)
 - AWS CLI (for EC2/Fargate modes)
 
 ## Local Development
 
 ```bash
+docker run --name backflow-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=backflow \
+  -p 5432:5432 -d postgres:16-alpine
+
 cp .env.example .env
-# Edit .env — at minimum set ANTHROPIC_API_KEY and GITHUB_TOKEN
+# Edit .env — at minimum set ANTHROPIC_API_KEY, GITHUB_TOKEN, and BACKFLOW_DATABASE_URL
 # Set BACKFLOW_MODE=local for local Docker (no AWS needed)
 ```
 
@@ -26,9 +33,9 @@ make deps           # go mod tidy
 make clean          # Remove bin/
 ```
 
-Single test: `go test ./internal/store/ -run TestCreateTask -v`
+Single test: `go test ./internal/store/ -run TestTaskCRUD -v`
 
-Tests create temporary SQLite databases — no external services needed.
+Tests spin up ephemeral Postgres containers via testcontainers, so Docker must be running.
 
 ### Local Tunnel (for SMS/webhooks)
 
@@ -179,17 +186,15 @@ Interrupted/failed tasks can enter `recovering` -> re-queued as `pending`.
 
 ### Database
 
-SQLite in WAL mode. Auto-migrates on startup. Configured via `BACKFLOW_DB_PATH` (default: `backflow.db`).
+Backflow uses Postgres with goose migrations. Configure it with `BACKFLOW_DATABASE_URL`; migrations run automatically on startup.
 
 ```bash
-make db-status                              # Dump all tasks and instances
-sqlite3 backflow.db ".schema"               # Show schema
-sqlite3 backflow.db "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
+make db-status
+psql "$BACKFLOW_DATABASE_URL" -c "\dt"
+psql "$BACKFLOW_DATABASE_URL" -c "SELECT id, status, created_at FROM tasks ORDER BY created_at DESC LIMIT 10;"
 ```
 
-To reset: delete `backflow.db`. Recreated on next startup.
-
-To add a column: add an idempotent `ALTER TABLE` to `internal/store/sqlite.go:migrate()`, then update the model and queries.
+To change the schema, add a new versioned SQL migration under [`migrations/`](/home/agent/workspace/migrations).
 
 ## Deployment
 
@@ -239,7 +244,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `OPENAI_API_KEY` | | Required for `codex` harness |
 | `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
 | `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
-| `BACKFLOW_DB_PATH` | `backflow.db` | SQLite database path |
+| `BACKFLOW_DATABASE_URL` | | Postgres connection string |
 | `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (seconds) |
 | `BACKFLOW_S3_BUCKET` | | S3 bucket for agent output and large prompt offload |
 

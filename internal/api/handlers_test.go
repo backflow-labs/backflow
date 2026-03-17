@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/store"
+	testpostgres "github.com/backflow-labs/backflow/internal/testutil/postgres"
 )
 
 type noopLogFetcher struct{}
@@ -21,14 +23,16 @@ func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, er
 
 func testServer(t *testing.T) http.Handler {
 	t.Helper()
-	f, err := os.CreateTemp("", "backflow-api-test-*.db")
-	if err != nil {
+
+	databaseURL := testpostgres.NewDatabaseURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := store.RunMigrations(ctx, databaseURL); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
 
-	s, err := store.NewSQLite(f.Name())
+	s, err := store.NewPostgres(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +51,17 @@ func testServer(t *testing.T) http.Handler {
 	}
 
 	return NewServer(s, cfg, noopLogFetcher{})
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if err := testpostgres.Terminate(context.Background()); err != nil {
+		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		if code == 0 {
+			code = 1
+		}
+	}
+	os.Exit(code)
 }
 
 func TestHealthCheck(t *testing.T) {

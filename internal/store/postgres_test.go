@@ -9,22 +9,36 @@ import (
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/models"
+	testpostgres "github.com/backflow-labs/backflow/internal/testutil/postgres"
 )
 
-func testStore(t *testing.T) *SQLiteStore {
-	t.Helper()
-	f, err := os.CreateTemp("", "backflow-test-*.db")
-	if err != nil {
-		t.Fatal(err)
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if err := testpostgres.Terminate(context.Background()); err != nil {
+		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		if code == 0 {
+			code = 1
+		}
 	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	os.Exit(code)
+}
 
-	s, err := NewSQLite(f.Name())
+func testStore(t *testing.T) *PostgresStore {
+	t.Helper()
+
+	databaseURL := testpostgres.NewDatabaseURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := RunMigrations(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := NewPostgres(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -53,12 +67,10 @@ func TestTaskCRUD(t *testing.T) {
 		UpdatedAt:    now,
 	}
 
-	// Create
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	// Get
 	got, err := s.GetTask(ctx, "bf_TEST001")
 	if err != nil {
 		t.Fatalf("GetTask: %v", err)
@@ -88,7 +100,6 @@ func TestTaskCRUD(t *testing.T) {
 		t.Errorf("EnvVars[FOO] = %q, want %q", got.EnvVars["FOO"], "bar")
 	}
 
-	// Update via named methods
 	if err := s.StartTask(ctx, "bf_TEST001", "container-1"); err != nil {
 		t.Fatalf("StartTask: %v", err)
 	}
@@ -97,7 +108,6 @@ func TestTaskCRUD(t *testing.T) {
 		t.Errorf("Status = %q, want %q", got2.Status, models.TaskStatusRunning)
 	}
 
-	// List
 	tasks, err := s.ListTasks(ctx, TaskFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("ListTasks: %v", err)
@@ -106,14 +116,12 @@ func TestTaskCRUD(t *testing.T) {
 		t.Errorf("ListTasks len = %d, want 1", len(tasks))
 	}
 
-	// List with filter
 	pending := models.TaskStatusPending
 	tasks, _ = s.ListTasks(ctx, TaskFilter{Status: &pending})
 	if len(tasks) != 0 {
 		t.Errorf("ListTasks(pending) len = %d, want 0", len(tasks))
 	}
 
-	// Delete
 	if err := s.DeleteTask(ctx, "bf_TEST001"); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
@@ -180,11 +188,9 @@ func TestInstanceCRUD(t *testing.T) {
 		t.Errorf("MaxContainers = %d, want 4", got.MaxContainers)
 	}
 
-	// Update via named methods
-	s.IncrementRunningContainers(ctx, "i-test123")
-	s.IncrementRunningContainers(ctx, "i-test123")
+	_ = s.IncrementRunningContainers(ctx, "i-test123")
+	_ = s.IncrementRunningContainers(ctx, "i-test123")
 
-	// List
 	running := models.InstanceStatusRunning
 	instances, err := s.ListInstances(ctx, &running)
 	if err != nil {
@@ -243,9 +249,7 @@ func TestReviewTaskCRUD(t *testing.T) {
 	}
 }
 
-// --- Named update method tests ---
-
-func createTestTask(t *testing.T, s *SQLiteStore) *models.Task {
+func createTestTask(t *testing.T, s *PostgresStore) *models.Task {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -268,7 +272,7 @@ func createTestTask(t *testing.T, s *SQLiteStore) *models.Task {
 	return task
 }
 
-func createTestInstance(t *testing.T, s *SQLiteStore) *models.Instance {
+func createTestInstance(t *testing.T, s *PostgresStore) *models.Instance {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -308,7 +312,6 @@ func TestUpdateTaskStatus(t *testing.T) {
 	if got.Error != "something broke" {
 		t.Errorf("Error = %q, want %q", got.Error, "something broke")
 	}
-	// Verify other fields aren't clobbered
 	if got.Prompt != "Fix the bug" {
 		t.Errorf("Prompt was clobbered: %q", got.Prompt)
 	}
@@ -417,9 +420,8 @@ func TestRequeueTask(t *testing.T) {
 	ctx := context.Background()
 	task := createTestTask(t, s)
 
-	// Set task to running with instance/container first
-	s.AssignTask(ctx, task.ID, "i-abc123")
-	s.StartTask(ctx, task.ID, "container-abc")
+	_ = s.AssignTask(ctx, task.ID, "i-abc123")
+	_ = s.StartTask(ctx, task.ID, "container-abc")
 
 	if err := s.RequeueTask(ctx, task.ID, "instance terminated"); err != nil {
 		t.Fatalf("RequeueTask: %v", err)
@@ -475,8 +477,8 @@ func TestClearTaskAssignment(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s)
 
-	s.AssignTask(ctx, "bf_TEST001", "i-abc123")
-	s.StartTask(ctx, "bf_TEST001", "container-abc")
+	_ = s.AssignTask(ctx, "bf_TEST001", "i-abc123")
+	_ = s.StartTask(ctx, "bf_TEST001", "container-abc")
 
 	if err := s.ClearTaskAssignment(ctx, "bf_TEST001"); err != nil {
 		t.Fatalf("ClearTaskAssignment: %v", err)
@@ -528,7 +530,7 @@ func TestIncrementDecrementRunningContainers(t *testing.T) {
 		t.Errorf("RunningContainers = %d, want 1", got.RunningContainers)
 	}
 
-	s.IncrementRunningContainers(ctx, "i-test123")
+	_ = s.IncrementRunningContainers(ctx, "i-test123")
 	got, _ = s.GetInstance(ctx, "i-test123")
 	if got.RunningContainers != 2 {
 		t.Errorf("RunningContainers = %d, want 2", got.RunningContainers)
@@ -542,9 +544,8 @@ func TestIncrementDecrementRunningContainers(t *testing.T) {
 		t.Errorf("RunningContainers = %d, want 1", got.RunningContainers)
 	}
 
-	// Decrement to zero, then once more — should floor at 0
-	s.DecrementRunningContainers(ctx, "i-test123")
-	s.DecrementRunningContainers(ctx, "i-test123")
+	_ = s.DecrementRunningContainers(ctx, "i-test123")
+	_ = s.DecrementRunningContainers(ctx, "i-test123")
 	got, _ = s.GetInstance(ctx, "i-test123")
 	if got.RunningContainers != 0 {
 		t.Errorf("RunningContainers = %d, want 0 (should floor at zero)", got.RunningContainers)
@@ -562,7 +563,7 @@ func TestUpdateInstanceDetails(t *testing.T) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	s.CreateInstance(ctx, inst)
+	_ = s.CreateInstance(ctx, inst)
 
 	if err := s.UpdateInstanceDetails(ctx, "i-new", "10.0.1.99", "us-west-2b"); err != nil {
 		t.Fatalf("UpdateInstanceDetails: %v", err)
@@ -582,8 +583,8 @@ func TestResetRunningContainers(t *testing.T) {
 	ctx := context.Background()
 	inst := createTestInstance(t, s)
 
-	s.IncrementRunningContainers(ctx, inst.InstanceID)
-	s.IncrementRunningContainers(ctx, inst.InstanceID)
+	_ = s.IncrementRunningContainers(ctx, inst.InstanceID)
+	_ = s.IncrementRunningContainers(ctx, inst.InstanceID)
 
 	if err := s.ResetRunningContainers(ctx, inst.InstanceID); err != nil {
 		t.Fatalf("ResetRunningContainers: %v", err)
@@ -629,7 +630,7 @@ func TestCreateAllowedSender(t *testing.T) {
 	}
 }
 
-func TestWithTx_Commit(t *testing.T) {
+func TestWithTxCommit(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
@@ -655,22 +656,21 @@ func TestWithTx_Commit(t *testing.T) {
 	}
 }
 
-func TestWithTx_Rollback(t *testing.T) {
+func TestWithTxRollback(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	createTestTask(t, s)
 	createTestInstance(t, s)
 
 	err := s.WithTx(ctx, func(tx Store) error {
-		tx.AssignTask(ctx, "bf_TEST001", "i-test123")
-		tx.IncrementRunningContainers(ctx, "i-test123")
+		_ = tx.AssignTask(ctx, "bf_TEST001", "i-test123")
+		_ = tx.IncrementRunningContainers(ctx, "i-test123")
 		return fmt.Errorf("something failed")
 	})
 	if err == nil {
 		t.Fatal("expected error from WithTx")
 	}
 
-	// Both should be rolled back
 	task, _ := s.GetTask(ctx, "bf_TEST001")
 	if task.Status != models.TaskStatusPending {
 		t.Errorf("Status = %q, want pending (should have rolled back)", task.Status)
