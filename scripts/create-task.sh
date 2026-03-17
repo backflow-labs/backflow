@@ -12,6 +12,7 @@ set -euo pipefail
 #   ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" --model claude-sonnet-4-6
 #   ./scripts/create-task.sh https://github.com/org/repo "Refactor auth" --pr-title "Refactor auth module" --budget 20
 #   ./scripts/create-task.sh https://github.com/org/repo "Fix bug" --no-pr --effort low
+#   ./scripts/create-task.sh https://github.com/org/repo "Fix bug" --harness codex
 #   ./scripts/create-task.sh https://github.com/org/repo --plan plan.md --self-review
 #
 # For PR reviews, use ./scripts/review-pr.sh instead.
@@ -28,7 +29,7 @@ Options:
   --branch <name>         Working branch name
   --target-branch <name>  Target branch (default: main)
   --harness <name>        Agent harness: claude_code (default) or codex
-  --model <model>         Model to use (default: claude-opus-4-6 or gpt-5.4 for codex)
+  --model <model>         Model override (default: gpt-5.4 for codex, otherwise server config)
   --effort <level>        Reasoning effort: low, medium, high (default: high)
   --budget <usd>          Max budget in USD
   --runtime <min>         Max runtime in minutes
@@ -64,7 +65,7 @@ fi
 HARNESS=""
 BRANCH=""
 TARGET_BRANCH=""
-MODEL="claude-opus-4-6"
+MODEL=""
 EFFORT="high"
 BUDGET=""
 RUNTIME=""
@@ -112,6 +113,10 @@ done
 if [ -z "$PROMPT" ]; then
     echo "Error: no prompt provided. Pass a prompt argument or use --plan <file>." >&2
     exit 1
+fi
+
+if [ -z "$MODEL" ] && [ "$HARNESS" = "codex" ]; then
+    MODEL="gpt-5.4"
 fi
 
 # Build JSON payload
