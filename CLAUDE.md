@@ -19,6 +19,9 @@ make docker-build-local # Single-architecture build
 make docker-push        # Tag + push to ECR (requires REGISTRY=<ecr-uri>)
 make docker-deploy      # Full ECR pipeline: login, buildx, push
 make setup-aws          # Create AWS infrastructure
+goose -dir migrations status # Show pending/applied migrations
+goose -dir migrations up     # Apply the next migration(s)
+goose -dir migrations down   # Roll back the last migration
 ```
 
 Single test: `go test ./internal/store/ -run TestCreateTask -v`
@@ -27,7 +30,7 @@ Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
 Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Three operating modes: `ec2` (default, spot instances), `local` (Docker on local machine), and `fargate` (one ECS task per Backflow task, no instance management).
 
-**Flow:** Client → API → SQLite → Orchestrator → Docker on EC2 via SSM, local Docker, or ECS/Fargate → Webhooks.
+**Flow:** Client → API → PostgreSQL → Orchestrator → Docker on EC2 via SSM, local Docker, or ECS/Fargate → Webhooks.
 
 ### API endpoints (`/api/v1`)
 
@@ -42,7 +45,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
 - **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), Fargate ECS/CloudWatch runner (`fargate.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
-- **store/** — `Store` interface + SQLite (WAL mode, auto-migrated)
+- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
 - **models/** — `Task` and `Instance` structs with status enums
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`
@@ -78,7 +81,7 @@ PR comments include actual cost for `claude_code` (extracted from `total_cost_us
 
 ## Fargate mode
 
-Set `BACKFLOW_MODE=fargate` to run each Backflow task as a standalone ECS task. Capacity is tracked through a synthetic `fargate` instance in SQLite; there are no EC2 instances to launch or drain.
+Set `BACKFLOW_MODE=fargate` to run each Backflow task as a standalone ECS task. Capacity is tracked through a synthetic `fargate` instance in PostgreSQL; there are no EC2 instances to launch or drain.
 
 Required env vars:
 
@@ -115,7 +118,17 @@ ECS prerequisites:
 
 ## Database
 
-PostgreSQL via Supabase (session pooler). Migrations managed by [goose](https://github.com/pressly/goose) and live in `migrations/`. The store implementation is in `internal/store/postgres.go` using `pgxpool`. Set `BACKFLOW_DATABASE_URL` to the Supabase session pooler connection string.
+PostgreSQL via Supabase (session pooler). Migrations are managed by [goose](https://github.com/pressly/goose) and live in `migrations/`. The store implementation is in `internal/store/postgres.go` using `pgxpool`. Set `BACKFLOW_DATABASE_URL` to the Supabase session pooler connection string.
+
+Migration workflow:
+
+```bash
+goose -dir migrations status
+goose -dir migrations up
+goose -dir migrations down
+```
+
+Create new migrations in `migrations/` with the next numeric prefix, `-- +goose Up`, and `-- +goose Down`.
 
 ## Documentation
 

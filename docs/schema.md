@@ -115,4 +115,11 @@ pending → running → draining → terminated
 - All timestamps use `TIMESTAMPTZ` and default to `now()`. Nullable timestamps (`started_at`, `completed_at`) are NULL until set.
 - Booleans use native PostgreSQL `BOOLEAN` type.
 - JSON fields (`allowed_tools`, `env_vars`) use `JSONB` for indexed/queryable storage.
-- Schema migrations are managed by goose in `migrations/`. Run `goose up` to apply, `goose down` to rollback.
+- Schema migrations are managed by goose in `migrations/`.
+
+## Migration Workflow
+
+1. Inspect `migrations/` and determine the next numeric prefix.
+2. Create `NNN_slug.sql` with `-- +goose Up` and `-- +goose Down` sections.
+3. Use Postgres-native types that match the existing schema (`TIMESTAMPTZ`, `BOOLEAN`, `JSONB`, `DOUBLE PRECISION`, `TEXT`, `INTEGER`).
+4. Apply with `goose -dir migrations up`, inspect with `goose -dir migrations status`, and roll back with `goose -dir migrations down`.

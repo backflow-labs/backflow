@@ -14,6 +14,13 @@ Complete mapping of every file in the Backflow repository.
 | `go.mod` | Go module definition (`github.com/backflow-labs/backflow`, Go 1.24.1) with dependencies |
 | `go.sum` | Go module checksums |
 
+## `.claude/`
+
+| File | Description |
+|------|-------------|
+| `settings.local.json` | Local Claude/Codex permission overrides for this workspace |
+| `skills/goose-migration.md` | Project skill for generating new goose migration files |
+
 ## `cmd/backflow/`
 
 Entry point for the server binary.
