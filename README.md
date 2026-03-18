@@ -228,7 +228,7 @@ BACKFLOW_CLOUDWATCH_LOG_GROUP=/ecs/backflow
 
 Prerequisites: ECS cluster with Fargate capacity providers, task definition with `awslogs` log driver, subnets with egress, IAM roles for image pull + log delivery.
 
-`max_subscription` auth is not supported in Fargate mode.
+For `max_subscription` auth in Fargate, store Claude credentials in AWS Secrets Manager and set `BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN`. The secret is a JSON object where keys are filenames under `~/.claude/` and values are file contents. Runs serially (one agent at a time).
 
 ## Configuration
 
@@ -286,6 +286,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `BACKFLOW_ECS_LOG_STREAM_PREFIX` | `ecs` | CloudWatch log stream prefix |
 | `BACKFLOW_ECS_ASSIGN_PUBLIC_IP` | `true` | `false` for private subnets with NAT |
 | `BACKFLOW_MAX_CONCURRENT_TASKS` | `5` | Max concurrent Fargate tasks |
+| `BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN` | | Secrets Manager ARN for `max_subscription` auth |
 
 ### Webhooks
 
@@ -299,4 +300,4 @@ Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.n
 ### Auth Modes
 
 - **`api_key`** (default) -- Anthropic API key, supports concurrent agents
-- **`max_subscription`** -- Claude Max credentials via `CLAUDE_CREDENTIALS_PATH`, one agent at a time, not supported in Fargate mode
+- **`max_subscription`** -- Claude Max credentials via `CLAUDE_CREDENTIALS_PATH` (EC2/local) or `BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN` (Fargate), one agent at a time
