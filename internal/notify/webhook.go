@@ -30,6 +30,7 @@ type Event struct {
 	Message      string    `json:"message,omitempty"`
 	PRURL        string    `json:"pr_url,omitempty"`
 	AgentLogTail string    `json:"agent_log_tail,omitempty"`
+	ReplyChannel string    `json:"reply_channel,omitempty"`
 	Timestamp    time.Time `json:"timestamp"`
 }
 
