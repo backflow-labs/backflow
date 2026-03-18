@@ -42,6 +42,20 @@ fetch_s3_var "CLAUDE_MD_S3_URL" "CLAUDE_MD"
 fetch_s3_var "TASK_CONTEXT_S3_URL" "TASK_CONTEXT"
 fetch_s3_var "PR_BODY_S3_URL" "PR_BODY"
 
+# --- Fetch Claude credentials from AWS Secrets Manager (Fargate + max_subscription) ---
+if [ -n "${CLAUDE_CREDENTIALS_SECRET_ARN:-}" ]; then
+    echo "==> Fetching Claude credentials from Secrets Manager..."
+    SECRET_JSON=$(aws secretsmanager get-secret-value \
+        --secret-id "$CLAUDE_CREDENTIALS_SECRET_ARN" \
+        --query SecretString \
+        --output text) || { echo "ERROR: Failed to fetch credentials from Secrets Manager" >&2; exit 1; }
+    mkdir -p "$HOME/.claude"
+    echo "$SECRET_JSON" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' | while IFS=$'\t' read -r filename content; do
+        echo "$content" > "$HOME/.claude/$filename"
+    done
+    echo "==> Claude credentials restored to ~/.claude"
+fi
+
 WORKSPACE="/home/agent/workspace"
 STATUS_FILE="${WORKSPACE}/status.json"
 START_TIME=$(date +%s)
@@ -95,7 +109,7 @@ elif [ "$AUTH_MODE" = "api_key" ]; then
     fi
 elif [ "$AUTH_MODE" = "max_subscription" ]; then
     if [ ! -d "$HOME/.claude" ]; then
-        echo "ERROR: ~/.claude credentials not mounted (required for max_subscription mode)" >&2
+        echo "ERROR: ~/.claude credentials not found (mount via CLAUDE_CREDENTIALS_PATH or set CLAUDE_CREDENTIALS_SECRET_ARN for Fargate)" >&2
         exit 1
     fi
     echo "==> Using Max subscription credentials from ~/.claude"

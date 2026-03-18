@@ -33,10 +33,11 @@ type Config struct {
 	ListenAddr string
 
 	// Auth
-	AuthMode              AuthMode
-	AnthropicAPIKey       string
-	OpenAIAPIKey          string
-	ClaudeCredentialsPath string
+	AuthMode                   AuthMode
+	AnthropicAPIKey            string
+	OpenAIAPIKey               string
+	ClaudeCredentialsPath      string
+	ClaudeCredentialsSecretARN string
 
 	// AWS
 	AWSRegion         string
@@ -99,6 +100,9 @@ type Config struct {
 
 func (c *Config) MaxConcurrent() int {
 	if c.Mode == ModeFargate {
+		if c.AuthMode == AuthModeMaxSubscription {
+			return 1
+		}
 		return c.MaxConcurrentTasks
 	}
 	if c.AuthMode == AuthModeMaxSubscription {
@@ -112,42 +116,43 @@ func (c *Config) MaxConcurrent() int {
 
 func Load() (*Config, error) {
 	c := &Config{
-		Mode:                  Mode(envOr("BACKFLOW_MODE", string(ModeEC2))),
-		ListenAddr:            envOr("BACKFLOW_LISTEN_ADDR", ":8080"),
-		AuthMode:              AuthMode(envOr("BACKFLOW_AUTH_MODE", string(AuthModeAPIKey))),
-		AnthropicAPIKey:       os.Getenv("ANTHROPIC_API_KEY"),
-		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
-		ClaudeCredentialsPath: envOr("CLAUDE_CREDENTIALS_PATH", ""),
-		AWSRegion:             envOr("AWS_REGION", "us-east-1"),
-		InstanceType:          envOr("BACKFLOW_INSTANCE_TYPE", "m7g.xlarge"),
-		AMI:                   os.Getenv("BACKFLOW_AMI"),
-		MaxInstances:          envInt("BACKFLOW_MAX_INSTANCES", 5),
-		ContainersPerInst:     envInt("BACKFLOW_CONTAINERS_PER_INSTANCE", 1),
-		ECSCluster:            os.Getenv("BACKFLOW_ECS_CLUSTER"),
-		ECSTaskDefinition:     os.Getenv("BACKFLOW_ECS_TASK_DEFINITION"),
-		ECSSubnets:            envCSV("BACKFLOW_ECS_SUBNETS"),
-		ECSSecurityGroups:     envCSV("BACKFLOW_ECS_SECURITY_GROUPS"),
-		ECSLaunchType:         strings.ToUpper(envOr("BACKFLOW_ECS_LAUNCH_TYPE", "FARGATE_SPOT")),
-		ECSContainerName:      envOr("BACKFLOW_ECS_CONTAINER_NAME", "backflow-agent"),
-		ECSAssignPublicIP:     envBool("BACKFLOW_ECS_ASSIGN_PUBLIC_IP", true),
-		ContainerCPUs:         envInt("BACKFLOW_CONTAINER_CPUS", 2),
-		ContainerMemGB:        envInt("BACKFLOW_CONTAINER_MEMORY_GB", 8),
-		LaunchTemplateID:      os.Getenv("BACKFLOW_LAUNCH_TEMPLATE_ID"),
-		CloudWatchLogGroup:    os.Getenv("BACKFLOW_CLOUDWATCH_LOG_GROUP"),
-		ECSLogStreamPrefix:    envOr("BACKFLOW_ECS_LOG_STREAM_PREFIX", "ecs"),
-		MaxConcurrentTasks:    envInt("BACKFLOW_MAX_CONCURRENT_TASKS", 5),
-		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "claude_code"),
-		DefaultModel:          envOr("BACKFLOW_DEFAULT_MODEL", "claude-opus-4-6"),
-		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4"),
-		DefaultEffort:         envOr("BACKFLOW_DEFAULT_EFFORT", "high"),
-		DefaultMaxBudget:      envFloat("BACKFLOW_DEFAULT_MAX_BUDGET", 10.0),
-		DefaultMaxRuntime:     time.Duration(envInt("BACKFLOW_DEFAULT_MAX_RUNTIME_MIN", 30)) * time.Minute,
-		DefaultMaxTurns:       envInt("BACKFLOW_DEFAULT_MAX_TURNS", 200),
-		S3Bucket:              os.Getenv("BACKFLOW_S3_BUCKET"),
-		GitHubToken:           os.Getenv("GITHUB_TOKEN"),
-		WebhookURL:            os.Getenv("BACKFLOW_WEBHOOK_URL"),
-		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
-		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
+		Mode:                       Mode(envOr("BACKFLOW_MODE", string(ModeEC2))),
+		ListenAddr:                 envOr("BACKFLOW_LISTEN_ADDR", ":8080"),
+		AuthMode:                   AuthMode(envOr("BACKFLOW_AUTH_MODE", string(AuthModeAPIKey))),
+		AnthropicAPIKey:            os.Getenv("ANTHROPIC_API_KEY"),
+		OpenAIAPIKey:               os.Getenv("OPENAI_API_KEY"),
+		ClaudeCredentialsPath:      envOr("CLAUDE_CREDENTIALS_PATH", ""),
+		ClaudeCredentialsSecretARN: os.Getenv("BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN"),
+		AWSRegion:                  envOr("AWS_REGION", "us-east-1"),
+		InstanceType:               envOr("BACKFLOW_INSTANCE_TYPE", "m7g.xlarge"),
+		AMI:                        os.Getenv("BACKFLOW_AMI"),
+		MaxInstances:               envInt("BACKFLOW_MAX_INSTANCES", 5),
+		ContainersPerInst:          envInt("BACKFLOW_CONTAINERS_PER_INSTANCE", 1),
+		ECSCluster:                 os.Getenv("BACKFLOW_ECS_CLUSTER"),
+		ECSTaskDefinition:          os.Getenv("BACKFLOW_ECS_TASK_DEFINITION"),
+		ECSSubnets:                 envCSV("BACKFLOW_ECS_SUBNETS"),
+		ECSSecurityGroups:          envCSV("BACKFLOW_ECS_SECURITY_GROUPS"),
+		ECSLaunchType:              strings.ToUpper(envOr("BACKFLOW_ECS_LAUNCH_TYPE", "FARGATE_SPOT")),
+		ECSContainerName:           envOr("BACKFLOW_ECS_CONTAINER_NAME", "backflow-agent"),
+		ECSAssignPublicIP:          envBool("BACKFLOW_ECS_ASSIGN_PUBLIC_IP", true),
+		ContainerCPUs:              envInt("BACKFLOW_CONTAINER_CPUS", 2),
+		ContainerMemGB:             envInt("BACKFLOW_CONTAINER_MEMORY_GB", 8),
+		LaunchTemplateID:           os.Getenv("BACKFLOW_LAUNCH_TEMPLATE_ID"),
+		CloudWatchLogGroup:         os.Getenv("BACKFLOW_CLOUDWATCH_LOG_GROUP"),
+		ECSLogStreamPrefix:         envOr("BACKFLOW_ECS_LOG_STREAM_PREFIX", "ecs"),
+		MaxConcurrentTasks:         envInt("BACKFLOW_MAX_CONCURRENT_TASKS", 5),
+		DefaultHarness:             envOr("BACKFLOW_DEFAULT_HARNESS", "claude_code"),
+		DefaultModel:               envOr("BACKFLOW_DEFAULT_MODEL", "claude-opus-4-6"),
+		DefaultCodexModel:          envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4"),
+		DefaultEffort:              envOr("BACKFLOW_DEFAULT_EFFORT", "high"),
+		DefaultMaxBudget:           envFloat("BACKFLOW_DEFAULT_MAX_BUDGET", 10.0),
+		DefaultMaxRuntime:          time.Duration(envInt("BACKFLOW_DEFAULT_MAX_RUNTIME_MIN", 30)) * time.Minute,
+		DefaultMaxTurns:            envInt("BACKFLOW_DEFAULT_MAX_TURNS", 200),
+		S3Bucket:                   os.Getenv("BACKFLOW_S3_BUCKET"),
+		GitHubToken:                os.Getenv("GITHUB_TOKEN"),
+		WebhookURL:                 os.Getenv("BACKFLOW_WEBHOOK_URL"),
+		DatabaseURL:                os.Getenv("BACKFLOW_DATABASE_URL"),
+		PollInterval:               time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}
 
 	c.SMSProvider = envOr("BACKFLOW_SMS_PROVIDER", "")
@@ -205,8 +210,8 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("BACKFLOW_MAX_CONCURRENT_TASKS must be >= 1, got %d", c.MaxConcurrentTasks)
 		}
 		switch {
-		case c.AuthMode == AuthModeMaxSubscription:
-			return nil, fmt.Errorf("BACKFLOW_AUTH_MODE=%s is not supported in %s mode", AuthModeMaxSubscription, ModeFargate)
+		case c.AuthMode == AuthModeMaxSubscription && c.ClaudeCredentialsSecretARN == "":
+			return nil, fmt.Errorf("BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN is required when BACKFLOW_AUTH_MODE=%s in %s mode", AuthModeMaxSubscription, ModeFargate)
 		case c.ECSCluster == "":
 			return nil, fmt.Errorf("BACKFLOW_ECS_CLUSTER is required when BACKFLOW_MODE=%s", ModeFargate)
 		case c.ECSTaskDefinition == "":

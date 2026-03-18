@@ -86,6 +86,40 @@ func TestFargateBuildECSEnvVars(t *testing.T) {
 	}
 }
 
+func TestFargateBuildECSEnvVars_MaxSubscription(t *testing.T) {
+	manager := NewFargateManager(&config.Config{
+		AuthMode:                   config.AuthModeMaxSubscription,
+		ClaudeCredentialsSecretARN: "arn:aws:secretsmanager:us-east-1:123:secret:test",
+		GitHubToken:                "ghp-test",
+	}, nil)
+
+	task := &models.Task{
+		ID:       "bf_01ABC",
+		RepoURL:  "https://github.com/test/repo",
+		Branch:   "feature/test",
+		Prompt:   "Fix the bug",
+		Model:    "claude-opus-4-6",
+		Effort:   "high",
+		MaxTurns: 200,
+	}
+
+	envVars := manager.buildECSEnvVars(task)
+	got := make(map[string]string, len(envVars))
+	for _, pair := range envVars {
+		got[aws.ToString(pair.Name)] = aws.ToString(pair.Value)
+	}
+
+	if got["AUTH_MODE"] != string(config.AuthModeMaxSubscription) {
+		t.Errorf("AUTH_MODE = %q, want %q", got["AUTH_MODE"], config.AuthModeMaxSubscription)
+	}
+	if got["CLAUDE_CREDENTIALS_SECRET_ARN"] != "arn:aws:secretsmanager:us-east-1:123:secret:test" {
+		t.Errorf("CLAUDE_CREDENTIALS_SECRET_ARN = %q, want ARN", got["CLAUDE_CREDENTIALS_SECRET_ARN"])
+	}
+	if _, ok := got["ANTHROPIC_API_KEY"]; ok {
+		t.Error("ANTHROPIC_API_KEY should not be set in max_subscription mode")
+	}
+}
+
 func TestFargateMapECSTaskStatus(t *testing.T) {
 	tests := []struct {
 		name      string

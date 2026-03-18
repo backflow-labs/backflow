@@ -75,9 +75,9 @@ PR comments include actual cost for `claude_code` (extracted from `total_cost_us
 ## Auth modes
 
 - **`api_key`** — Anthropic API key via `ANTHROPIC_API_KEY`, concurrent agents (max_instances × containers_per_instance)
-- **`max_subscription`** — Claude Max credentials via `CLAUDE_CREDENTIALS_PATH` volume mount, serial (one agent at a time)
+- **`max_subscription`** — Claude Max credentials via `CLAUDE_CREDENTIALS_PATH` volume mount (EC2/local) or `BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN` (Fargate), serial (one agent at a time)
 
-`max_subscription` is not supported in `fargate` mode. Initial Fargate support assumes API-key auth only.
+In Fargate mode, `max_subscription` requires storing credentials in AWS Secrets Manager. The secret is a single JSON object where keys are filenames under `~/.claude/` and values are file contents. Set `BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN` to the secret ARN.
 
 ## Fargate mode
 
@@ -98,6 +98,7 @@ Optional Fargate env vars:
 - `BACKFLOW_ECS_LOG_STREAM_PREFIX` (default `ecs`)
 - `BACKFLOW_ECS_ASSIGN_PUBLIC_IP` (`true` or `false`, default `true`; set to `false` for private subnets with NAT)
 - `BACKFLOW_MAX_CONCURRENT_TASKS` (default `5`)
+- `BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN` (required for `max_subscription` auth in Fargate)
 
 ECS prerequisites:
 

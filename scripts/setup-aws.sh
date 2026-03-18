@@ -459,6 +459,65 @@ aws iam attach-role-policy \
 
 echo "    Task role: ${ECS_TASK_ROLE}"
 
+# --- Secrets Manager (Claude credentials for Fargate + max_subscription) ---
+CREDS_SECRET_NAME="backflow-claude-credentials"
+echo "==> Creating Secrets Manager secret for Claude credentials..."
+CREDS_SECRET_ARN=$(aws secretsmanager describe-secret \
+    --secret-id "$CREDS_SECRET_NAME" \
+    --region "$REGION" \
+    --query 'ARN' --output text 2>/dev/null) || true
+
+if [ -z "$CREDS_SECRET_ARN" ] || [ "$CREDS_SECRET_ARN" = "None" ]; then
+    CREDS_SECRET_ARN=$(aws secretsmanager create-secret \
+        --name "$CREDS_SECRET_NAME" \
+        --description "Claude Max subscription credentials for Backflow Fargate agents" \
+        --secret-string '{}' \
+        --region "$REGION" \
+        --query 'ARN' --output text)
+else
+    echo "    Secret already exists"
+fi
+echo "    Secret: ${CREDS_SECRET_ARN}"
+
+# Grant ECS task role access to the secret
+SECRETS_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/backflow-secrets-read"
+SECRETS_POLICY=$(cat <<SPEOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "${CREDS_SECRET_ARN}"
+    }
+  ]
+}
+SPEOF
+)
+
+if aws iam get-policy --policy-arn "$SECRETS_POLICY_ARN" 2>/dev/null; then
+    echo "    Secrets policy already exists, pruning old versions..."
+    OLD_VERSIONS=$(aws iam list-policy-versions --policy-arn "$SECRETS_POLICY_ARN" \
+        --query 'Versions[?IsDefaultVersion==`false`].VersionId' --output text)
+    for V in $OLD_VERSIONS; do
+        aws iam delete-policy-version --policy-arn "$SECRETS_POLICY_ARN" --version-id "$V"
+    done
+    aws iam create-policy-version \
+        --policy-arn "$SECRETS_POLICY_ARN" \
+        --policy-document "$SECRETS_POLICY" \
+        --set-as-default
+else
+    aws iam create-policy \
+        --policy-name "backflow-secrets-read" \
+        --policy-document "$SECRETS_POLICY"
+fi
+
+aws iam attach-role-policy \
+    --role-name "$ECS_TASK_ROLE" \
+    --policy-arn "$SECRETS_POLICY_ARN"
+
+echo "    Secrets IAM policy attached to ${ECS_TASK_ROLE}"
+
 # --- ECS Service-Linked Role ---
 # Required before first ECS cluster creation in an account
 echo "==> Ensuring ECS service-linked role exists..."
@@ -547,6 +606,11 @@ echo "  BACKFLOW_ECS_SECURITY_GROUPS=${SG_ID}"
 echo "  BACKFLOW_CLOUDWATCH_LOG_GROUP=${CW_LOG_GROUP}"
 echo "  BACKFLOW_S3_BUCKET=${S3_BUCKET}"
 echo "  AWS_REGION=${REGION}"
+echo ""
+echo "For Fargate + max_subscription mode, also set:"
+echo "  BACKFLOW_AUTH_MODE=max_subscription"
+echo "  BACKFLOW_CLAUDE_CREDENTIALS_SECRET_ARN=${CREDS_SECRET_ARN}"
+echo "  Then populate the secret: aws secretsmanager put-secret-value --secret-id ${CREDS_SECRET_NAME} --secret-string '\$(scripts/dump-claude-creds.sh)'"
 if [ -n "$CI_ROLE_ARN" ]; then
     echo "For GitHub Actions CI (see docs/setup-ci.md):"
     echo "  Add this secret to your GitHub repo:"

@@ -30,6 +30,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
 # Install Claude Code CLI and Codex CLI
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
+# Install AWS CLI (for Secrets Manager credential fetching in Fargate mode)
+RUN pip3 install --no-cache-dir awscli --break-system-packages
+
 # Create agent user
 RUN useradd -m -s /bin/bash agent
 USER agent

@@ -263,6 +263,9 @@ func (m *FargateManager) buildECSEnvVars(task *models.Task) []ecstypes.KeyValueP
 	if m.config.AuthMode == config.AuthModeAPIKey {
 		vars = append(vars, ecsEnvVar("ANTHROPIC_API_KEY", m.config.AnthropicAPIKey))
 	}
+	if m.config.AuthMode == config.AuthModeMaxSubscription && m.config.ClaudeCredentialsSecretARN != "" {
+		vars = append(vars, ecsEnvVar("CLAUDE_CREDENTIALS_SECRET_ARN", m.config.ClaudeCredentialsSecretARN))
+	}
 	if m.config.OpenAIAPIKey != "" {
 		vars = append(vars, ecsEnvVar("OPENAI_API_KEY", m.config.OpenAIAPIKey))
 	}
