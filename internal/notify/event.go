@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"strings"
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/models"
@@ -25,11 +26,20 @@ func NewEvent(eventType EventType, task *models.Task, opts ...EventOption) Event
 		TaskID:       task.ID,
 		RepoURL:      task.RepoURL,
 		Prompt:       task.Prompt,
-		ReplyChannel: task.ReplyChannel,
+		ReplyChannel: redactChannel(task.ReplyChannel),
 		Timestamp:    time.Now().UTC(),
 	}
 	for _, opt := range opts {
 		opt(&e)
 	}
 	return e
+}
+
+// redactChannel strips the value after ":" from a reply channel,
+// keeping only the channel type (e.g. "sms:+15551234567" → "sms").
+func redactChannel(ch string) string {
+	if idx := strings.Index(ch, ":"); idx >= 0 {
+		return ch[:idx]
+	}
+	return ch
 }

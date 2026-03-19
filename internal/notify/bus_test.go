@@ -87,8 +87,8 @@ func TestNewEvent_PopulatesCoreFieldsFromTask(t *testing.T) {
 	if event.Prompt != "fix the bug" {
 		t.Errorf("Prompt = %q", event.Prompt)
 	}
-	if event.ReplyChannel != "sms:+15551234567" {
-		t.Errorf("ReplyChannel = %q", event.ReplyChannel)
+	if event.ReplyChannel != "sms" {
+		t.Errorf("ReplyChannel = %q, want %q", event.ReplyChannel, "sms")
 	}
 	if event.Timestamp.Before(before) || event.Timestamp.After(after) {
 		t.Errorf("Timestamp = %v, want between %v and %v", event.Timestamp, before, after)
@@ -99,6 +99,7 @@ func TestNewEvent_AllEventTypes(t *testing.T) {
 	task := &models.Task{ID: "bf_1", RepoURL: "https://github.com/org/repo", Prompt: "do it"}
 
 	types := []EventType{
+		EventTaskCreated,
 		EventTaskRunning,
 		EventTaskCompleted,
 		EventTaskFailed,
@@ -140,7 +141,6 @@ func TestNewEvent_WithContainerStatus(t *testing.T) {
 
 func TestEventBus_FanOutDelivery(t *testing.T) {
 	bus := NewEventBus()
-	defer bus.Close()
 
 	sub1 := &collectingNotifier{}
 	sub2 := &collectingNotifier{}
