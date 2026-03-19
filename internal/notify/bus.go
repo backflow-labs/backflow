@@ -14,6 +14,7 @@ type EventBus struct {
 	ch          chan Event
 	subscribers []Notifier
 	mu          sync.RWMutex
+	emitMu      sync.RWMutex
 	done        chan struct{}
 	closed      atomic.Bool
 	closeOnce   sync.Once
@@ -39,6 +40,8 @@ func (b *EventBus) Subscribe(n Notifier) {
 // Emit publishes an event to the bus. If the buffer is full or the bus is
 // closed, the event is dropped with a warning. Emit never blocks the caller.
 func (b *EventBus) Emit(event Event) {
+	b.emitMu.RLock()
+	defer b.emitMu.RUnlock()
 	if b.closed.Load() {
 		log.Warn().
 			Str("event", string(event.Type)).
@@ -59,8 +62,10 @@ func (b *EventBus) Emit(event Event) {
 // Close stops the bus and waits for all pending events to be delivered.
 func (b *EventBus) Close() {
 	b.closeOnce.Do(func() {
+		b.emitMu.Lock()
 		b.closed.Store(true)
 		close(b.ch)
+		b.emitMu.Unlock()
 		<-b.done
 	})
 }

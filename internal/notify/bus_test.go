@@ -95,6 +95,26 @@ func TestNewEvent_PopulatesCoreFieldsFromTask(t *testing.T) {
 	}
 }
 
+func TestRedactChannel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"sms:+15551234567", "sms"},
+		{"email:user@example.com", "email"},
+		{"sms", "sms"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := redactChannel(tt.input)
+			if got != tt.want {
+				t.Errorf("redactChannel(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewEvent_AllEventTypes(t *testing.T) {
 	task := &models.Task{ID: "bf_1", RepoURL: "https://github.com/org/repo", Prompt: "do it"}
 
@@ -253,6 +273,28 @@ func TestEventBus_EmitAfterClose(t *testing.T) {
 	got := sub.getEvents()
 	if len(got) != 0 {
 		t.Fatalf("subscriber got %d events after Close, want 0", len(got))
+	}
+}
+
+func TestEventBus_ConcurrentEmitAndClose(t *testing.T) {
+	for range 100 {
+		bus := NewEventBus()
+		sub := &collectingNotifier{}
+		bus.Subscribe(sub)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			bus.Emit(Event{Type: EventTaskRunning, TaskID: "bf_race", Timestamp: time.Now()})
+		}()
+		go func() {
+			defer wg.Done()
+			bus.Close()
+		}()
+
+		wg.Wait()
 	}
 }
 
