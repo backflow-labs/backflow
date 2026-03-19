@@ -240,6 +240,25 @@ func TestEventBus_GracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestEventBus_EmitAfterClose(t *testing.T) {
+	bus := NewEventBus()
+	bus.Close()
+
+	// Emit after Close must not panic.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bus.Emit(Event{Type: EventTaskRunning, TaskID: "bf_late", Timestamp: time.Now()})
+	}()
+
+	select {
+	case <-done:
+		// good — no panic
+	case <-time.After(time.Second):
+		t.Fatal("Emit after Close blocked")
+	}
+}
+
 func TestEventBus_NoSubscribers(t *testing.T) {
 	bus := NewEventBus()
 

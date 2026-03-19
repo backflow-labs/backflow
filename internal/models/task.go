@@ -79,6 +79,16 @@ type Task struct {
 	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 }
 
+// RedactChannel strips the value after ":" from a channel string,
+// keeping only the channel type (e.g. "sms:+15551234567" → "sms").
+// Returns the input unchanged if there is no ":" separator.
+func RedactChannel(ch string) string {
+	if idx := strings.Index(ch, ":"); idx >= 0 {
+		return ch[:idx]
+	}
+	return ch
+}
+
 // RedactReplyChannel replaces the full reply channel (e.g. "sms:+15551234567")
 // with just the channel type (e.g. "sms") to avoid exposing phone numbers in
 // API responses.
@@ -86,9 +96,7 @@ func (t *Task) RedactReplyChannel() {
 	if t.ReplyChannel == "" {
 		return
 	}
-	if idx := strings.Index(t.ReplyChannel, ":"); idx >= 0 {
-		t.ReplyChannel = t.ReplyChannel[:idx]
-	}
+	t.ReplyChannel = RedactChannel(t.ReplyChannel)
 }
 
 // AllowedToolsJSON returns the JSON representation for DB storage.
