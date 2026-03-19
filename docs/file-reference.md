@@ -57,6 +57,7 @@ Data structures and status enums.
 | `task.go` | `Task` struct with all fields (ID, status, task_mode, harness, repo, branch, prompt, model, effort, budget, runtime, turns, PR info, container/instance IDs, cost, timestamps). `Harness` type (`claude_code`, `codex`). `TaskMode` constants (`code`, `review`). `CreateTaskRequest` struct with `Validate()` for API input. `TaskStatus` enum: `pending`, `provisioning`, `running`, `completed`, `failed`, `interrupted`, `cancelled`, `recovering`. Helper methods `IsTerminal()`, `AllowedToolsJSON()`, `EnvVarsJSON()`. |
 | `task_test.go` | Table-driven tests for `CreateTaskRequest.Validate()` (valid input, missing fields, negative budget, harness validation, task mode validation) and `TaskStatus.IsTerminal()` for all status values. |
 | `instance.go` | `Instance` struct (instance ID, type, AZ, IP, status, container counts, timestamps). `InstanceStatus` enum: `pending`, `running`, `draining`, `terminated`. |
+| `sender.go` | `AllowedSender` struct (channel type, address, default repo, enabled flag, created timestamp). Used for authorizing inbound messaging (e.g. SMS) task creation. |
 
 ## `internal/notify/`
 
@@ -64,7 +65,25 @@ Notification system for task lifecycle events.
 
 | File | Description |
 |------|-------------|
-| `webhook.go` | `Notifier` interface with a `Notify(Event)` method. `NoopNotifier` discards events. `WebhookNotifier` sends HTTP POST requests with JSON payloads, supports event filtering, and retries up to 3 times with backoff. Defines event types: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`. |
+| `webhook.go` | `Notifier` interface with a `Notify(Event)` method. `NoopNotifier` discards events. `WebhookNotifier` sends HTTP POST requests with JSON payloads, supports event filtering, and retries up to 3 times with backoff. Defines `Event` struct and event types: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`. |
+| `bus.go` | `EventBus` struct with async fan-out event delivery. `NewEventBus()` starts a delivery goroutine reading from a buffered channel (100 events). `Subscribe()` registers `Notifier` implementations. `Emit()` is non-blocking — drops events with a warning when the buffer is full. `Close()` drains pending events before returning (idempotent via `sync.Once`). Subscriber errors are logged but isolated. |
+| `event.go` | `NewEvent()` constructor that populates an `Event` from a `Task` (ID, RepoURL, Prompt, redacted ReplyChannel, Timestamp). `EventOption` functional options pattern — `WithContainerStatus(prURL, message, agentLogTail)` sets post-completion fields. `redactChannel()` strips PII from reply channels (e.g. `sms:+15551234567` → `sms`). |
+| `messaging.go` | `MessagingNotifier` wraps an inner `Notifier` and additionally sends SMS notifications to task creators who submitted via messaging. Looks up the task's `ReplyChannel` in the store, formats a human-readable message via `formatEventMessage()`, and sends via the `Messenger` interface. Supports event filtering. |
+| `bus_test.go` | Tests for `EventBus` and `NewEvent`: fan-out delivery, subscriber isolation (one failure doesn't affect others), async delivery (Emit doesn't block), graceful shutdown (Close drains all events), no-subscribers safety, `NewEvent` field population from task, all event types, and `WithContainerStatus` option. |
+| `messaging_test.go` | Tests for `MessagingNotifier`: delegation to inner notifier, error propagation, SMS sending for reply channels, skip without reply channel, event filtering, and `formatEventMessage` output for various event types. |
+
+## `internal/messaging/`
+
+Messaging abstraction layer (SMS via Twilio).
+
+| File | Description |
+|------|-------------|
+| `messenger.go` | `Messenger` interface with `Send(ctx, OutboundMessage)`. `Channel` struct (type + address), `ChannelType` constants (`sms`). `TwilioMessenger` sends SMS via Twilio's REST API (raw HTTP, no SDK) with 3 retries and exponential backoff. `NoopMessenger` discards messages. |
+| `inbound.go` | HTTP handler for inbound Twilio SMS webhooks (`/webhooks/sms/inbound`). Validates the sender against `allowed_senders`, parses the message body for a repo URL and prompt, creates a task with the sender's `reply_channel`, and returns TwiML. |
+| `inbound_test.go` | Tests for inbound SMS: authorized sender creates task, unauthorized sender rejected, message parsing, default repo fallback. |
+| `parse.go` | Message body parsing — extracts GitHub repo URLs and prompt text from free-form SMS messages. |
+| `parse_test.go` | Tests for message parsing edge cases. |
+| `twilio.go` | Twilio HTTP client for sending SMS. Constructs form-encoded POST requests to the Twilio Messages API. |
 
 ## `internal/orchestrator/`
 

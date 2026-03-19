@@ -46,9 +46,10 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
 - **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), Fargate ECS/CloudWatch runner (`fargate.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
-- **models/** — `Task` and `Instance` structs with status enums
+- **models/** — `Task`, `Instance`, and `AllowedSender` structs with status enums
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`)
-- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`
+- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
+- **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 
 ### Agent container (`docker/`)
 
@@ -134,3 +135,7 @@ Create new migrations in `migrations/` with the next numeric prefix, `-- +goose 
 
 Additional docs in `docs/`:
 - `file-reference.md` — Codebase file reference guide
+- `schema.md` — Database schema (tables, columns, indexes, status lifecycles)
+- `sms-setup.md` — Twilio SMS setup and allowed sender configuration
+- `sizing.md` — EC2 instance sizing and container density guide
+- `setup-ci.md` — GitHub Actions CI/CD setup for agent image builds
