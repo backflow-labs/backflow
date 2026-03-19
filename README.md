@@ -4,7 +4,7 @@ Agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral c
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - Docker
 - PostgreSQL (or Supabase)
 - `jq` (for helper scripts)
@@ -23,6 +23,7 @@ make build          # Compile to bin/backflow
 make run            # Build + run (auto-sources .env)
 make test           # Run all tests (no cache)
 make lint           # go vet
+make tunnel         # Start cloudflared tunnel (for Twilio webhooks)
 make deps           # go mod tidy
 make clean          # Remove bin/
 ```
@@ -37,7 +38,7 @@ To receive inbound Twilio webhooks during local development, expose your server 
 
 ```bash
 brew install cloudflared
-cloudflared tunnel --url http://localhost:8080
+make tunnel
 ```
 
 cloudflared prints a public URL like `https://random-words.trycloudflare.com`. Set this as the webhook URL in the Twilio Console:
@@ -61,7 +62,7 @@ PRs are created by default. Use `--no-pr` to skip.
 
 # With options
 ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" \
-  --pr-title "Add tests" --budget 15 --model claude-sonnet-4-6 \
+  --pr-title "Add tests" --budget 15 --model claude-opus-4-6 \
   --branch my-feature --target-branch develop \
   --context "Focus on the auth module" \
   --claude-md "Always use table-driven tests" \
@@ -135,7 +136,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `prompt` | string | **Required for code mode.** Agent instructions |
 | `task_mode` | string | `code` (default) or `review` |
 | `harness` | string | `claude_code` (default) or `codex` |
-| `model` | string | Model override (default: `claude-sonnet-4-6` / `gpt-5.4` for codex) |
+| `model` | string | Model override (default: `claude-opus-4-6` / `gpt-5.4` for codex) |
 | `effort` | string | `low`, `medium`, `high` (default), or `xhigh` |
 | `branch` | string | Working branch name |
 | `target_branch` | string | Target branch (default: main) |
@@ -253,7 +254,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | `claude_code` or `codex` |
-| `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
+| `BACKFLOW_DEFAULT_MODEL` | `claude-opus-4-6` | Default model for Claude Code |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex |
 | `BACKFLOW_DEFAULT_EFFORT` | `high` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Budget cap (USD) |
@@ -295,6 +296,18 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event filter |
 
 Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
+
+### SMS (Twilio)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKFLOW_SMS_PROVIDER` | | Set to `twilio` to enable SMS |
+| `TWILIO_ACCOUNT_SID` | | Twilio Account SID (required when provider is `twilio`) |
+| `TWILIO_AUTH_TOKEN` | | Twilio Auth Token (required when provider is `twilio`) |
+| `BACKFLOW_SMS_FROM_NUMBER` | | Twilio phone number in E.164 format (required when provider is `twilio`) |
+| `BACKFLOW_SMS_EVENTS` | `task.completed,task.failed` | Comma-separated events that trigger outbound SMS |
+
+See [docs/sms-setup.md](docs/sms-setup.md) for full setup instructions including allowed sender registration and A2P 10DLC compliance.
 
 ### Auth Modes
 
