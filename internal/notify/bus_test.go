@@ -240,6 +240,22 @@ func TestEventBus_GracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestEventBus_EmitAfterClose(t *testing.T) {
+	bus := NewEventBus()
+
+	sub := &collectingNotifier{}
+	bus.Subscribe(sub)
+	bus.Close()
+
+	// Emit after Close must not panic — event is silently dropped.
+	bus.Emit(Event{Type: EventTaskFailed, TaskID: "bf_late", Timestamp: time.Now()})
+
+	got := sub.getEvents()
+	if len(got) != 0 {
+		t.Fatalf("subscriber got %d events after Close, want 0", len(got))
+	}
+}
+
 func TestEventBus_NoSubscribers(t *testing.T) {
 	bus := NewEventBus()
 
