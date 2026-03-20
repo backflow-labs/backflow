@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -216,6 +217,23 @@ func TestFargateParseStatusFromLogEvents_Complete(t *testing.T) {
 	}
 	if status.PRURL != "https://github.com/test/repo/pull/5" {
 		t.Errorf("PRURL = %q, want PR URL", status.PRURL)
+	}
+}
+
+func TestFargateParseStatusFromLogEvents_EscapedMultilineError(t *testing.T) {
+	events := []cloudwatchlogstypes.OutputLogEvent{
+		{Message: aws.String(`BACKFLOW_STATUS_JSON:{"needs_input":false,"question":"","complete":false,"error":"line 1\nline 2: model_not_found","pr_url":""}`)},
+	}
+
+	status, ok := parseStatusFromLogEvents(events)
+	if !ok {
+		t.Fatal("expected status JSON to be parsed")
+	}
+	if status.Error == "" {
+		t.Fatal("expected error text to be preserved")
+	}
+	if !strings.Contains(status.Error, "model_not_found") {
+		t.Errorf("Error = %q, want model_not_found to be preserved", status.Error)
 	}
 }
 

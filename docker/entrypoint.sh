@@ -11,7 +11,7 @@ TARGET_BRANCH="${TARGET_BRANCH:-main}"
 REVIEW_PR_URL="${REVIEW_PR_URL:-}"
 REVIEW_PR_NUMBER="${REVIEW_PR_NUMBER:-0}"
 PROMPT="${PROMPT:-}"
-MODEL="${MODEL:-claude-opus-4-6}"
+MODEL="${MODEL:-claude-sonnet-4-6}"
 EFFORT="${EFFORT:-high}"
 MAX_BUDGET_USD="${MAX_BUDGET_USD:-10}"
 MAX_TURNS="${MAX_TURNS:-200}"
@@ -46,31 +46,7 @@ WORKSPACE="/home/agent/workspace"
 STATUS_FILE="${WORKSPACE}/status.json"
 START_TIME=$(date +%s)
 
-write_status() {
-    local exit_code="$1"
-    local complete="$2"
-    local needs_input="$3"
-    local question="$4"
-    local error_msg="$5"
-    local pr_url="${6:-}"
-    local cost_usd="${7:-0}"
-    local elapsed_sec="${8:-0}"
-
-    cat > "$STATUS_FILE" <<STATUSEOF
-{
-  "exit_code": ${exit_code},
-  "complete": ${complete},
-  "needs_input": ${needs_input},
-  "question": $(echo "$question" | jq -R .),
-  "error": $(echo "$error_msg" | jq -R .),
-  "pr_url": $(echo "$pr_url" | jq -R .),
-  "cost_usd": ${cost_usd},
-  "elapsed_time_sec": ${elapsed_sec}
-}
-STATUSEOF
-
-    echo "BACKFLOW_STATUS_JSON:$(jq -c . "$STATUS_FILE")"
-}
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/status_writer.sh"
 
 # --- GitHub auth ---
 if [ -n "${GITHUB_TOKEN:-}" ]; then

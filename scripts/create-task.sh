@@ -28,7 +28,7 @@ Options:
   --branch <name>         Working branch name
   --target-branch <name>  Target branch (default: main)
   --harness <name>        Agent harness: claude_code (default) or codex
-  --model <model>         Model to use (default: claude-opus-4-6 or gpt-5.4 for codex)
+  --model <model>         Model to use (default: claude-sonnet-4-6 or gpt-5.4 for codex)
   --effort <level>        Reasoning effort: low, medium, high (default: high)
   --budget <usd>          Max budget in USD
   --runtime <min>         Max runtime in minutes
@@ -64,7 +64,7 @@ fi
 HARNESS=""
 BRANCH=""
 TARGET_BRANCH=""
-MODEL="claude-opus-4-6"
+MODEL="claude-sonnet-4-6"
 EFFORT="high"
 BUDGET=""
 RUNTIME=""

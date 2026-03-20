@@ -1,6 +1,6 @@
 .PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint \
        db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
-       setup-aws deps tunnel
+       setup-aws deps tunnel test-docker-status-writer
 
 BINARY := backflow
 PKG := github.com/backflow-labs/backflow
@@ -20,6 +20,9 @@ run: build
 
 test:
 	go test ./... -v -count=1
+
+test-docker-status-writer:
+	bash scripts/test-docker-status-writer.sh
 
 lint:
 	go vet ./...
