@@ -65,6 +65,17 @@ Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → che
 
 `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
 
+### Slack / Discord notification stubs
+
+The config loader also reads these placeholder notification env vars for future subscribers:
+
+- `BACKFLOW_SLACK_WEBHOOK_URL`
+- `BACKFLOW_SLACK_EVENTS` (comma-separated event filter)
+- `BACKFLOW_DISCORD_WEBHOOK_URL`
+- `BACKFLOW_DISCORD_EVENTS` (comma-separated event filter)
+
+If either webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
+
 ## Harnesses
 
 - **`claude_code`** (default) — Claude Code CLI. Requires `ANTHROPIC_API_KEY` or Max subscription credentials.
