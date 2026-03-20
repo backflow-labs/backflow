@@ -80,13 +80,15 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 func (o *Orchestrator) initFargateMode(s store.Store, cfg *config.Config) {
 	o.scaler = localScaler{}
 
-	o.syncSyntheticInstance(s, syntheticInstanceSpec{
+	if !o.syncSyntheticInstance(s, syntheticInstanceSpec{
 		id:            "fargate",
 		instanceType:  "fargate",
 		maxContainers: cfg.MaxConcurrentTasks,
 		getErrMsg:     "fargate init: failed to get synthetic instance",
 		createErrMsg:  "fargate init: failed to create synthetic instance",
-	})
+	}) {
+		return
+	}
 	o.terminateStaleInstances(s, "fargate")
 }
 
@@ -117,7 +119,7 @@ type syntheticInstanceSpec struct {
 
 // syncSyntheticInstance ensures a synthetic instance exists and is marked running.
 // It is used by local and Fargate modes to keep capacity management consistent.
-func (o *Orchestrator) syncSyntheticInstance(s store.Store, spec syntheticInstanceSpec) {
+func (o *Orchestrator) syncSyntheticInstance(s store.Store, spec syntheticInstanceSpec) bool {
 	ctx := context.Background()
 
 	_, err := s.GetInstance(ctx, spec.id)
@@ -138,13 +140,16 @@ func (o *Orchestrator) syncSyntheticInstance(s store.Store, spec syntheticInstan
 		if err := s.CreateInstance(ctx, inst); err != nil && spec.createErrMsg != "" {
 			log.Error().Err(err).Msg(spec.createErrMsg)
 		}
+		return true
 	case err != nil:
 		if spec.getErrMsg != "" {
 			log.Error().Err(err).Msg(spec.getErrMsg)
 		}
+		return false
 	default:
 		s.UpdateInstanceStatus(ctx, spec.id, models.InstanceStatusRunning)
 		s.ResetRunningContainers(ctx, spec.id)
+		return true
 	}
 }
 

@@ -123,13 +123,9 @@ func main() {
 
 func logConfiguredNotificationChannels(cfg *config.Config) {
 	if cfg.SlackWebhookURL != "" {
-		log.Info().
-			Str("url", cfg.SlackWebhookURL).
-			Msg("slack notifications configured but subscriber not yet implemented")
+		log.Info().Msg("slack notifications configured but subscriber not yet implemented")
 	}
 	if cfg.DiscordWebhookURL != "" {
-		log.Info().
-			Str("url", cfg.DiscordWebhookURL).
-			Msg("discord notifications configured but subscriber not yet implemented")
+		log.Info().Msg("discord notifications configured but subscriber not yet implemented")
 	}
 }

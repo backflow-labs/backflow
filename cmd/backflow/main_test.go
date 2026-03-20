@@ -33,10 +33,10 @@ func TestLogConfiguredNotificationChannels(t *testing.T) {
 	if !strings.Contains(out, "discord notifications configured but subscriber not yet implemented") {
 		t.Fatalf("log output missing Discord placeholder message: %s", out)
 	}
-	if !strings.Contains(out, cfg.SlackWebhookURL) {
-		t.Fatalf("log output missing Slack URL: %s", out)
+	if strings.Contains(out, cfg.SlackWebhookURL) {
+		t.Fatalf("log output leaked Slack URL: %s", out)
 	}
-	if !strings.Contains(out, cfg.DiscordWebhookURL) {
-		t.Fatalf("log output missing Discord URL: %s", out)
+	if strings.Contains(out, cfg.DiscordWebhookURL) {
+		t.Fatalf("log output leaked Discord URL: %s", out)
 	}
 }
