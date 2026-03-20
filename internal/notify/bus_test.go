@@ -1,13 +1,16 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/rs/zerolog/log"
 )
 
 // --- test helpers ---
@@ -52,6 +55,13 @@ func (n *errorNotifier) getEvents() []Event {
 	copy(out, n.events)
 	return out
 }
+
+type namedErrorNotifier struct {
+	*errorNotifier
+	name string
+}
+
+func (n *namedErrorNotifier) Name() string { return n.name }
 
 type blockingNotifier struct {
 	started chan struct{}
@@ -189,6 +199,36 @@ func TestEventBus_SubscriberIsolation(t *testing.T) {
 	failGot := failing.getEvents()
 	if len(failGot) != 1 {
 		t.Fatalf("failing subscriber got %d events, want 1", len(failGot))
+	}
+}
+
+func TestEventBus_LogsSubscriberIdentityOnFailure(t *testing.T) {
+	var buf bytes.Buffer
+	orig := log.Logger
+	log.Logger = log.Logger.Output(&buf)
+	t.Cleanup(func() {
+		log.Logger = orig
+	})
+
+	bus := NewEventBus()
+	failing := &namedErrorNotifier{
+		errorNotifier: &errorNotifier{err: errors.New("boom")},
+		name:          "webhook",
+	}
+	bus.Subscribe(failing)
+
+	bus.Emit(Event{Type: EventTaskFailed, TaskID: "bf_99", Timestamp: time.Now()})
+	bus.Close()
+
+	out := buf.String()
+	if !strings.Contains(out, `"event":"task.failed"`) {
+		t.Fatalf("log output missing event type: %s", out)
+	}
+	if !strings.Contains(out, `"task_id":"bf_99"`) {
+		t.Fatalf("log output missing task id: %s", out)
+	}
+	if !strings.Contains(out, `"channel":"webhook"`) {
+		t.Fatalf("log output missing subscriber channel: %s", out)
 	}
 }
 

@@ -71,6 +71,7 @@ func (o *Orchestrator) initLocalMode(s store.Store, cfg *config.Config) {
 		maxContainers: cfg.ContainersPerInst,
 		privateIP:     "127.0.0.1",
 		getErrMsg:     "local init: failed to get synthetic instance",
+		createErrMsg:  "local init: failed to create synthetic instance",
 	})
 }
 
