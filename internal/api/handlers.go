@@ -47,7 +47,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 	harness := models.Harness(withDefault(req.Harness, h.config.DefaultHarness))
 
 	// Pick harness-specific default model
-	defaultModel := h.config.DefaultModel
+	defaultModel := h.config.DefaultClaudeModel
 	if harness == models.HarnessCodex {
 		defaultModel = h.config.DefaultCodexModel
 	}

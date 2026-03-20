@@ -64,6 +64,8 @@ func (m *MessagingNotifier) Notify(event Event) error {
 	return nil
 }
 
+func (m *MessagingNotifier) Name() string { return "sms" }
+
 // parseReplyChannel converts "sms:+15551234567" into a Channel.
 func parseReplyChannel(rc string) (messaging.Channel, error) {
 	parts := strings.SplitN(rc, ":", 2)

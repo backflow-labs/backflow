@@ -65,13 +65,13 @@ type Config struct {
 	MaxConcurrentTasks int
 
 	// Agent defaults
-	DefaultHarness    string
-	DefaultModel      string
-	DefaultCodexModel string
-	DefaultEffort     string
-	DefaultMaxBudget  float64
-	DefaultMaxRuntime time.Duration
-	DefaultMaxTurns   int
+	DefaultHarness     string
+	DefaultClaudeModel string
+	DefaultCodexModel  string
+	DefaultEffort      string
+	DefaultMaxBudget   float64
+	DefaultMaxRuntime  time.Duration
+	DefaultMaxTurns    int
 
 	// GitHub
 	GitHubToken string
@@ -90,6 +90,8 @@ type Config struct {
 	// Slack / Discord (subscriber implementations are out of scope)
 	SlackWebhookURL   string
 	DiscordWebhookURL string
+	SlackEvents       []string
+	DiscordEvents     []string
 
 	// S3 (task data: agent output, offloaded config for large prompts)
 	S3Bucket string
@@ -140,9 +142,9 @@ func Load() (*Config, error) {
 		CloudWatchLogGroup:    os.Getenv("BACKFLOW_CLOUDWATCH_LOG_GROUP"),
 		ECSLogStreamPrefix:    envOr("BACKFLOW_ECS_LOG_STREAM_PREFIX", "ecs"),
 		MaxConcurrentTasks:    envInt("BACKFLOW_MAX_CONCURRENT_TASKS", 5),
-		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "claude_code"),
-		DefaultModel:          envOr("BACKFLOW_DEFAULT_MODEL", "claude-sonnet-4-6"),
-		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4"),
+		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "codex"),
+		DefaultClaudeModel:    envOr("BACKFLOW_DEFAULT_CLAUDE_MODEL", "claude-sonnet-4-6"),
+		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4-mini"),
 		DefaultEffort:         envOr("BACKFLOW_DEFAULT_EFFORT", "high"),
 		DefaultMaxBudget:      envFloat("BACKFLOW_DEFAULT_MAX_BUDGET", 10.0),
 		DefaultMaxRuntime:     time.Duration(envInt("BACKFLOW_DEFAULT_MAX_RUNTIME_MIN", 30)) * time.Minute,
@@ -150,32 +152,20 @@ func Load() (*Config, error) {
 		S3Bucket:              os.Getenv("BACKFLOW_S3_BUCKET"),
 		GitHubToken:           os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:            os.Getenv("BACKFLOW_WEBHOOK_URL"),
+		SlackWebhookURL:       os.Getenv("BACKFLOW_SLACK_WEBHOOK_URL"),
+		DiscordWebhookURL:     os.Getenv("BACKFLOW_DISCORD_WEBHOOK_URL"),
+		SlackEvents:           envCSV("BACKFLOW_SLACK_EVENTS"),
+		DiscordEvents:         envCSV("BACKFLOW_DISCORD_EVENTS"),
 		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}
-
-	c.SlackWebhookURL = os.Getenv("BACKFLOW_SLACK_WEBHOOK_URL")
-	c.DiscordWebhookURL = os.Getenv("BACKFLOW_DISCORD_WEBHOOK_URL")
 
 	c.SMSProvider = envOr("BACKFLOW_SMS_PROVIDER", "")
 	c.TwilioAccountSID = os.Getenv("TWILIO_ACCOUNT_SID")
 	c.TwilioAuthToken = os.Getenv("TWILIO_AUTH_TOKEN")
 	c.SMSFromNumber = os.Getenv("BACKFLOW_SMS_FROM_NUMBER")
-	if smsEvents := os.Getenv("BACKFLOW_SMS_EVENTS"); smsEvents != "" {
-		c.SMSEvents = strings.Split(smsEvents, ",")
-		for i := range c.SMSEvents {
-			c.SMSEvents[i] = strings.TrimSpace(c.SMSEvents[i])
-		}
-	} else {
-		c.SMSEvents = []string{"task.completed", "task.failed"}
-	}
-
-	if events := os.Getenv("BACKFLOW_WEBHOOK_EVENTS"); events != "" {
-		c.WebhookEvents = strings.Split(events, ",")
-		for i := range c.WebhookEvents {
-			c.WebhookEvents[i] = strings.TrimSpace(c.WebhookEvents[i])
-		}
-	}
+	c.SMSEvents = envCSVOrDefault("BACKFLOW_SMS_EVENTS", []string{"task.completed", "task.failed"})
+	c.WebhookEvents = envCSV("BACKFLOW_WEBHOOK_EVENTS")
 
 	if c.Mode != ModeEC2 && c.Mode != ModeLocal && c.Mode != ModeFargate {
 		return nil, fmt.Errorf("invalid BACKFLOW_MODE: %q (must be %q, %q, or %q)", c.Mode, ModeEC2, ModeLocal, ModeFargate)
@@ -276,6 +266,8 @@ func envBool(key string, fallback bool) bool {
 	}
 }
 
+// envCSV returns a trimmed list of values or nil when the variable is unset.
+// Callers rely on nil to mean "use all events" for optional filters.
 func envCSV(key string) []string {
 	v := os.Getenv(key)
 	if v == "" {
@@ -289,6 +281,14 @@ func envCSV(key string) []string {
 		if part != "" {
 			values = append(values, part)
 		}
+	}
+	return values
+}
+
+func envCSVOrDefault(key string, fallback []string) []string {
+	values := envCSV(key)
+	if values == nil {
+		return fallback
 	}
 	return values
 }

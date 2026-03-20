@@ -20,7 +20,7 @@ cp .env.example .env
 
 ```bash
 make build          # Compile to bin/backflow
-make run            # Build + run (auto-sources .env)
+make run            # Build + run (auto-sources .env, refreshes AWS creds if needed)
 make test           # Run all tests (no cache)
 make lint           # go vet
 make tunnel         # Start cloudflared tunnel (for Twilio webhooks)
@@ -136,7 +136,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `prompt` | string | **Required for code mode.** Agent instructions |
 | `task_mode` | string | `code` (default) or `review` |
 | `harness` | string | `claude_code` (default) or `codex` |
-| `model` | string | Model override (default: `claude-sonnet-4-6` / `gpt-5.4` for codex) |
+| `model` | string | Model override (default: `claude-sonnet-4-6` / `gpt-5.4-mini` for codex) |
 | `effort` | string | `low`, `medium`, `high` (default), or `xhigh` |
 | `branch` | string | Working branch name |
 | `target_branch` | string | Target branch (default: main) |
@@ -254,8 +254,8 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | `claude_code` or `codex` |
-| `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
-| `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex |
+| `BACKFLOW_DEFAULT_CLAUDE_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
+| `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4-mini` | Default model for Codex |
 | `BACKFLOW_DEFAULT_EFFORT` | `high` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Budget cap (USD) |
 | `BACKFLOW_DEFAULT_MAX_RUNTIME_MIN` | `30` | Runtime cap (minutes) |

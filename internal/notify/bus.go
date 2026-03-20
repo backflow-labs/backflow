@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -118,8 +119,30 @@ func (b *EventBus) deliver() {
 					Err(err).
 					Str("event", string(event.Type)).
 					Str("task_id", event.TaskID).
+					Str("channel", notifierName(sub)).
 					Msg("subscriber notification failed")
 			}
 		}
 	}
+}
+
+func notifierName(n Notifier) string {
+	if named, ok := n.(ChannelNamer); ok {
+		return named.Name()
+	}
+
+	t := reflect.TypeOf(n)
+	if t == nil {
+		return "unknown"
+	}
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if pkg := t.PkgPath(); pkg != "" {
+		return pkg + "." + t.Name()
+	}
+	if name := t.Name(); name != "" {
+		return name
+	}
+	return "unknown"
 }

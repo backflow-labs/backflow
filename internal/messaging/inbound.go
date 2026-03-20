@@ -146,14 +146,19 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 		}
 
 		now := time.Now().UTC()
+		harness := models.Harness(cfg.DefaultHarness)
+		defaultModel := cfg.DefaultClaudeModel
+		if harness == models.HarnessCodex {
+			defaultModel = cfg.DefaultCodexModel
+		}
 		task := &models.Task{
 			ID:              "bf_" + ulid.Make().String(),
 			Status:          models.TaskStatusPending,
 			TaskMode:        models.TaskModeCode,
-			Harness:         models.Harness(cfg.DefaultHarness),
+			Harness:         harness,
 			RepoURL:         repoURL,
 			Prompt:          prompt,
-			Model:           cfg.DefaultModel,
+			Model:           defaultModel,
 			Effort:          cfg.DefaultEffort,
 			MaxBudgetUSD:    cfg.DefaultMaxBudget,
 			MaxRuntimeMin:   int(cfg.DefaultMaxRuntime.Minutes()),

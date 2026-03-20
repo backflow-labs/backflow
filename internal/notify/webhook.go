@@ -67,10 +67,16 @@ type Notifier interface {
 	Notify(event Event) error
 }
 
+// ChannelNamer identifies the notification channel for logging.
+type ChannelNamer interface {
+	Name() string
+}
+
 // NoopNotifier discards all events.
 type NoopNotifier struct{}
 
 func (NoopNotifier) Notify(Event) error { return nil }
+func (NoopNotifier) Name() string       { return "noop" }
 
 // WebhookNotifier sends HTTP POST notifications.
 type WebhookNotifier struct {
@@ -136,6 +142,8 @@ func (w *WebhookNotifier) Notify(event Event) error {
 
 	return fmt.Errorf("webhook failed after 3 attempts: %w", lastErr)
 }
+
+func (w *WebhookNotifier) Name() string { return "webhook" }
 
 func redactReplyChannel(replyChannel string) string {
 	if replyChannel == "" {

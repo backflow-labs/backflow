@@ -8,7 +8,7 @@ Backflow is a Go service that runs coding agents (Claude Code or Codex) in ephem
 
 ```bash
 make build              # Build to bin/backflow
-make run                # Build + run (sources .env)
+make run                # Build + run (sources .env, refreshes AWS creds if needed)
 make test               # go test ./... -v -count=1
 make lint               # go vet ./...
 make deps               # go mod tidy
@@ -65,10 +65,21 @@ Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → che
 
 `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
 
+### Slack / Discord notification stubs
+
+The config loader also reads these placeholder notification env vars for future subscribers:
+
+- `BACKFLOW_SLACK_WEBHOOK_URL`
+- `BACKFLOW_SLACK_EVENTS` (comma-separated event filter)
+- `BACKFLOW_DISCORD_WEBHOOK_URL`
+- `BACKFLOW_DISCORD_EVENTS` (comma-separated event filter)
+
+If either webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
+
 ## Harnesses
 
 - **`claude_code`** (default) — Claude Code CLI. Requires `ANTHROPIC_API_KEY` or Max subscription credentials.
-- **`codex`** — OpenAI Codex CLI. Requires `OPENAI_API_KEY`. Defaults to `gpt-5.4` model.
+- **`codex`** — OpenAI Codex CLI. Requires `OPENAI_API_KEY`. Defaults to `gpt-5.4-mini` model.
 
 Configured per-task via the `harness` field or globally via `BACKFLOW_DEFAULT_HARNESS`.
 
