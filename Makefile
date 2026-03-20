@@ -16,7 +16,13 @@ build:
 	go build $(GOFLAGS) -o bin/$(BINARY) ./cmd/backflow
 
 run: build
-	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; ./bin/$(BINARY)
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if command -v aws >/dev/null 2>&1 && ! aws sts get-caller-identity >/dev/null 2>&1; then \
+		echo "AWS credentials are missing or expired; running aws login"; \
+		aws login; \
+	fi; \
+	./bin/$(BINARY)
 
 test:
 	go test ./... -v -count=1
@@ -66,7 +72,7 @@ db-provisioning:
 	$(DB_QUERY) "SELECT id, repo_url, branch, harness, instance_id, created_at FROM tasks WHERE status = 'provisioning' ORDER BY created_at ASC;"
 
 db-running:
-	$(DB_QUERY) "SELECT id, repo_url, branch, harness, instance_id, started_at, elapsed_time_sec FROM tasks WHERE status = 'running' ORDER BY started_at ASC;"
+	$(DB_QUERY) "SELECT id, repo_url, branch, harness, model, instance_id, started_at, elapsed_time_sec FROM tasks WHERE status = 'running' ORDER BY started_at ASC;"
 
 db-completed:
 	$(DB_QUERY) "SELECT id, repo_url, branch, harness, pr_url, cost_usd, elapsed_time_sec, completed_at FROM tasks WHERE status = 'completed' ORDER BY completed_at DESC;"

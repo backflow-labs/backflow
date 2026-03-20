@@ -20,7 +20,7 @@ cp .env.example .env
 
 ```bash
 make build          # Compile to bin/backflow
-make run            # Build + run (auto-sources .env)
+make run            # Build + run (auto-sources .env, refreshes AWS creds if needed)
 make test           # Run all tests (no cache)
 make lint           # go vet
 make tunnel         # Start cloudflared tunnel (for Twilio webhooks)
