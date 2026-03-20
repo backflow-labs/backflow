@@ -13,16 +13,17 @@ import (
 
 func TestRecoverOnStartup_NoOrphans(t *testing.T) {
 	s := newMockStore()
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 
 	o.recoverOnStartup(context.Background())
+	bus.Close()
 
 	if o.running != 0 {
 		t.Errorf("running = %d, want 0", o.running)
 	}
-	if len(n.events) != 0 {
-		t.Errorf("expected no events, got %d", len(n.events))
+	if len(n.eventTypes()) != 0 {
+		t.Errorf("expected no events, got %d", len(n.eventTypes()))
 	}
 }
 
@@ -42,10 +43,11 @@ func TestRecoverOnStartup_RunningOrphans(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 
 	o.recoverOnStartup(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_task1")
 	if task.Status != models.TaskStatusRecovering {
@@ -77,10 +79,11 @@ func TestRecoverOnStartup_ProvisioningOrphans(t *testing.T) {
 		InstanceID: "i-12345",
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	o := newTestOrchestrator(s, bus)
 
 	o.recoverOnStartup(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_task2")
 	if task.Status != models.TaskStatusRecovering {
@@ -124,10 +127,11 @@ func TestRecoverOnStartup_Mixed(t *testing.T) {
 		InstanceID: "i-other",
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 
 	o.recoverOnStartup(context.Background())
+	bus.Close()
 
 	t1, _ := s.GetTask(context.Background(), "bf_running")
 	t2, _ := s.GetTask(context.Background(), "bf_prov")
@@ -140,8 +144,8 @@ func TestRecoverOnStartup_Mixed(t *testing.T) {
 	if o.running != 1 {
 		t.Errorf("running = %d, want 1", o.running)
 	}
-	if len(n.events) != 2 {
-		t.Errorf("expected 2 events, got %d", len(n.events))
+	if len(n.eventTypes()) != 2 {
+		t.Errorf("expected 2 events, got %d", len(n.eventTypes()))
 	}
 }
 
@@ -155,8 +159,9 @@ func TestMonitorRecovering_NoContainer(t *testing.T) {
 		Prompt:  "orphaned provisioning task",
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	o.monitorRecovering(context.Background())
 
@@ -185,15 +190,16 @@ func TestMonitorRecovering_ContainerStillRunning(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{
 			"local/cont_alive": {Done: false},
 		},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 
 	o.monitorRecovering(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_alive")
 	if task.Status != models.TaskStatusRunning {
@@ -226,13 +232,14 @@ func TestMonitorRecovering_ContainerExited(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_exited")
 	status := ContainerStatus{Done: true, ExitCode: 0}
 	o.handleCompletion(context.Background(), task, status)
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_exited")
 	if task.Status != models.TaskStatusCompleted {
@@ -260,8 +267,9 @@ func TestHandleRecoveringInspectError_InstanceGone(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 	o.inspectFailures["bf_rgone"] = 2 // should be cleared
 
@@ -301,8 +309,9 @@ func TestHandleRecoveringInspectError_InstanceGone_FargatePreservesSyntheticInst
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.config.Mode = config.ModeFargate
 	o.running = 1
 
@@ -328,8 +337,9 @@ func TestHandleRecoveringInspectError_AccumulatesFailures(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_raccum")
@@ -366,8 +376,9 @@ func TestHandleRecoveringInspectError_RequeuesAtMaxFailures(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 	o.inspectFailures["bf_rmaxfail"] = maxInspectFailures - 1
 
@@ -406,8 +417,9 @@ func TestRequeueRecoveringTask_WasRunning(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_rq")
@@ -440,8 +452,9 @@ func TestRequeueRecoveringTask_WasProvisioning(t *testing.T) {
 		Prompt:  "re-queue me",
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 0
 
 	task, _ := s.GetTask(context.Background(), "bf_prov_rq")

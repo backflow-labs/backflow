@@ -87,31 +87,11 @@ func TestNewEvent_PopulatesCoreFieldsFromTask(t *testing.T) {
 	if event.Prompt != "fix the bug" {
 		t.Errorf("Prompt = %q", event.Prompt)
 	}
-	if event.ReplyChannel != "sms" {
-		t.Errorf("ReplyChannel = %q, want %q", event.ReplyChannel, "sms")
+	if event.ReplyChannel != "sms:+15551234567" {
+		t.Errorf("ReplyChannel = %q, want %q", event.ReplyChannel, "sms:+15551234567")
 	}
 	if event.Timestamp.Before(before) || event.Timestamp.After(after) {
 		t.Errorf("Timestamp = %v, want between %v and %v", event.Timestamp, before, after)
-	}
-}
-
-func TestRedactChannel(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"sms:+15551234567", "sms"},
-		{"email:user@example.com", "email"},
-		{"sms", "sms"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := redactChannel(tt.input)
-			if got != tt.want {
-				t.Errorf("redactChannel(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
 	}
 }
 

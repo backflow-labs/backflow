@@ -87,6 +87,10 @@ type Config struct {
 	SMSFromNumber    string
 	SMSEvents        []string
 
+	// Slack / Discord (subscriber implementations are out of scope)
+	SlackWebhookURL   string
+	DiscordWebhookURL string
+
 	// S3 (task data: agent output, offloaded config for large prompts)
 	S3Bucket string
 
@@ -149,6 +153,9 @@ func Load() (*Config, error) {
 		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}
+
+	c.SlackWebhookURL = os.Getenv("BACKFLOW_SLACK_WEBHOOK_URL")
+	c.DiscordWebhookURL = os.Getenv("BACKFLOW_DISCORD_WEBHOOK_URL")
 
 	c.SMSProvider = envOr("BACKFLOW_SMS_PROVIDER", "")
 	c.TwilioAccountSID = os.Getenv("TWILIO_ACCOUNT_SID")

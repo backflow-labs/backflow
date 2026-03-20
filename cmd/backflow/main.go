@@ -34,12 +34,12 @@ func main() {
 	}
 	defer db.Close()
 
-	var notifier notify.Notifier
+	// Create event bus and subscribe notification channels
+	bus := notify.NewEventBus()
+
 	if cfg.WebhookURL != "" {
-		notifier = notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents)
+		bus.Subscribe(notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents))
 		log.Info().Str("url", cfg.WebhookURL).Msg("webhook notifications enabled")
-	} else {
-		notifier = notify.NoopNotifier{}
 	}
 
 	// Initialize messaging
@@ -53,7 +53,7 @@ func main() {
 	}
 
 	if cfg.SMSProvider != "" {
-		notifier = notify.NewMessagingNotifier(notifier, messenger, db, cfg.SMSEvents)
+		bus.Subscribe(notify.NewMessagingNotifier(messenger, cfg.SMSEvents))
 	}
 
 	s3Uploader, err := orchestrator.NewS3Uploader(context.Background(), cfg)
@@ -64,7 +64,7 @@ func main() {
 		log.Info().Str("bucket", cfg.S3Bucket).Msg("S3 storage enabled")
 	}
 
-	orch := orchestrator.New(db, cfg, notifier, s3Uploader)
+	orch := orchestrator.New(db, cfg, bus, s3Uploader)
 
 	router := api.NewServer(db, cfg, orch.Docker())
 
@@ -104,6 +104,7 @@ func main() {
 	log.Info().Msg("shutting down...")
 	cancel()
 	orch.Stop()
+	bus.Close()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()

@@ -24,7 +24,9 @@ func TestFindAvailableInstance_ReturnsInstanceWithCapacity(t *testing.T) {
 		RunningContainers: 1,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	inst, err := o.findAvailableInstance(context.Background())
 	if err != nil {
@@ -44,7 +46,9 @@ func TestFindAvailableInstance_NoCapacity(t *testing.T) {
 		RunningContainers: 2,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	_, err := o.findAvailableInstance(context.Background())
 	if err != errNoCapacity {
@@ -61,7 +65,9 @@ func TestFindAvailableInstance_IgnoresNonRunning(t *testing.T) {
 		RunningContainers: 0,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	_, err := o.findAvailableInstance(context.Background())
 	if err != errNoCapacity {
@@ -71,7 +77,9 @@ func TestFindAvailableInstance_IgnoresNonRunning(t *testing.T) {
 
 func TestFindAvailableInstance_EmptyStore(t *testing.T) {
 	s := newMockStore()
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	_, err := o.findAvailableInstance(context.Background())
 	if err != errNoCapacity {
@@ -88,7 +96,9 @@ func TestReleaseSlot(t *testing.T) {
 		RunningContainers: 2,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 2
 
 	task := &models.Task{InstanceID: "local"}
@@ -113,7 +123,9 @@ func TestReleaseSlot_PreventsNegativeContainers(t *testing.T) {
 		RunningContainers: 0,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task := &models.Task{InstanceID: "local"}
@@ -134,7 +146,9 @@ func TestMarkInstanceTerminated(t *testing.T) {
 		RunningContainers: 2,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	o.markInstanceTerminated(context.Background(), "i-abc")
 
@@ -156,7 +170,9 @@ func TestMarkInstanceTerminated_AlreadyTerminated(t *testing.T) {
 		RunningContainers: 0,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	// Should be a no-op, not panic
 	o.markInstanceTerminated(context.Background(), "i-abc")
@@ -168,7 +184,9 @@ func TestMarkInstanceTerminated_AlreadyTerminated(t *testing.T) {
 }
 
 func TestMarkInstanceTerminated_EmptyID(t *testing.T) {
-	o := newTestOrchestrator(newMockStore(), &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(newMockStore(), bus)
 	// Should not panic
 	o.markInstanceTerminated(context.Background(), "")
 }
@@ -184,9 +202,10 @@ func TestDispatchPending_NoCapacity(t *testing.T) {
 		Prompt:  "should not dispatch",
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n) // MaxConcurrent = ContainersPerInst = 4
-	o.running = 4                  // at capacity
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus) // MaxConcurrent = ContainersPerInst = 4
+	o.running = 4                    // at capacity
 
 	o.dispatchPending(context.Background())
 
@@ -206,14 +225,15 @@ func TestDispatchPending_DispatchesTask(t *testing.T) {
 		Prompt:  "dispatch me",
 	})
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		runAgentID:     "container-abc",
 		inspectResults: map[string]ContainerStatus{},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 
 	o.dispatchPending(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_disp")
 	if task.Status != models.TaskStatusRunning {
@@ -247,14 +267,15 @@ func TestDispatchPending_FailedDispatch(t *testing.T) {
 		Prompt:  "fail to dispatch",
 	})
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		runAgentErr:    fmt.Errorf("docker daemon unavailable"),
 		inspectResults: map[string]ContainerStatus{},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 
 	o.dispatchPending(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_dfail")
 	if task.Status != models.TaskStatusFailed {
@@ -282,8 +303,9 @@ func TestDispatch_NoAvailableInstance(t *testing.T) {
 	}
 	s.CreateTask(context.Background(), task)
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 
 	task, _ = s.GetTask(context.Background(), "bf_noinst")
 	err := o.dispatch(context.Background(), task)
@@ -309,18 +331,19 @@ func TestDispatch_Success(t *testing.T) {
 	}
 	s.CreateTask(context.Background(), task)
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		runAgentID:     "cont-xyz",
 		inspectResults: map[string]ContainerStatus{},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 
 	task, _ = s.GetTask(context.Background(), "bf_dsuc")
 	err := o.dispatch(context.Background(), task)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_dsuc")
 	if task.Status != models.TaskStatusRunning {
@@ -361,12 +384,13 @@ func TestDispatch_RunAgentError(t *testing.T) {
 	}
 	s.CreateTask(context.Background(), task)
 
-	n := &mockNotifier{}
+	bus, _ := newTestBus()
+	defer bus.Close()
 	mock := &mockDockerManager{
 		runAgentErr:    fmt.Errorf("image pull failed"),
 		inspectResults: map[string]ContainerStatus{},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 
 	task, _ = s.GetTask(context.Background(), "bf_derr")
 	err := o.dispatch(context.Background(), task)
