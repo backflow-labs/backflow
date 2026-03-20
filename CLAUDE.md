@@ -79,7 +79,7 @@ If either webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is
 ## Harnesses
 
 - **`claude_code`** (default) — Claude Code CLI. Requires `ANTHROPIC_API_KEY` or Max subscription credentials.
-- **`codex`** — OpenAI Codex CLI. Requires `OPENAI_API_KEY`. Defaults to `gpt-5.4` model.
+- **`codex`** — OpenAI Codex CLI. Requires `OPENAI_API_KEY`. Defaults to `gpt-5.4-mini` model.
 
 Configured per-task via the `harness` field or globally via `BACKFLOW_DEFAULT_HARNESS`.
 
