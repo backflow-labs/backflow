@@ -11,8 +11,8 @@ import (
 	"github.com/backflow-labs/backflow/internal/messaging"
 )
 
-// MessagingNotifier sends SMS notifications to task creators who submitted
-// via messaging. It reads the reply channel directly from the Event.
+// MessagingNotifier sends SMS notifications to task creators who submitted via
+// messaging.
 type MessagingNotifier struct {
 	messenger messaging.Messenger
 	events    map[EventType]bool // nil = send all events

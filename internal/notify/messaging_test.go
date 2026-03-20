@@ -38,7 +38,6 @@ func (m *failingMessenger) Send(context.Context, messaging.OutboundMessage) erro
 func TestMessagingNotifier_SendsSMSFromEventReplyChannel(t *testing.T) {
 	m := &recordingMessenger{}
 	mn := NewMessagingNotifier(m, nil)
-
 	event := Event{
 		Type:         EventTaskCompleted,
 		TaskID:       "bf_123",

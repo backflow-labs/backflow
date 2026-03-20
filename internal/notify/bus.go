@@ -62,6 +62,12 @@ func (b *EventBus) Emit(event Event) {
 	}
 }
 
+// Notify allows EventBus to satisfy Notifier by enqueuing the event.
+func (b *EventBus) Notify(event Event) error {
+	b.Emit(event)
+	return nil
+}
+
 // Close stops the bus and waits for all pending events to be delivered.
 func (b *EventBus) Close() {
 	b.closeOnce.Do(func() {
