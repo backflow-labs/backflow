@@ -32,8 +32,9 @@ func TestMonitorCancelled_DecrementsRunning(t *testing.T) {
 		CompletedAt: &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	o.monitorCancelled(context.Background())
@@ -63,8 +64,9 @@ func TestMonitorCancelled_IgnoresWithoutContainer(t *testing.T) {
 		CompletedAt: &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 0
 
 	o.monitorCancelled(context.Background())
@@ -94,8 +96,9 @@ func TestMonitorCancelled_RecoveringTaskCancelled(t *testing.T) {
 		CompletedAt: &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	o.monitorCancelled(context.Background())
@@ -131,8 +134,8 @@ func TestHandleCompletion_Success(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_ok")
@@ -141,6 +144,7 @@ func TestHandleCompletion_Success(t *testing.T) {
 		ExitCode: 0,
 		PRURL:    "https://github.com/test/repo/pull/1",
 	})
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_ok")
 	if task.Status != models.TaskStatusCompleted {
@@ -189,8 +193,8 @@ func TestHandleCompletion_CompleteFlagOverridesExitCode(t *testing.T) {
 		Error:       "previous error",
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_complete_flag")
@@ -200,6 +204,7 @@ func TestHandleCompletion_CompleteFlagOverridesExitCode(t *testing.T) {
 		ExitCode: 1,
 		PRURL:    "https://github.com/test/repo/pull/2",
 	})
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_complete_flag")
 	if task.Status != models.TaskStatusCompleted {
@@ -234,8 +239,8 @@ func TestHandleCompletion_NeedsInput(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_input")
@@ -245,6 +250,7 @@ func TestHandleCompletion_NeedsInput(t *testing.T) {
 		NeedsInput: true,
 		Question:   "What is the database password?",
 	})
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_input")
 	if task.Status != models.TaskStatusFailed {
@@ -279,8 +285,8 @@ func TestHandleCompletion_Failure(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_fail")
@@ -289,6 +295,7 @@ func TestHandleCompletion_Failure(t *testing.T) {
 		ExitCode: 1,
 		Error:    "something went wrong",
 	})
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_fail")
 	if task.Status != models.TaskStatusFailed {
@@ -325,12 +332,13 @@ func TestKillTask(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_kill")
 	o.killTask(context.Background(), task, "exceeded max runtime")
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_kill")
 	if task.Status != models.TaskStatusFailed {
@@ -378,8 +386,9 @@ func TestRequeueTask_EC2Mode(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n, func(o *Orchestrator) {
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus, func(o *Orchestrator) {
 		o.config.Mode = config.ModeEC2
 	})
 	o.running = 1
@@ -435,8 +444,9 @@ func TestRequeueTask_LocalMode(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n) // defaults to ModeLocal
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus) // defaults to ModeLocal
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_requeue_local")
@@ -480,11 +490,12 @@ func TestMonitorRunning_TimedOutTaskKilled(t *testing.T) {
 		MaxRuntimeMin: 10,
 	})
 
-	n := &mockNotifier{}
+	bus, _ := newTestBus()
+	defer bus.Close()
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 	o.running = 1
 
 	o.monitorRunning(context.Background())
@@ -511,16 +522,17 @@ func TestMonitorRunning_StillRunning(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{
 			"local/cont1": {Done: false},
 		},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 	o.running = 1
 
 	o.monitorRunning(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_still")
 	if task.Status != models.TaskStatusRunning {
@@ -529,8 +541,8 @@ func TestMonitorRunning_StillRunning(t *testing.T) {
 	if o.running != 1 {
 		t.Errorf("running = %d, want 1", o.running)
 	}
-	if len(n.events) != 0 {
-		t.Errorf("expected no events, got %d", len(n.events))
+	if len(n.eventTypes()) != 0 {
+		t.Errorf("expected no events, got %d", len(n.eventTypes()))
 	}
 }
 
@@ -554,16 +566,17 @@ func TestMonitorRunning_Completed(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{
 			"local/cont1": {Done: true, ExitCode: 0, PRURL: "https://github.com/test/repo/pull/42"},
 		},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 	o.running = 1
 
 	o.monitorRunning(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_done")
 	if task.Status != models.TaskStatusCompleted {
@@ -598,16 +611,17 @@ func TestMonitorRunning_CompletedFromStatusFile(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
+	bus, n := newTestBus()
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{
 			"local/cont1": {Done: true, Complete: true, ExitCode: 1, PRURL: "https://github.com/test/repo/pull/43"},
 		},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 	o.running = 1
 
 	o.monitorRunning(context.Background())
+	bus.Close()
 
 	task, _ := s.GetTask(context.Background(), "bf_done_status")
 	if task.Status != models.TaskStatusCompleted {
@@ -638,13 +652,14 @@ func TestMonitorRunning_InspectError(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
+	bus, _ := newTestBus()
+	defer bus.Close()
 	mock := &mockDockerManager{
 		inspectErrors: map[string]error{
 			"local/cont1": fmt.Errorf("connection refused"),
 		},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 	o.running = 1
 
 	o.monitorRunning(context.Background())
@@ -672,13 +687,14 @@ func TestMonitorRunning_ClearsInspectFailuresOnSuccess(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
+	bus, _ := newTestBus()
+	defer bus.Close()
 	mock := &mockDockerManager{
 		inspectResults: map[string]ContainerStatus{
 			"local/cont1": {Done: false},
 		},
 	}
-	o := newTestOrchestrator(s, n, withDocker(mock))
+	o := newTestOrchestrator(s, bus, withDocker(mock))
 	o.running = 1
 	o.inspectFailures["bf_clear"] = 2 // had prior failures
 
@@ -706,8 +722,9 @@ func TestHandleInspectError_InstanceGone(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 	o.inspectFailures["bf_gone"] = 2 // should be cleared
 
@@ -747,8 +764,9 @@ func TestHandleInspectError_InstanceGone_FargatePreservesSyntheticInstance(t *te
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.config.Mode = config.ModeFargate
 	o.running = 1
 
@@ -774,8 +792,9 @@ func TestHandleInspectError_AccumulatesFailures(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	task, _ := s.GetTask(context.Background(), "bf_accum")
@@ -819,13 +838,14 @@ func TestHandleInspectError_KillsAtMaxFailures(t *testing.T) {
 		StartedAt:   &now,
 	})
 
-	n := &mockNotifier{}
-	o := newTestOrchestrator(s, n)
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
 	o.running = 1
 	o.inspectFailures["bf_maxfail"] = maxInspectFailures - 1 // one away from max
 
 	task, _ := s.GetTask(context.Background(), "bf_maxfail")
 	o.handleInspectError(context.Background(), task, fmt.Errorf("connection refused"))
+	bus.Close()
 
 	task, _ = s.GetTask(context.Background(), "bf_maxfail")
 	if task.Status != models.TaskStatusFailed {
@@ -861,7 +881,9 @@ func TestSaveTaskMetadata_NilS3(t *testing.T) {
 		CompletedAt: &now,
 	})
 
-	o := newTestOrchestrator(s, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
 	// o.s3 is nil — should be a no-op without panicking
 	task, _ := s.GetTask(context.Background(), "bf_meta_nil")
 	o.saveTaskMetadata(context.Background(), task)
@@ -958,25 +980,24 @@ func TestSaveTaskMetadata_UploadIntegration(t *testing.T) {
 	s.CreateTask(context.Background(), task)
 
 	mockS3 := &mockS3Client{}
-	o := newTestOrchestrator(s, &mockNotifier{}, withS3(mockS3))
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus, withS3(mockS3))
 
 	stored, _ := s.GetTask(context.Background(), "bf_meta_int")
 	o.saveTaskMetadata(context.Background(), stored)
 
-	// Verify exactly one upload happened
 	if len(mockS3.uploads) != 1 {
 		t.Fatalf("expected 1 upload, got %d", len(mockS3.uploads))
 	}
 
 	upload := mockS3.uploads[0]
 
-	// Verify the S3 key follows the expected pattern
 	expectedKey := "tasks/bf_meta_int/task_metadata.json"
 	if upload.key != expectedKey {
 		t.Errorf("S3 key = %q, want %q", upload.key, expectedKey)
 	}
 
-	// Verify the uploaded JSON deserializes correctly and matches task fields
 	var meta taskMetadata
 	if err := json.Unmarshal(upload.data, &meta); err != nil {
 		t.Fatalf("failed to unmarshal uploaded JSON: %v", err)
@@ -1049,7 +1070,9 @@ func TestSaveTaskMetadata_UploadError(t *testing.T) {
 	})
 
 	mockS3 := &mockS3Client{err: fmt.Errorf("simulated S3 failure")}
-	o := newTestOrchestrator(s, &mockNotifier{}, withS3(mockS3))
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus, withS3(mockS3))
 
 	task, _ := s.GetTask(context.Background(), "bf_meta_err")
 
@@ -1058,7 +1081,9 @@ func TestSaveTaskMetadata_UploadError(t *testing.T) {
 }
 
 func TestIsTimedOut(t *testing.T) {
-	o := newTestOrchestrator(newMockStore(), &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(newMockStore(), bus)
 
 	// No StartedAt — not timed out
 	task := &models.Task{MaxRuntimeMin: 10}

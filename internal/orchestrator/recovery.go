@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -41,28 +40,14 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 	for _, task := range provTasks {
 		o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, "")
 		o.store.ClearTaskAssignment(ctx, task.ID)
-		o.notifier.Notify(notify.Event{
-			Type:      notify.EventTaskRecovering,
-			TaskID:    task.ID,
-			RepoURL:   task.RepoURL,
-			Prompt:    task.Prompt,
-			Message:   "recovering after server restart (was provisioning)",
-			Timestamp: time.Now().UTC(),
-		})
+		o.bus.Emit(notify.NewEvent(notify.EventTaskRecovering, task, notify.WithContainerStatus("", "recovering after server restart (was provisioning)", "")))
 	}
 
 	// Running tasks: mark recovering, preserve instance/container for inspection
 	instanceContainers := make(map[string]int)
 	for _, task := range runningTasks {
 		o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, "")
-		o.notifier.Notify(notify.Event{
-			Type:      notify.EventTaskRecovering,
-			TaskID:    task.ID,
-			RepoURL:   task.RepoURL,
-			Prompt:    task.Prompt,
-			Message:   "recovering after server restart (was running)",
-			Timestamp: time.Now().UTC(),
-		})
+		o.bus.Emit(notify.NewEvent(notify.EventTaskRecovering, task, notify.WithContainerStatus("", "recovering after server restart (was running)", "")))
 		if task.InstanceID != "" {
 			instanceContainers[task.InstanceID]++
 		}
@@ -129,14 +114,7 @@ func (o *Orchestrator) monitorRecovering(ctx context.Context) {
 			// Container still running — promote back to running
 			log.Info().Str("task_id", task.ID).Msg("recovery: container still running, promoting to running")
 			o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRunning, "")
-			o.notifier.Notify(notify.Event{
-				Type:      notify.EventTaskRunning,
-				TaskID:    task.ID,
-				RepoURL:   task.RepoURL,
-				Prompt:    task.Prompt,
-				Message:   "recovered: container still running",
-				Timestamp: time.Now().UTC(),
-			})
+			o.bus.Emit(notify.NewEvent(notify.EventTaskRunning, task, notify.WithContainerStatus("", "recovered: container still running", "")))
 		}
 	}
 }

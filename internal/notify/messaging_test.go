@@ -9,28 +9,9 @@ import (
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/messaging"
-	"github.com/backflow-labs/backflow/internal/models"
-	"github.com/backflow-labs/backflow/internal/store"
 )
 
 // --- test helpers ---
-
-type recordingNotifier struct {
-	events []Event
-}
-
-func (n *recordingNotifier) Notify(e Event) error {
-	n.events = append(n.events, e)
-	return nil
-}
-
-type failingNotifier struct {
-	err error
-}
-
-func (n *failingNotifier) Notify(Event) error {
-	return n.err
-}
 
 type recordingMessenger struct {
 	messages []messaging.OutboundMessage
@@ -44,133 +25,31 @@ func (m *recordingMessenger) Send(_ context.Context, msg messaging.OutboundMessa
 	return nil
 }
 
-type stubStore struct {
-	tasks map[string]*models.Task
+type failingMessenger struct {
+	err error
 }
 
-func (s *stubStore) GetTask(_ context.Context, id string) (*models.Task, error) {
-	t, ok := s.tasks[id]
-	if !ok {
-		return nil, store.ErrNotFound
-	}
-	return t, nil
-}
-
-// Unused Store methods
-func (s *stubStore) CreateTask(context.Context, *models.Task) error { return nil }
-func (s *stubStore) ListTasks(context.Context, store.TaskFilter) ([]*models.Task, error) {
-	return nil, nil
-}
-func (s *stubStore) DeleteTask(context.Context, string) error               { return nil }
-func (s *stubStore) CreateInstance(context.Context, *models.Instance) error { return nil }
-func (s *stubStore) GetInstance(context.Context, string) (*models.Instance, error) {
-	return nil, store.ErrNotFound
-}
-func (s *stubStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
-	return nil, nil
-}
-func (s *stubStore) UpdateTaskStatus(context.Context, string, models.TaskStatus, string) error {
-	return nil
-}
-func (s *stubStore) AssignTask(context.Context, string, string) error { return nil }
-func (s *stubStore) StartTask(context.Context, string, string) error  { return nil }
-func (s *stubStore) CompleteTask(context.Context, string, store.TaskResult) error {
-	return nil
-}
-func (s *stubStore) RequeueTask(context.Context, string, string) error { return nil }
-func (s *stubStore) CancelTask(context.Context, string) error          { return nil }
-func (s *stubStore) ClearTaskAssignment(context.Context, string) error { return nil }
-func (s *stubStore) UpdateInstanceStatus(context.Context, string, models.InstanceStatus) error {
-	return nil
-}
-func (s *stubStore) IncrementRunningContainers(context.Context, string) error { return nil }
-func (s *stubStore) DecrementRunningContainers(context.Context, string) error { return nil }
-func (s *stubStore) UpdateInstanceDetails(context.Context, string, string, string) error {
-	return nil
-}
-func (s *stubStore) ResetRunningContainers(context.Context, string) error { return nil }
-func (s *stubStore) CreateAllowedSender(context.Context, *models.AllowedSender) error {
-	return nil
-}
-func (s *stubStore) GetAllowedSender(context.Context, string, string) (*models.AllowedSender, error) {
-	return nil, store.ErrNotFound
-}
-func (s *stubStore) WithTx(_ context.Context, fn func(store.Store) error) error { return fn(s) }
-func (s *stubStore) Close() error                                               { return nil }
-
-// --- stub contract tests ---
-
-func TestStubStore_GetTask_ReturnsErrNotFound(t *testing.T) {
-	s := &stubStore{tasks: map[string]*models.Task{}}
-	_, err := s.GetTask(context.Background(), "nonexistent")
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("expected store.ErrNotFound, got %v", err)
-	}
-}
-
-func TestStubStore_GetAllowedSender_ReturnsErrNotFound(t *testing.T) {
-	s := &stubStore{tasks: map[string]*models.Task{}}
-	_, err := s.GetAllowedSender(context.Background(), "sms", "+10000000000")
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("expected store.ErrNotFound, got %v", err)
-	}
-}
-
-func TestStubStore_GetInstance_ReturnsErrNotFound(t *testing.T) {
-	s := &stubStore{tasks: map[string]*models.Task{}}
-	_, err := s.GetInstance(context.Background(), "nonexistent")
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("expected store.ErrNotFound, got %v", err)
-	}
+func (m *failingMessenger) Send(context.Context, messaging.OutboundMessage) error {
+	return m.err
 }
 
 // --- tests ---
 
-func TestMessagingNotifier_DelegatesToInner(t *testing.T) {
-	inner := &recordingNotifier{}
+func TestMessagingNotifier_SendsSMSFromEventReplyChannel(t *testing.T) {
 	m := &recordingMessenger{}
-	s := &stubStore{tasks: map[string]*models.Task{}}
+	mn := NewMessagingNotifier(m, nil)
 
-	mn := NewMessagingNotifier(inner, m, s, nil)
-	event := Event{Type: EventTaskCompleted, TaskID: "bf_123", Timestamp: time.Now()}
-	mn.Notify(event)
-
-	if len(inner.events) != 1 {
-		t.Fatalf("expected inner to receive 1 event, got %d", len(inner.events))
+	event := Event{
+		Type:         EventTaskCompleted,
+		TaskID:       "bf_123",
+		ReplyChannel: "sms:+15551234567",
+		PRURL:        "https://github.com/org/repo/pull/42",
+		Timestamp:    time.Now(),
 	}
-	if inner.events[0].TaskID != "bf_123" {
-		t.Errorf("inner event task_id = %q", inner.events[0].TaskID)
+	err := mn.Notify(event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestMessagingNotifier_PropagatesInnerError(t *testing.T) {
-	inner := &failingNotifier{err: errors.New("webhook failed")}
-	m := &recordingMessenger{}
-	s := &stubStore{tasks: map[string]*models.Task{}}
-
-	mn := NewMessagingNotifier(inner, m, s, nil)
-	err := mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_123", Timestamp: time.Now()})
-	if err == nil {
-		t.Fatal("expected inner error to be returned")
-	}
-	if err.Error() != "webhook failed" {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestMessagingNotifier_SendsSMSForReplyChannel(t *testing.T) {
-	inner := &recordingNotifier{}
-	m := &recordingMessenger{}
-	s := &stubStore{tasks: map[string]*models.Task{
-		"bf_123": {
-			ID:           "bf_123",
-			ReplyChannel: "sms:+15551234567",
-		},
-	}}
-
-	mn := NewMessagingNotifier(inner, m, s, nil)
-	event := Event{Type: EventTaskCompleted, TaskID: "bf_123", PRURL: "https://github.com/org/repo/pull/42", Timestamp: time.Now()}
-	mn.Notify(event)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -186,51 +65,60 @@ func TestMessagingNotifier_SendsSMSForReplyChannel(t *testing.T) {
 }
 
 func TestMessagingNotifier_SkipsWithoutReplyChannel(t *testing.T) {
-	inner := &recordingNotifier{}
 	m := &recordingMessenger{}
-	s := &stubStore{tasks: map[string]*models.Task{
-		"bf_456": {ID: "bf_456", ReplyChannel: ""},
-	}}
+	mn := NewMessagingNotifier(m, nil)
 
-	mn := NewMessagingNotifier(inner, m, s, nil)
 	mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_456", Timestamp: time.Now()})
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.messages) != 0 {
-		t.Fatalf("expected no SMS for task without reply channel, got %d", len(m.messages))
+		t.Fatalf("expected no SMS for event without reply channel, got %d", len(m.messages))
 	}
 }
 
 func TestMessagingNotifier_EventFilter(t *testing.T) {
-	inner := &recordingNotifier{}
 	m := &recordingMessenger{}
-	s := &stubStore{tasks: map[string]*models.Task{
-		"bf_789": {ID: "bf_789", ReplyChannel: "sms:+15551234567"},
-	}}
-
-	// Only send SMS for task.failed events
-	mn := NewMessagingNotifier(inner, m, s, []string{"task.failed"})
+	mn := NewMessagingNotifier(m, []string{"task.failed"})
 
 	// task.completed should not trigger SMS
-	mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_789", Timestamp: time.Now()})
+	mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_789", ReplyChannel: "sms:+15551234567", Timestamp: time.Now()})
 	m.mu.Lock()
 	if len(m.messages) != 0 {
 		t.Fatalf("expected no SMS for filtered event, got %d", len(m.messages))
 	}
 	m.mu.Unlock()
 
-	// But inner notifier should still have been called
-	if len(inner.events) != 1 {
-		t.Fatalf("inner should always be called, got %d events", len(inner.events))
-	}
-
 	// task.failed should trigger SMS
-	mn.Notify(Event{Type: EventTaskFailed, TaskID: "bf_789", Message: "something broke", Timestamp: time.Now()})
+	mn.Notify(Event{Type: EventTaskFailed, TaskID: "bf_789", ReplyChannel: "sms:+15551234567", Message: "something broke", Timestamp: time.Now()})
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.messages) != 1 {
 		t.Fatalf("expected 1 SMS for matching event, got %d", len(m.messages))
+	}
+}
+
+func TestMessagingNotifier_ErrorDoesNotPropagate(t *testing.T) {
+	m := &failingMessenger{err: errors.New("twilio down")}
+	mn := NewMessagingNotifier(m, nil)
+
+	err := mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_err", ReplyChannel: "sms:+15551234567", Timestamp: time.Now()})
+	if err != nil {
+		t.Fatalf("messenger error should not propagate, got: %v", err)
+	}
+}
+
+func TestMessagingNotifier_InvalidReplyChannelSkips(t *testing.T) {
+	m := &recordingMessenger{}
+	mn := NewMessagingNotifier(m, nil)
+
+	// "sms" without address should be skipped
+	mn.Notify(Event{Type: EventTaskCompleted, TaskID: "bf_bad", ReplyChannel: "sms", Timestamp: time.Now()})
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.messages) != 0 {
+		t.Fatalf("expected no SMS for invalid reply channel, got %d", len(m.messages))
 	}
 }
 

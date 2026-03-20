@@ -62,7 +62,7 @@ PRs are created by default. Use `--no-pr` to skip.
 
 # With options
 ./scripts/create-task.sh https://github.com/org/repo "Add unit tests" \
-  --pr-title "Add tests" --budget 15 --model claude-opus-4-6 \
+  --pr-title "Add tests" --budget 15 --model claude-sonnet-4-6 \
   --branch my-feature --target-branch develop \
   --context "Focus on the auth module" \
   --claude-md "Always use table-driven tests" \
@@ -136,7 +136,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `prompt` | string | **Required for code mode.** Agent instructions |
 | `task_mode` | string | `code` (default) or `review` |
 | `harness` | string | `claude_code` (default) or `codex` |
-| `model` | string | Model override (default: `claude-opus-4-6` / `gpt-5.4` for codex) |
+| `model` | string | Model override (default: `claude-sonnet-4-6` / `gpt-5.4` for codex) |
 | `effort` | string | `low`, `medium`, `high` (default), or `xhigh` |
 | `branch` | string | Working branch name |
 | `target_branch` | string | Target branch (default: main) |
@@ -254,7 +254,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | `claude_code` or `codex` |
-| `BACKFLOW_DEFAULT_MODEL` | `claude-opus-4-6` | Default model for Claude Code |
+| `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex |
 | `BACKFLOW_DEFAULT_EFFORT` | `high` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Budget cap (USD) |

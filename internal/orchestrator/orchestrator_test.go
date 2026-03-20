@@ -11,7 +11,9 @@ func TestInitLocalMode_DBError_DoesNotCreateInstance(t *testing.T) {
 	ms := newMockStore()
 	ms.getInstanceErr = fmt.Errorf("disk I/O error")
 
-	o := newTestOrchestrator(ms, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(ms, bus)
 	o.initLocalMode(ms, o.config)
 
 	// On a real DB error, initLocalMode should bail out — not create an instance.
@@ -30,7 +32,9 @@ func TestInitEC2Mode_DBError_DoesNotTerminateLocalInstance(t *testing.T) {
 	// Inject a DB error so GetInstance fails.
 	ms.getInstanceErr = fmt.Errorf("disk I/O error")
 
-	o := newTestOrchestrator(ms, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(ms, bus)
 	o.initEC2Mode(ms, o.config, NewDockerManager(o.config))
 
 	// Should not have terminated the local instance — we couldn't confirm it exists.
@@ -43,7 +47,9 @@ func TestInitFargateMode_DBError_DoesNotCreateInstance(t *testing.T) {
 	ms := newMockStore()
 	ms.getInstanceErr = fmt.Errorf("disk I/O error")
 
-	o := newTestOrchestrator(ms, &mockNotifier{})
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(ms, bus)
 	o.config.MaxConcurrentTasks = 5
 	o.initFargateMode(ms, o.config)
 

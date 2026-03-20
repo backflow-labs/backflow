@@ -21,14 +21,14 @@ const maxInspectFailures = 3
 // Orchestrator manages the lifecycle of tasks: dispatching them to instances,
 // monitoring their containers, handling completions, and recovering from restarts.
 type Orchestrator struct {
-	store    store.Store
-	config   *config.Config
-	notifier notify.Notifier
-	ec2      *EC2Manager
-	docker   dockerClient
-	scaler   scaler
-	spot     *SpotHandler
-	s3       s3Client
+	store  store.Store
+	config *config.Config
+	bus    *notify.EventBus
+	ec2    *EC2Manager
+	docker dockerClient
+	scaler scaler
+	spot   *SpotHandler
+	s3     s3Client
 
 	mu              sync.Mutex
 	running         int
@@ -36,11 +36,11 @@ type Orchestrator struct {
 	inspectFailures map[string]int // task ID -> consecutive inspect failure count
 }
 
-func New(s store.Store, cfg *config.Config, notifier notify.Notifier, s3 s3Client) *Orchestrator {
+func New(s store.Store, cfg *config.Config, bus *notify.EventBus, s3 s3Client) *Orchestrator {
 	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
-		notifier:        notifier,
+		bus:             bus,
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
 		s3:              s3,

@@ -40,7 +40,7 @@ RUN git config --global user.name "backflow-agent" \
     && git config --global user.email "backflow-agent@noreply.github.com" \
     && git config --global init.defaultBranch main
 
-COPY --chown=agent:agent entrypoint.sh /home/agent/entrypoint.sh
+COPY --chown=agent:agent entrypoint.sh status_writer.sh /home/agent/
 RUN chmod +x /home/agent/entrypoint.sh
 
 ENTRYPOINT ["/home/agent/entrypoint.sh"]

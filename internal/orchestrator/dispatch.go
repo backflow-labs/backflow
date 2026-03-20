@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -39,14 +38,7 @@ func (o *Orchestrator) dispatchPending(ctx context.Context) {
 		if err := o.dispatch(ctx, task); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("failed to dispatch task")
 			o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusFailed, err.Error())
-			o.notifier.Notify(notify.Event{
-				Type:      notify.EventTaskFailed,
-				TaskID:    task.ID,
-				RepoURL:   task.RepoURL,
-				Prompt:    task.Prompt,
-				Message:   "Failed to dispatch: " + err.Error(),
-				Timestamp: time.Now().UTC(),
-			})
+			o.bus.Emit(notify.NewEvent(notify.EventTaskFailed, task, notify.WithContainerStatus("", "Failed to dispatch: "+err.Error(), "")))
 			continue
 		}
 	}
@@ -81,13 +73,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
 
 	o.incrementRunning()
 
-	o.notifier.Notify(notify.Event{
-		Type:      notify.EventTaskRunning,
-		TaskID:    task.ID,
-		RepoURL:   task.RepoURL,
-		Prompt:    task.Prompt,
-		Timestamp: time.Now().UTC(),
-	})
+	o.bus.Emit(notify.NewEvent(notify.EventTaskRunning, task))
 
 	log.Info().Str("task_id", task.ID).Str("container", containerID).Str("instance", instance.InstanceID).Msg("task dispatched")
 	return nil

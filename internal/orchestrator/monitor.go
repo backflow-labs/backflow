@@ -121,39 +121,15 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	switch {
 	case status.Complete || (status.ExitCode == 0 && !status.NeedsInput):
 		result.Status = models.TaskStatusCompleted
-		o.notifier.Notify(notify.Event{
-			Type:         notify.EventTaskCompleted,
-			TaskID:       task.ID,
-			RepoURL:      task.RepoURL,
-			Prompt:       task.Prompt,
-			PRURL:        status.PRURL,
-			AgentLogTail: status.LogTail,
-			Timestamp:    now,
-		})
+		o.bus.Emit(notify.NewEvent(notify.EventTaskCompleted, task, notify.WithContainerStatus(status.PRURL, "", status.LogTail)))
 	case status.NeedsInput:
 		result.Status = models.TaskStatusFailed
 		result.Error = "agent needs input"
-		o.notifier.Notify(notify.Event{
-			Type:         notify.EventTaskNeedsInput,
-			TaskID:       task.ID,
-			RepoURL:      task.RepoURL,
-			Prompt:       task.Prompt,
-			Message:      status.Question,
-			AgentLogTail: status.LogTail,
-			Timestamp:    now,
-		})
+		o.bus.Emit(notify.NewEvent(notify.EventTaskNeedsInput, task, notify.WithContainerStatus("", status.Question, status.LogTail)))
 	default:
 		result.Status = models.TaskStatusFailed
 		result.Error = status.Error
-		o.notifier.Notify(notify.Event{
-			Type:         notify.EventTaskFailed,
-			TaskID:       task.ID,
-			RepoURL:      task.RepoURL,
-			Prompt:       task.Prompt,
-			Message:      status.Error,
-			AgentLogTail: status.LogTail,
-			Timestamp:    now,
-		})
+		o.bus.Emit(notify.NewEvent(notify.EventTaskFailed, task, notify.WithContainerStatus("", status.Error, status.LogTail)))
 	}
 
 	o.store.CompleteTask(ctx, task.ID, result)
@@ -291,14 +267,7 @@ func (o *Orchestrator) killTask(ctx context.Context, task *models.Task, reason s
 
 	o.releaseSlot(ctx, task)
 
-	o.notifier.Notify(notify.Event{
-		Type:      notify.EventTaskFailed,
-		TaskID:    task.ID,
-		RepoURL:   task.RepoURL,
-		Prompt:    task.Prompt,
-		Message:   reason,
-		Timestamp: time.Now().UTC(),
-	})
+	o.bus.Emit(notify.NewEvent(notify.EventTaskFailed, task, notify.WithContainerStatus("", reason, "")))
 }
 
 // requeueTask resets a running task back to pending so it will be dispatched

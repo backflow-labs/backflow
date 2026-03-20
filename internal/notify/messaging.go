@@ -9,23 +9,18 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/messaging"
-	"github.com/backflow-labs/backflow/internal/store"
 )
 
-// MessagingNotifier wraps an inner Notifier and additionally sends SMS
-// notifications to task creators who submitted via messaging.
+// MessagingNotifier sends SMS notifications to task creators who submitted
+// via messaging. It reads the reply channel directly from the Event.
 type MessagingNotifier struct {
-	inner     Notifier
 	messenger messaging.Messenger
-	store     store.Store
 	events    map[EventType]bool // nil = send all events
 }
 
-func NewMessagingNotifier(inner Notifier, m messaging.Messenger, s store.Store, filterEvents []string) *MessagingNotifier {
+func NewMessagingNotifier(m messaging.Messenger, filterEvents []string) *MessagingNotifier {
 	mn := &MessagingNotifier{
-		inner:     inner,
 		messenger: m,
-		store:     s,
 	}
 	if len(filterEvents) > 0 {
 		mn.events = make(map[EventType]bool, len(filterEvents))
@@ -37,30 +32,19 @@ func NewMessagingNotifier(inner Notifier, m messaging.Messenger, s store.Store, 
 }
 
 func (m *MessagingNotifier) Notify(event Event) error {
-	// Always delegate to inner notifier first
-	innerErr := m.inner.Notify(event)
-	if innerErr != nil {
-		log.Warn().Err(innerErr).Str("event", string(event.Type)).Msg("inner notifier failed")
-	}
-
 	// Check event filter
 	if m.events != nil && !m.events[event.Type] {
-		return innerErr
+		return nil
 	}
 
-	// Look up task to get reply channel
-	task, err := m.store.GetTask(context.Background(), event.TaskID)
-	if err != nil || task == nil {
-		return innerErr
-	}
-	if task.ReplyChannel == "" {
-		return innerErr
+	if event.ReplyChannel == "" {
+		return nil
 	}
 
-	channel, err := parseReplyChannel(task.ReplyChannel)
+	channel, err := parseReplyChannel(event.ReplyChannel)
 	if err != nil {
-		log.Warn().Err(err).Str("reply_channel", task.ReplyChannel).Msg("invalid reply channel")
-		return innerErr
+		log.Warn().Err(err).Str("reply_channel", event.ReplyChannel).Msg("invalid reply channel")
+		return nil
 	}
 
 	body := formatEventMessage(event)
@@ -73,11 +57,11 @@ func (m *MessagingNotifier) Notify(event Event) error {
 		Body:    body,
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", event.TaskID).Msg("failed to send messaging notification")
-		return innerErr
+		return nil
 	}
 
 	log.Debug().Str("task_id", event.TaskID).Str("event", string(event.Type)).Msg("messaging notification sent")
-	return innerErr
+	return nil
 }
 
 // parseReplyChannel converts "sms:+15551234567" into a Channel.

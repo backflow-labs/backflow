@@ -19,6 +19,8 @@ import (
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
+const eventBusShutdownTimeout = 10 * time.Second
+
 func main() {
 	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
 		With().Timestamp().Caller().Logger()
@@ -34,12 +36,12 @@ func main() {
 	}
 	defer db.Close()
 
-	var notifier notify.Notifier
+	// Create event bus and subscribe notification channels
+	bus := notify.NewEventBus()
+
 	if cfg.WebhookURL != "" {
-		notifier = notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents)
+		bus.Subscribe(notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents))
 		log.Info().Str("url", cfg.WebhookURL).Msg("webhook notifications enabled")
-	} else {
-		notifier = notify.NoopNotifier{}
 	}
 
 	// Initialize messaging
@@ -53,7 +55,7 @@ func main() {
 	}
 
 	if cfg.SMSProvider != "" {
-		notifier = notify.NewMessagingNotifier(notifier, messenger, db, cfg.SMSEvents)
+		bus.Subscribe(notify.NewMessagingNotifier(messenger, cfg.SMSEvents))
 	}
 
 	s3Uploader, err := orchestrator.NewS3Uploader(context.Background(), cfg)
@@ -64,7 +66,7 @@ func main() {
 		log.Info().Str("bucket", cfg.S3Bucket).Msg("S3 storage enabled")
 	}
 
-	orch := orchestrator.New(db, cfg, notifier, s3Uploader)
+	orch := orchestrator.New(db, cfg, bus, s3Uploader)
 
 	router := api.NewServer(db, cfg, orch.Docker())
 
@@ -104,6 +106,9 @@ func main() {
 	log.Info().Msg("shutting down...")
 	cancel()
 	orch.Stop()
+	if err := bus.CloseWithTimeout(eventBusShutdownTimeout); err != nil {
+		log.Warn().Err(err).Dur("timeout", eventBusShutdownTimeout).Msg("event bus did not drain before shutdown timeout")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()

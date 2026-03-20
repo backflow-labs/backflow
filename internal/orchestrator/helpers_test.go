@@ -360,9 +360,18 @@ func (m *mockS3Client) PresignGetURL(_ context.Context, key string, _ time.Durat
 	return fmt.Sprintf("https://test-bucket.s3.amazonaws.com/%s?presigned", key), nil
 }
 
+// newTestBus creates an EventBus with a mockNotifier subscribed.
+// Call bus.Close() before reading events from the notifier.
+func newTestBus() (*notify.EventBus, *mockNotifier) {
+	bus := notify.NewEventBus()
+	n := &mockNotifier{}
+	bus.Subscribe(n)
+	return bus, n
+}
+
 // --- Test orchestrator constructor ---
 
-func newTestOrchestrator(s store.Store, n notify.Notifier, opts ...func(*Orchestrator)) *Orchestrator {
+func newTestOrchestrator(s store.Store, bus *notify.EventBus, opts ...func(*Orchestrator)) *Orchestrator {
 	cfg := &config.Config{
 		Mode:              config.ModeLocal,
 		AuthMode:          config.AuthModeAPIKey,
@@ -372,7 +381,7 @@ func newTestOrchestrator(s store.Store, n notify.Notifier, opts ...func(*Orchest
 	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
-		notifier:        n,
+		bus:             bus,
 		docker:          NewDockerManager(cfg),
 		scaler:          localScaler{},
 		stopCh:          make(chan struct{}),
