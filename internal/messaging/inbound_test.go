@@ -81,9 +81,9 @@ func (m *mockStore) Close() error                                               
 
 func newTestConfig() *config.Config {
 	return &config.Config{
-		DefaultHarness: "claude_code",
-		DefaultModel:   "claude-sonnet-4-6",
-		DefaultEffort:  "high",
+		DefaultHarness:     "claude_code",
+		DefaultClaudeModel: "claude-sonnet-4-6",
+		DefaultEffort:      "high",
 	}
 }
 

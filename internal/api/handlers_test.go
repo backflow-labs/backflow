@@ -94,15 +94,15 @@ func testServer(t *testing.T) http.Handler {
 	t.Cleanup(func() { s.Close() })
 
 	cfg := &config.Config{
-		AuthMode:          config.AuthModeAPIKey,
-		AnthropicAPIKey:   "sk-test",
-		DefaultHarness:    "claude_code",
-		DefaultModel:      "claude-sonnet-4-6",
-		DefaultCodexModel: "gpt-5.4",
-		DefaultEffort:     "high",
-		DefaultMaxBudget:  10.0,
-		DefaultMaxRuntime: 30 * 60e9, // 30 min
-		DefaultMaxTurns:   200,
+		AuthMode:           config.AuthModeAPIKey,
+		AnthropicAPIKey:    "sk-test",
+		DefaultHarness:     "claude_code",
+		DefaultClaudeModel: "claude-sonnet-4-6",
+		DefaultCodexModel:  "gpt-5.4",
+		DefaultEffort:      "high",
+		DefaultMaxBudget:   10.0,
+		DefaultMaxRuntime:  30 * 60e9, // 30 min
+		DefaultMaxTurns:    200,
 	}
 
 	return NewServer(s, cfg, noopLogFetcher{})

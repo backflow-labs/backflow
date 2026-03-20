@@ -30,8 +30,8 @@ func TestLoad_DefaultModel(t *testing.T) {
 		t.Fatalf("Load() returned error: %v", err)
 	}
 
-	if cfg.DefaultModel != "claude-sonnet-4-6" {
-		t.Errorf("DefaultModel = %q, want claude-sonnet-4-6", cfg.DefaultModel)
+	if cfg.DefaultClaudeModel != "claude-sonnet-4-6" {
+		t.Errorf("DefaultClaudeModel = %q, want claude-sonnet-4-6", cfg.DefaultClaudeModel)
 	}
 	if cfg.SlackEvents != nil {
 		t.Errorf("SlackEvents = %#v, want nil when unset", cfg.SlackEvents)

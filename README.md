@@ -254,7 +254,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | `claude_code` or `codex` |
-| `BACKFLOW_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
+| `BACKFLOW_DEFAULT_CLAUDE_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4` | Default model for Codex |
 | `BACKFLOW_DEFAULT_EFFORT` | `high` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Budget cap (USD) |
