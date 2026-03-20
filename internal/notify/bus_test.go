@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -296,4 +297,48 @@ func TestEventBus_NoSubscribers(t *testing.T) {
 	}
 
 	bus.Close()
+}
+
+func TestEventBus_CloseWithTimeout(t *testing.T) {
+	bus := NewEventBus()
+
+	blocker := &blockingNotifier{
+		started: make(chan struct{}, 1),
+		unblock: make(chan struct{}),
+	}
+	bus.Subscribe(blocker)
+
+	bus.Emit(Event{Type: EventTaskRunning, TaskID: "bf_timeout", Timestamp: time.Now()})
+	<-blocker.started
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- bus.CloseWithTimeout(50 * time.Millisecond)
+	}()
+
+	var err error
+	select {
+	case err = <-errCh:
+	case <-time.After(time.Second):
+		t.Fatal("CloseWithTimeout blocked past its timeout")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseWithTimeout error = %v, want DeadlineExceeded", err)
+	}
+
+	close(blocker.unblock)
+
+	doneCh := make(chan error, 1)
+	go func() {
+		doneCh <- bus.CloseWithTimeout(time.Second)
+	}()
+
+	select {
+	case err = <-doneCh:
+	case <-time.After(time.Second):
+		t.Fatal("CloseWithTimeout did not finish after subscriber unblocked")
+	}
+	if err != nil {
+		t.Fatalf("CloseWithTimeout after unblock = %v, want nil", err)
+	}
 }

@@ -1,8 +1,11 @@
 package notify
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -66,8 +69,39 @@ func (b *EventBus) Close() {
 		b.closed.Store(true)
 		close(b.ch)
 		b.emitMu.Unlock()
-		<-b.done
 	})
+	<-b.done
+}
+
+// CloseWithTimeout stops the bus and waits up to timeout for pending events
+// to be delivered before returning. The bus remains closed even if the wait
+// times out, so delivery can finish in the background.
+func (b *EventBus) CloseWithTimeout(timeout time.Duration) error {
+	b.closeOnce.Do(func() {
+		b.emitMu.Lock()
+		b.closed.Store(true)
+		close(b.ch)
+		b.emitMu.Unlock()
+	})
+
+	if timeout <= 0 {
+		select {
+		case <-b.done:
+			return nil
+		default:
+			return fmt.Errorf("event bus close timed out after %s: %w", timeout, context.DeadlineExceeded)
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-b.done:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("event bus close timed out after %s: %w", timeout, context.DeadlineExceeded)
+	}
 }
 
 func (b *EventBus) deliver() {

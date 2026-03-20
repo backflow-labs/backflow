@@ -19,6 +19,8 @@ import (
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
+const eventBusShutdownTimeout = 10 * time.Second
+
 func main() {
 	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
 		With().Timestamp().Caller().Logger()
@@ -104,7 +106,9 @@ func main() {
 	log.Info().Msg("shutting down...")
 	cancel()
 	orch.Stop()
-	bus.Close()
+	if err := bus.CloseWithTimeout(eventBusShutdownTimeout); err != nil {
+		log.Warn().Err(err).Dur("timeout", eventBusShutdownTimeout).Msg("event bus did not drain before shutdown timeout")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
