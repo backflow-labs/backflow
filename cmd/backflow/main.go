@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,8 +26,22 @@ import (
 const eventBusShutdownTimeout = 10 * time.Second
 
 func main() {
-	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
-		With().Timestamp().Caller().Logger()
+	if err := os.MkdirAll("logs", 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create logs directory: %v\n", err)
+		os.Exit(1)
+	}
+	logFileName := fmt.Sprintf("logs/server_%s.log", time.Now().Format("20060102_150405"))
+	logFile, err := os.Create(logFileName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create log file: %v\n", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+
+	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+	multi := io.MultiWriter(consoleWriter, logFile)
+	log.Logger = zerolog.New(multi).With().Timestamp().Caller().Logger()
+	log.Info().Str("log_file", logFileName).Msg("logging to file")
 
 	cfg, err := config.Load()
 	if err != nil {
