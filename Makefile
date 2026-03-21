@@ -1,6 +1,6 @@
 .PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint \
        db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
-       setup-aws deps tunnel test-docker-status-writer
+       setup-aws deps tunnel cloudflared-setup test-docker-status-writer
 
 BINARY := backflow
 PKG := github.com/backflow-labs/backflow
@@ -93,9 +93,14 @@ setup-aws:
 	@$(ENV); bash scripts/setup-aws.sh
 
 tunnel:
-	@echo "Starting cloudflared tunnel → http://localhost:8080"
-	@echo "Set the printed URL as your Twilio inbound webhook: <url>/webhooks/sms/inbound"
-	cloudflared tunnel --url http://localhost:8080
+	@$(ENV); \
+	echo "Starting cloudflared tunnel → $$BACKFLOW_DOMAIN → http://localhost:8080"; \
+	echo "Discord interactions endpoint: https://$$BACKFLOW_DOMAIN/webhooks/discord"; \
+	echo "SMS inbound webhook:           https://$$BACKFLOW_DOMAIN/webhooks/sms/inbound"; \
+	cloudflared tunnel run $$BACKFLOW_TUNNEL_NAME
+
+cloudflared-setup:
+	@$(ENV); bash scripts/cloudflared-setup.sh
 
 deps:
 	go mod tidy

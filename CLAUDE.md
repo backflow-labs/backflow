@@ -13,7 +13,8 @@ make test               # go test ./... -v -count=1
 make lint               # go vet ./...
 make deps               # go mod tidy
 make clean              # Remove bin/ directory
-make tunnel             # Start cloudflared tunnel → localhost:8080 (for Twilio webhooks)
+make cloudflared-setup  # Create cloudflared tunnel, DNS route, and config (one-time)
+make tunnel             # Start cloudflared tunnel → $BACKFLOW_DOMAIN → localhost:8080
 make db-running         # Show running tasks (also: db-pending, db-completed, db-failed, etc.)
 make docker-build       # Buildx multi-platform (amd64+arm64) image
 make docker-build-local # Single-architecture build
