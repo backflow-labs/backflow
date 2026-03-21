@@ -13,7 +13,8 @@ make test               # go test ./... -v -count=1
 make lint               # go vet ./...
 make deps               # go mod tidy
 make clean              # Remove bin/ directory
-make tunnel             # Start cloudflared tunnel → localhost:8080 (for Twilio webhooks)
+make cloudflared-setup  # Create cloudflared tunnel, DNS route, and config (one-time)
+make tunnel             # Start cloudflared tunnel → $BACKFLOW_DOMAIN → localhost:8080
 make db-running         # Show running tasks (also: db-pending, db-completed, db-failed, etc.)
 make docker-build       # Buildx multi-platform (amd64+arm64) image
 make docker-build-local # Single-architecture build
@@ -41,15 +42,17 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - `GET /tasks/{id}` — Get task
 - `DELETE /tasks/{id}` — Cancel task (sets status to `cancelled`)
 - `GET /tasks/{id}/logs` — Stream container logs
+- `POST /webhooks/discord` — Discord interaction endpoint (signature-verified)
 
 ### Key modules (`internal/`)
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
 - **orchestrator/** — Poll loop (`orchestrator.go`), EC2 scaling (`ec2.go`, `scaler.go`), Docker via SSM (`docker.go`), Fargate ECS/CloudWatch runner (`fargate.go`), spot interruption handling (`spot.go`), local mode (`local.go`)
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
-- **models/** — `Task`, `Instance`, and `AllowedSender` structs with status enums
+- **models/** — `Task`, `Instance`, `AllowedSender`, and `DiscordInstall` structs with status enums
+- **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing)
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`)
-- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
+- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (stub, event filtering, logs only), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 
 ### Agent container (`docker/`)
@@ -65,16 +68,31 @@ Node.js 20 image with Claude Code CLI + git + gh. `entrypoint.sh`: clone → che
 
 `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
 
-### Slack / Discord notification stubs
+### Discord integration
 
-The config loader also reads these placeholder notification env vars for future subscribers:
+When `BACKFLOW_DISCORD_APP_ID` is set, Backflow enables the Discord integration:
+
+Required env vars:
+
+- `BACKFLOW_DISCORD_APP_ID` — Discord application ID
+- `BACKFLOW_DISCORD_PUBLIC_KEY` — Ed25519 public key for interaction verification
+- `BACKFLOW_DISCORD_BOT_TOKEN` — Bot token for API calls
+- `BACKFLOW_DISCORD_GUILD_ID` — Target server ID
+- `BACKFLOW_DISCORD_CHANNEL_ID` — Target channel ID
+
+Optional env vars:
+
+- `BACKFLOW_DISCORD_ALLOWED_ROLES` (comma-separated role IDs for mutation authorization)
+- `BACKFLOW_DISCORD_EVENTS` (comma-separated event filter; nil = all events)
+
+At startup, Backflow persists the install config to the `discord_installs` table, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` stub to the event bus. Actual Discord message delivery will be implemented in a future issue.
+
+### Slack notification stub
 
 - `BACKFLOW_SLACK_WEBHOOK_URL`
 - `BACKFLOW_SLACK_EVENTS` (comma-separated event filter)
-- `BACKFLOW_DISCORD_WEBHOOK_URL`
-- `BACKFLOW_DISCORD_EVENTS` (comma-separated event filter)
 
-If either webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
+If the Slack webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
 
 ## Harnesses
 
@@ -147,6 +165,7 @@ Create new migrations in `migrations/` with the next numeric prefix, `-- +goose 
 
 Additional docs in `docs/`:
 - `schema.md` — Database schema (tables, columns, indexes, status lifecycles)
+- `discord-setup.md` — Discord bot creation, server install, and Backflow configuration
 - `sms-setup.md` — Twilio SMS setup and allowed sender configuration
 - `sizing.md` — EC2 instance sizing and container density guide
 - `setup-ci.md` — GitHub Actions CI/CD setup for agent image builds

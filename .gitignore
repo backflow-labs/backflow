@@ -7,3 +7,4 @@ bin/
 mise.toml
 .backflow/
 .claude/worktrees/
+logs/

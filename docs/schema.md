@@ -110,6 +110,19 @@ pending → running → draining → terminated
                   → terminated
 ```
 
+### `discord_installs`
+
+Stores Discord bot installation state per guild. Seeded from config at startup; survives restarts.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `guild_id` | `TEXT` | — | **Primary key.** Discord server (guild) ID. |
+| `app_id` | `TEXT` | — | Discord application ID. |
+| `channel_id` | `TEXT` | — | Target channel for notifications. |
+| `allowed_roles` | `JSONB` | `'[]'` | Role IDs authorized for mutation commands. |
+| `installed_at` | `TIMESTAMPTZ` | `now()` | When the install record was first created. |
+| `updated_at` | `TIMESTAMPTZ` | `now()` | Last config update. |
+
 ## Notes
 
 - All timestamps use `TIMESTAMPTZ` and default to `now()`. Nullable timestamps (`started_at`, `completed_at`) are NULL until set.

@@ -87,11 +87,18 @@ type Config struct {
 	SMSFromNumber    string
 	SMSEvents        []string
 
-	// Slack / Discord (subscriber implementations are out of scope)
-	SlackWebhookURL   string
-	DiscordWebhookURL string
-	SlackEvents       []string
-	DiscordEvents     []string
+	// Slack (subscriber implementation is out of scope)
+	SlackWebhookURL string
+	SlackEvents     []string
+
+	// Discord
+	DiscordAppID        string
+	DiscordPublicKey    string
+	DiscordBotToken     string
+	DiscordGuildID      string
+	DiscordChannelID    string
+	DiscordAllowedRoles []string
+	DiscordEvents       []string
 
 	// S3 (task data: agent output, offloaded config for large prompts)
 	S3Bucket string
@@ -102,6 +109,8 @@ type Config struct {
 	// Orchestrator
 	PollInterval time.Duration
 }
+
+func (c *Config) DiscordEnabled() bool { return c.DiscordAppID != "" }
 
 func (c *Config) MaxConcurrent() int {
 	if c.Mode == ModeFargate {
@@ -153,8 +162,13 @@ func Load() (*Config, error) {
 		GitHubToken:           os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:            os.Getenv("BACKFLOW_WEBHOOK_URL"),
 		SlackWebhookURL:       os.Getenv("BACKFLOW_SLACK_WEBHOOK_URL"),
-		DiscordWebhookURL:     os.Getenv("BACKFLOW_DISCORD_WEBHOOK_URL"),
 		SlackEvents:           envCSV("BACKFLOW_SLACK_EVENTS"),
+		DiscordAppID:          os.Getenv("BACKFLOW_DISCORD_APP_ID"),
+		DiscordPublicKey:      os.Getenv("BACKFLOW_DISCORD_PUBLIC_KEY"),
+		DiscordBotToken:       os.Getenv("BACKFLOW_DISCORD_BOT_TOKEN"),
+		DiscordGuildID:        os.Getenv("BACKFLOW_DISCORD_GUILD_ID"),
+		DiscordChannelID:      os.Getenv("BACKFLOW_DISCORD_CHANNEL_ID"),
+		DiscordAllowedRoles:   envCSV("BACKFLOW_DISCORD_ALLOWED_ROLES"),
 		DiscordEvents:         envCSV("BACKFLOW_DISCORD_EVENTS"),
 		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
@@ -223,6 +237,19 @@ func Load() (*Config, error) {
 			}
 		default:
 			return nil, fmt.Errorf("invalid BACKFLOW_SMS_PROVIDER: %q (must be %q)", c.SMSProvider, "twilio")
+		}
+	}
+
+	if c.DiscordAppID != "" {
+		switch {
+		case c.DiscordPublicKey == "":
+			return nil, fmt.Errorf("BACKFLOW_DISCORD_PUBLIC_KEY is required when BACKFLOW_DISCORD_APP_ID is set")
+		case c.DiscordBotToken == "":
+			return nil, fmt.Errorf("BACKFLOW_DISCORD_BOT_TOKEN is required when BACKFLOW_DISCORD_APP_ID is set")
+		case c.DiscordGuildID == "":
+			return nil, fmt.Errorf("BACKFLOW_DISCORD_GUILD_ID is required when BACKFLOW_DISCORD_APP_ID is set")
+		case c.DiscordChannelID == "":
+			return nil, fmt.Errorf("BACKFLOW_DISCORD_CHANNEL_ID is required when BACKFLOW_DISCORD_APP_ID is set")
 		}
 	}
 

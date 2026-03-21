@@ -60,6 +60,11 @@ type Store interface {
 	GetAllowedSender(ctx context.Context, channelType, address string) (*models.AllowedSender, error)
 	CreateAllowedSender(ctx context.Context, sender *models.AllowedSender) error
 
+	// Discord installs
+	UpsertDiscordInstall(ctx context.Context, install *models.DiscordInstall) error
+	GetDiscordInstall(ctx context.Context, guildID string) (*models.DiscordInstall, error)
+	DeleteDiscordInstall(ctx context.Context, guildID string) error
+
 	// Transactions
 	WithTx(ctx context.Context, fn func(Store) error) error
 

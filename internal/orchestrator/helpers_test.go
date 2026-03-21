@@ -253,6 +253,18 @@ func (s *mockStore) CreateAllowedSender(_ context.Context, sender *models.Allowe
 	return nil
 }
 
+func (s *mockStore) UpsertDiscordInstall(_ context.Context, _ *models.DiscordInstall) error {
+	return nil
+}
+
+func (s *mockStore) GetDiscordInstall(_ context.Context, _ string) (*models.DiscordInstall, error) {
+	return nil, store.ErrNotFound
+}
+
+func (s *mockStore) DeleteDiscordInstall(_ context.Context, _ string) error {
+	return nil
+}
+
 func (s *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error {
 	return fn(s)
 }
