@@ -85,7 +85,7 @@ func (o *Orchestrator) isTimedOut(task *models.Task) bool {
 // handleInspectError processes a container inspect failure, requeuing on instance
 // loss or killing the task after 3 consecutive failures.
 func (o *Orchestrator) handleInspectError(ctx context.Context, task *models.Task, err error) {
-	if isInstanceGone(err) {
+	if IsInstanceGone(err) {
 		log.Warn().Err(err).Str("task_id", task.ID).Str("instance", task.InstanceID).Msg("instance terminated, re-queuing task")
 		delete(o.inspectFailures, task.ID)
 		o.requeueTask(ctx, task, "instance terminated")
@@ -149,11 +149,10 @@ func (o *Orchestrator) saveAgentOutput(ctx context.Context, task *models.Task) {
 	var err error
 
 	// In Docker-based modes we can docker-cp the log file directly.
-	// In Fargate mode (or any non-DockerManager) we fall back to GetLogs.
-	if dm, ok := o.docker.(*DockerManager); ok {
-		cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/claude_output.log \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", task.ContainerID)
-		data, err = dm.runCommand(ctx, task.InstanceID, cmd)
-	} else {
+	// In Fargate mode RunCommand returns an error, so we fall back to GetLogs.
+	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/claude_output.log \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", task.ContainerID)
+	data, err = o.docker.RunCommand(ctx, task.InstanceID, cmd)
+	if err != nil {
 		data, err = o.docker.GetLogs(ctx, task.InstanceID, task.ContainerID, 0)
 	}
 	if err != nil {
