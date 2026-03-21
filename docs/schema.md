@@ -110,8 +110,6 @@ pending → running → draining → terminated
                   → terminated
 ```
 
-## Notes
-
 ### `discord_installs`
 
 Stores Discord bot installation state per guild. Seeded from config at startup; survives restarts.
@@ -124,8 +122,6 @@ Stores Discord bot installation state per guild. Seeded from config at startup; 
 | `allowed_roles` | `JSONB` | `'[]'` | Role IDs authorized for mutation commands. |
 | `installed_at` | `TIMESTAMPTZ` | `now()` | When the install record was first created. |
 | `updated_at` | `TIMESTAMPTZ` | `now()` | Last config update. |
-
----
 
 ## Notes
 

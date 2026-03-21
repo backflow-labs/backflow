@@ -43,7 +43,7 @@ func InteractionHandler(publicKey ed25519.PublicKey) http.HandlerFunc {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
 
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 		if err != nil {
 			log.Warn().Err(err).Msg("discord: failed to read request body")
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -97,7 +97,9 @@ func verifySignature(publicKey ed25519.PublicKey, signatureHex, timestamp string
 
 func respondJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Warn().Err(err).Msg("discord: failed to encode response")
+	}
 }
 
 // ParsePublicKey decodes a hex-encoded Ed25519 public key.

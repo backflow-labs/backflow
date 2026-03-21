@@ -23,7 +23,7 @@ make build          # Compile to bin/backflow
 make run            # Build + run (auto-sources .env, refreshes AWS creds if needed)
 make test           # Run all tests (no cache)
 make lint           # go vet
-make tunnel         # Start cloudflared tunnel (for Twilio webhooks)
+make tunnel         # Start cloudflared tunnel → $BACKFLOW_DOMAIN → localhost:8080
 make deps           # go mod tidy
 make clean          # Remove bin/
 ```
@@ -32,22 +32,18 @@ Single test: `go test ./internal/store/ -run TestCreateTask -v`
 
 Tests use [testcontainers](https://testcontainers.com/) to spin up ephemeral PostgreSQL instances — Docker must be running.
 
-### Local Tunnel (for SMS/webhooks)
+### Local Tunnel (for webhooks)
 
-To receive inbound Twilio webhooks during local development, expose your server with [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps):
+To receive inbound webhooks (Discord interactions, Twilio SMS) during local development, expose your server with a [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps) named tunnel:
 
 ```bash
 brew install cloudflared
-make tunnel
+# Set BACKFLOW_TUNNEL_NAME and BACKFLOW_DOMAIN in .env
+make cloudflared-setup   # One-time: create tunnel, DNS route, and config
+make tunnel              # Start the tunnel
 ```
 
-cloudflared prints a public URL like `https://random-words.trycloudflare.com`. Set this as the webhook URL in the Twilio Console:
-
-```
-https://random-words.trycloudflare.com/webhooks/sms/inbound
-```
-
-No account required. The URL changes each time you restart the tunnel. See [docs/sms-setup.md](docs/sms-setup.md) for full SMS configuration.
+This routes `https://$BACKFLOW_DOMAIN` to `localhost:8080`. Set the domain as the Discord Interactions Endpoint URL and Twilio webhook URL. See [docs/discord-setup.md](docs/discord-setup.md) and [docs/sms-setup.md](docs/sms-setup.md) for full configuration.
 
 ## Submitting Tasks
 
@@ -127,6 +123,8 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `DELETE` | `/api/v1/tasks/{id}` | Cancel a task |
 | `GET` | `/api/v1/tasks/{id}/logs` | Container logs (`?tail=100`) |
 | `GET` | `/api/v1/health` | Health check |
+| `POST` | `/webhooks/discord` | Discord interaction endpoint (signature-verified) |
+| `POST` | `/webhooks/sms/inbound` | Twilio inbound SMS webhook |
 
 ### Task Request Fields
 
@@ -135,7 +133,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `repo_url` | string | **Required.** Repository URL |
 | `prompt` | string | **Required for code mode.** Agent instructions |
 | `task_mode` | string | `code` (default) or `review` |
-| `harness` | string | `claude_code` (default) or `codex` |
+| `harness` | string | `codex` (default) or `claude_code` |
 | `model` | string | Model override (default: `claude-sonnet-4-6` / `gpt-5.4-mini` for codex) |
 | `effort` | string | `low`, `medium`, `high` (default), or `xhigh` |
 | `branch` | string | Working branch name |
@@ -253,7 +251,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKFLOW_DEFAULT_HARNESS` | `claude_code` | `claude_code` or `codex` |
+| `BACKFLOW_DEFAULT_HARNESS` | `codex` | `claude_code` or `codex` |
 | `BACKFLOW_DEFAULT_CLAUDE_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4-mini` | Default model for Codex |
 | `BACKFLOW_DEFAULT_EFFORT` | `high` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
@@ -296,6 +294,20 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event filter |
 
 Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
+
+### Discord
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKFLOW_DISCORD_APP_ID` | | Discord application ID (enables integration when set) |
+| `BACKFLOW_DISCORD_PUBLIC_KEY` | | Ed25519 public key for interaction verification |
+| `BACKFLOW_DISCORD_BOT_TOKEN` | | Bot token for API calls |
+| `BACKFLOW_DISCORD_GUILD_ID` | | Target server ID |
+| `BACKFLOW_DISCORD_CHANNEL_ID` | | Target channel ID |
+| `BACKFLOW_DISCORD_ALLOWED_ROLES` | | Comma-separated role IDs for mutation authorization |
+| `BACKFLOW_DISCORD_EVENTS` | all | Comma-separated event filter |
+
+See [docs/discord-setup.md](docs/discord-setup.md) for full setup instructions.
 
 ### SMS (Twilio)
 

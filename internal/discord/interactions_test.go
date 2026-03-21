@@ -25,7 +25,7 @@ func signRequest(priv ed25519.PrivateKey, timestamp, body string) string {
 	return hex.EncodeToString(sig)
 }
 
-func postInteraction(handler http.HandlerFunc, _ ed25519.PublicKey, priv ed25519.PrivateKey, body string) *httptest.ResponseRecorder {
+func postInteraction(handler http.HandlerFunc, priv ed25519.PrivateKey, body string) *httptest.ResponseRecorder {
 	timestamp := "1234567890"
 	sig := signRequest(priv, timestamp, body)
 
@@ -43,7 +43,7 @@ func TestInteractionHandler_Ping(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub)
 
-	rr := postInteraction(handler, pub, priv, `{"type":1}`)
+	rr := postInteraction(handler, priv, `{"type":1}`)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
@@ -92,7 +92,7 @@ func TestInteractionHandler_ApplicationCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub)
 
-	rr := postInteraction(handler, pub, priv, `{"type":2,"data":{"name":"task"}}`)
+	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"task"}}`)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
@@ -110,7 +110,7 @@ func TestInteractionHandler_UnknownType(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub)
 
-	rr := postInteraction(handler, pub, priv, `{"type":99}`)
+	rr := postInteraction(handler, priv, `{"type":99}`)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)

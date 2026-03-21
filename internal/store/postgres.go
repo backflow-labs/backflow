@@ -353,11 +353,15 @@ func (s *PostgresStore) GetAllowedSender(ctx context.Context, channelType, addre
 // --- Discord installs ---
 
 func (s *PostgresStore) UpsertDiscordInstall(ctx context.Context, install *models.DiscordInstall) error {
-	allowedRoles, _ := json.Marshal(install.AllowedRoles)
-	if install.AllowedRoles == nil {
-		allowedRoles = []byte("[]")
+	roles := install.AllowedRoles
+	if roles == nil {
+		roles = []string{}
 	}
-	_, err := s.q.Exec(ctx, `
+	allowedRoles, err := json.Marshal(roles)
+	if err != nil {
+		return fmt.Errorf("marshal allowed_roles: %w", err)
+	}
+	_, err = s.q.Exec(ctx, `
 		INSERT INTO discord_installs (guild_id, app_id, channel_id, allowed_roles, installed_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (guild_id) DO UPDATE SET
@@ -385,7 +389,9 @@ func (s *PostgresStore) GetDiscordInstall(ctx context.Context, guildID string) (
 		}
 		return nil, err
 	}
-	json.Unmarshal(allowedRoles, &install.AllowedRoles)
+	if err := json.Unmarshal(allowedRoles, &install.AllowedRoles); err != nil {
+		return nil, fmt.Errorf("unmarshal allowed_roles: %w", err)
+	}
 	return &install, nil
 }
 
