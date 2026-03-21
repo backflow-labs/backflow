@@ -45,28 +45,39 @@ func InteractionHandler(publicKey ed25519.PublicKey) http.HandlerFunc {
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			log.Warn().Err(err).Msg("discord: failed to read request body")
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 
+		log.Debug().
+			Str("signature", signature).
+			Str("timestamp", timestamp).
+			Int("body_len", len(body)).
+			Msg("discord: incoming interaction")
+
 		if !verifySignature(publicKey, signature, timestamp, body) {
+			log.Warn().Msg("discord: signature verification failed")
 			http.Error(w, "invalid request signature", http.StatusUnauthorized)
 			return
 		}
 
 		var interaction Interaction
 		if err := json.Unmarshal(body, &interaction); err != nil {
+			log.Warn().Err(err).Msg("discord: invalid interaction JSON")
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
 
 		switch interaction.Type {
 		case InteractionTypePing:
+			log.Info().Msg("discord: PING received, responding with PONG")
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand, InteractionTypeMessageComponent, InteractionTypeModalSubmit:
 			log.Info().Int("type", interaction.Type).Msg("discord: interaction received (stub)")
 			respondJSON(w, InteractionResponse{Type: ResponseTypeDeferredChannelMessage})
 		default:
+			log.Warn().Int("type", interaction.Type).Msg("discord: unknown interaction type")
 			http.Error(w, "unknown interaction type", http.StatusBadRequest)
 		}
 	}
