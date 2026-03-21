@@ -76,6 +76,11 @@ func (m *mockStore) ResetRunningContainers(context.Context, string) error { retu
 func (m *mockStore) CreateAllowedSender(context.Context, *models.AllowedSender) error {
 	return nil
 }
+func (m *mockStore) UpsertDiscordInstall(context.Context, *models.DiscordInstall) error { return nil }
+func (m *mockStore) GetDiscordInstall(context.Context, string) (*models.DiscordInstall, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) DeleteDiscordInstall(context.Context, string) error         { return nil }
 func (m *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *mockStore) Close() error                                               { return nil }
 

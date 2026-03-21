@@ -13,7 +13,9 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/api"
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/discord"
 	"github.com/backflow-labs/backflow/internal/messaging"
+	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/orchestrator"
 	"github.com/backflow-labs/backflow/internal/store"
@@ -77,6 +79,31 @@ func main() {
 		log.Info().Msg("SMS inbound webhook mounted at /webhooks/sms/inbound")
 	}
 
+	// Discord integration
+	if cfg.DiscordEnabled() {
+		pubKey, err := discord.ParsePublicKey(cfg.DiscordPublicKey)
+		if err != nil {
+			log.Fatal().Err(err).Msg("invalid BACKFLOW_DISCORD_PUBLIC_KEY")
+		}
+		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey))
+
+		now := time.Now().UTC()
+		install := &models.DiscordInstall{
+			GuildID:      cfg.DiscordGuildID,
+			AppID:        cfg.DiscordAppID,
+			ChannelID:    cfg.DiscordChannelID,
+			AllowedRoles: cfg.DiscordAllowedRoles,
+			InstalledAt:  now,
+			UpdatedAt:    now,
+		}
+		if err := db.UpsertDiscordInstall(context.Background(), install); err != nil {
+			log.Fatal().Err(err).Msg("failed to persist discord install state")
+		}
+
+		bus.Subscribe(notify.NewDiscordNotifier(cfg.DiscordEvents))
+		log.Info().Str("guild_id", cfg.DiscordGuildID).Msg("discord integration enabled")
+	}
+
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
 		Handler:      router,
@@ -124,8 +151,5 @@ func main() {
 func logConfiguredNotificationChannels(cfg *config.Config) {
 	if cfg.SlackWebhookURL != "" {
 		log.Info().Msg("slack notifications configured but subscriber not yet implemented")
-	}
-	if cfg.DiscordWebhookURL != "" {
-		log.Info().Msg("discord notifications configured but subscriber not yet implemented")
 	}
 }

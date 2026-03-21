@@ -116,7 +116,7 @@ func testPostgresStore(t *testing.T) *PostgresStore {
 	s := &PostgresStore{pool: pool, q: pool}
 
 	// Clean slate for test isolation.
-	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders CASCADE"); err != nil {
+	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders, discord_installs CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return s
@@ -761,5 +761,102 @@ func TestPG_ReviewTaskCRUD(t *testing.T) {
 	}
 	if got.ReviewPRNumber != 42 {
 		t.Errorf("ReviewPRNumber = %d, want 42", got.ReviewPRNumber)
+	}
+}
+
+func TestPG_UpsertAndGetDiscordInstall(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	install := &models.DiscordInstall{
+		GuildID:      "guild-123",
+		AppID:        "app-456",
+		ChannelID:    "channel-789",
+		AllowedRoles: []string{"role-a", "role-b"},
+		InstalledAt:  now,
+		UpdatedAt:    now,
+	}
+
+	if err := s.UpsertDiscordInstall(ctx, install); err != nil {
+		t.Fatalf("UpsertDiscordInstall: %v", err)
+	}
+
+	got, err := s.GetDiscordInstall(ctx, "guild-123")
+	if err != nil {
+		t.Fatalf("GetDiscordInstall: %v", err)
+	}
+	if got.GuildID != "guild-123" {
+		t.Errorf("GuildID = %q, want %q", got.GuildID, "guild-123")
+	}
+	if got.AppID != "app-456" {
+		t.Errorf("AppID = %q, want %q", got.AppID, "app-456")
+	}
+	if got.ChannelID != "channel-789" {
+		t.Errorf("ChannelID = %q, want %q", got.ChannelID, "channel-789")
+	}
+	if len(got.AllowedRoles) != 2 || got.AllowedRoles[0] != "role-a" || got.AllowedRoles[1] != "role-b" {
+		t.Errorf("AllowedRoles = %v, want [role-a role-b]", got.AllowedRoles)
+	}
+	if !got.InstalledAt.Equal(now) {
+		t.Errorf("InstalledAt = %v, want %v", got.InstalledAt, now)
+	}
+
+	// Upsert with changed channel — should update, not duplicate
+	updated := time.Now().UTC().Truncate(time.Microsecond)
+	install.ChannelID = "channel-new"
+	install.UpdatedAt = updated
+	if err := s.UpsertDiscordInstall(ctx, install); err != nil {
+		t.Fatalf("UpsertDiscordInstall (update): %v", err)
+	}
+	got, err = s.GetDiscordInstall(ctx, "guild-123")
+	if err != nil {
+		t.Fatalf("GetDiscordInstall after update: %v", err)
+	}
+	if got.ChannelID != "channel-new" {
+		t.Errorf("ChannelID after update = %q, want %q", got.ChannelID, "channel-new")
+	}
+	if !got.UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want %v", got.UpdatedAt, updated)
+	}
+	// InstalledAt should not change on upsert
+	if !got.InstalledAt.Equal(now) {
+		t.Errorf("InstalledAt changed after update: got %v, want %v", got.InstalledAt, now)
+	}
+}
+
+func TestPG_GetDiscordInstall_NotFound(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+
+	_, err := s.GetDiscordInstall(ctx, "nonexistent")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetDiscordInstall = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPG_DeleteDiscordInstall(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	install := &models.DiscordInstall{
+		GuildID:     "guild-del",
+		AppID:       "app-del",
+		ChannelID:   "ch-del",
+		InstalledAt: now,
+		UpdatedAt:   now,
+	}
+	if err := s.UpsertDiscordInstall(ctx, install); err != nil {
+		t.Fatalf("UpsertDiscordInstall: %v", err)
+	}
+
+	if err := s.DeleteDiscordInstall(ctx, "guild-del"); err != nil {
+		t.Fatalf("DeleteDiscordInstall: %v", err)
+	}
+
+	_, err := s.GetDiscordInstall(ctx, "guild-del")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetDiscordInstall after delete = %v, want ErrNotFound", err)
 	}
 }

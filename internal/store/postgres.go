@@ -350,6 +350,50 @@ func (s *PostgresStore) GetAllowedSender(ctx context.Context, channelType, addre
 	return &sender, nil
 }
 
+// --- Discord installs ---
+
+func (s *PostgresStore) UpsertDiscordInstall(ctx context.Context, install *models.DiscordInstall) error {
+	allowedRoles, _ := json.Marshal(install.AllowedRoles)
+	if install.AllowedRoles == nil {
+		allowedRoles = []byte("[]")
+	}
+	_, err := s.q.Exec(ctx, `
+		INSERT INTO discord_installs (guild_id, app_id, channel_id, allowed_roles, installed_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (guild_id) DO UPDATE SET
+			app_id = EXCLUDED.app_id,
+			channel_id = EXCLUDED.channel_id,
+			allowed_roles = EXCLUDED.allowed_roles,
+			updated_at = EXCLUDED.updated_at`,
+		install.GuildID, install.AppID, install.ChannelID, allowedRoles,
+		install.InstalledAt, install.UpdatedAt,
+	)
+	return err
+}
+
+func (s *PostgresStore) GetDiscordInstall(ctx context.Context, guildID string) (*models.DiscordInstall, error) {
+	row := s.q.QueryRow(ctx,
+		"SELECT guild_id, app_id, channel_id, allowed_roles, installed_at, updated_at FROM discord_installs WHERE guild_id = $1",
+		guildID,
+	)
+	var install models.DiscordInstall
+	var allowedRoles []byte
+	err := row.Scan(&install.GuildID, &install.AppID, &install.ChannelID, &allowedRoles, &install.InstalledAt, &install.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	json.Unmarshal(allowedRoles, &install.AllowedRoles)
+	return &install, nil
+}
+
+func (s *PostgresStore) DeleteDiscordInstall(ctx context.Context, guildID string) error {
+	_, err := s.q.Exec(ctx, "DELETE FROM discord_installs WHERE guild_id = $1", guildID)
+	return err
+}
+
 // --- Transactions ---
 
 func (s *PostgresStore) WithTx(ctx context.Context, fn func(Store) error) error {
