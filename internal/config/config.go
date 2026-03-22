@@ -87,7 +87,7 @@ type Config struct {
 	SMSFromNumber    string
 	SMSEvents        []string
 
-	// Slack (subscriber implementation is out of scope)
+	// Slack notifications
 	SlackWebhookURL string
 	SlackEvents     []string
 

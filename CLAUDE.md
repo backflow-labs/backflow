@@ -88,12 +88,12 @@ Optional env vars:
 
 At startup, Backflow persists the install config to the `discord_installs` table, registers the `/backflow` slash command via the Discord API, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` stub to the event bus. Actual Discord message delivery will be implemented in a future issue.
 
-### Slack notification stub
+### Slack notifications
 
 - `BACKFLOW_SLACK_WEBHOOK_URL`
 - `BACKFLOW_SLACK_EVENTS` (comma-separated event filter)
 
-If the Slack webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
+If the Slack webhook URL is set, `cmd/backflow/main.go` subscribes the Slack notifier and posts task lifecycle updates to the webhook.
 
 ## Harnesses
 
