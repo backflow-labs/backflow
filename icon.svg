@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="flow1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="flow2" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="center" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="50%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background square (GitHub applies its own rounding) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- Subtle grid lines for tech feel -->
+  <g opacity="0.04" stroke="#94a3b8" stroke-width="1">
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+  </g>
+
+  <!-- Clip to rounded rect so glow doesn't overflow -->
+  <clipPath id="clip">
+    <rect width="512" height="512"/>
+  </clipPath>
+
+  <g clip-path="url(#clip)">
+    <!-- Continuous loop: two half-loops forming a circular cycle -->
+    <!-- Upper stream: right across top, down the left side -->
+    <g filter="url(#glow)">
+      <path d="M 340 148
+               C 270 148, 220 148, 180 148
+               C 130 148, 100 190, 100 256
+               C 100 322, 130 364, 180 364"
+            fill="none" stroke="url(#flow1)" stroke-width="34" stroke-linecap="round"/>
+    </g>
+
+    <!-- Lower stream: left across bottom, up the right side -->
+    <g filter="url(#glow)">
+      <path d="M 172 364
+               C 242 364, 292 364, 332 364
+               C 382 364, 412 322, 412 256
+               C 412 190, 382 148, 332 148"
+            fill="none" stroke="url(#flow2)" stroke-width="34" stroke-linecap="round"/>
+    </g>
+
+    <!-- Center code bracket hints -->
+    <g filter="url(#softglow)" opacity="0.9">
+      <!-- Left bracket -->
+      <path d="M 224 232 L 212 256 L 224 280"
+            fill="none" stroke="url(#center)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- Right bracket -->
+      <path d="M 288 232 L 300 256 L 288 280"
+            fill="none" stroke="url(#center)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- Slash -->
+      <line x1="270" y1="235" x2="242" y2="277"
+            stroke="url(#center)" stroke-width="7" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
