@@ -302,7 +302,7 @@ Defaults are set in `internal/config/config.go` and can be overridden via env va
 | `BACKFLOW_WEBHOOK_URL` | | Webhook endpoint URL |
 | `BACKFLOW_WEBHOOK_EVENTS` | all | Comma-separated event filter |
 
-Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
+Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`, `task.cancelled`
 
 ### Discord
 
@@ -327,6 +327,7 @@ See [docs/discord-setup.md](docs/discord-setup.md) for full setup instructions.
 | `TWILIO_AUTH_TOKEN` | | Twilio Auth Token (required when provider is `twilio`) |
 | `BACKFLOW_SMS_FROM_NUMBER` | | Twilio phone number in E.164 format (required when provider is `twilio`) |
 | `BACKFLOW_SMS_EVENTS` | `task.completed,task.failed` | Comma-separated events that trigger outbound SMS |
+| `BACKFLOW_SMS_OUTBOUND_ENABLED` | `true` | Set to `false` to disable outbound SMS while keeping inbound |
 
 See [docs/sms-setup.md](docs/sms-setup.md) for full setup instructions including allowed sender registration and A2P 10DLC compliance.
 

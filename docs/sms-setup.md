@@ -19,9 +19,11 @@ TWILIO_AUTH_TOKEN=your_auth_token_here
 BACKFLOW_SMS_FROM_NUMBER=+15551234567
 # Optional: which events trigger SMS (defaults to task.completed,task.failed)
 BACKFLOW_SMS_EVENTS=task.completed,task.failed
+# Optional: disable outbound SMS while keeping inbound (defaults to true)
+BACKFLOW_SMS_OUTBOUND_ENABLED=true
 ```
 
-If `BACKFLOW_SMS_PROVIDER` is unset or empty, SMS is fully disabled (noop).
+If `BACKFLOW_SMS_PROVIDER` is unset or empty, SMS is fully disabled (noop). Set `BACKFLOW_SMS_OUTBOUND_ENABLED=false` to accept inbound SMS (task creation via text) while suppressing outbound notifications.
 
 ## 3. Register Allowed Senders
 

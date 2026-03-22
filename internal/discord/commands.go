@@ -21,7 +21,7 @@ type slashCommandOption struct {
 	Name        string               `json:"name"`
 	Description string               `json:"description"`
 	Type        int                  `json:"type"`
-	Required    bool                 `json:"required,omitempty"`
+	Required    bool                 `json:"required"`
 	Options     []slashCommandOption `json:"options,omitempty"`
 	Choices     []slashCommandChoice `json:"choices,omitempty"`
 }
@@ -42,9 +42,14 @@ func RegisterCommands(baseURL, appID, botToken string) error {
 	commands := []slashCommand{
 		{
 			Name:        "backflow",
-			Description: "Inspect Backflow tasks",
+			Description: "Manage Backflow tasks",
 			Type:        1, // CHAT_INPUT
 			Options: []slashCommandOption{
+				{
+					Name:        "create",
+					Description: "Create a new code task (opens a form)",
+					Type:        1, // SUB_COMMAND
+				},
 				{
 					Name:        "status",
 					Description: "Look up a task by ID",

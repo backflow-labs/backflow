@@ -6,10 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oklog/ulid/v2"
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
@@ -39,56 +37,14 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := req.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	task, err := NewTask(r.Context(), &req, h.store, h.config, h.bus)
+	if err != nil {
+		if errors.Is(err, ErrStoreFailure) {
+			writeError(w, http.StatusInternalServerError, "failed to create task")
+		} else {
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
 		return
-	}
-
-	now := time.Now().UTC()
-	taskMode := req.TaskMode
-	if taskMode == "" {
-		taskMode = models.TaskModeCode
-	}
-
-	task := &models.Task{
-		ID:             "bf_" + ulid.Make().String(),
-		Status:         models.TaskStatusPending,
-		TaskMode:       taskMode,
-		Harness:        models.Harness(req.Harness),
-		RepoURL:        req.RepoURL,
-		Branch:         req.Branch,
-		TargetBranch:   req.TargetBranch,
-		ReviewPRURL:    req.ReviewPRURL,
-		ReviewPRNumber: req.ReviewPRNumber,
-		Prompt:         req.Prompt,
-		Context:        req.Context,
-		Model:          req.Model,
-		Effort:         req.Effort,
-		MaxBudgetUSD:   req.MaxBudgetUSD,
-		MaxRuntimeMin:  req.MaxRuntimeMin,
-		MaxTurns:       req.MaxTurns,
-		PRTitle:        req.PRTitle,
-		PRBody:         req.PRBody,
-		AllowedTools:   req.AllowedTools,
-		ClaudeMD:       req.ClaudeMD,
-		EnvVars:        req.EnvVars,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-	}
-
-	h.config.TaskDefaults(taskMode).Apply(task, &config.BoolOverrides{
-		CreatePR:        req.CreatePR,
-		SelfReview:      req.SelfReview,
-		SaveAgentOutput: req.SaveAgentOutput,
-	})
-
-	if err := h.store.CreateTask(r.Context(), task); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create task")
-		return
-	}
-
-	if h.bus != nil {
-		h.bus.Emit(notify.NewEvent(notify.EventTaskCreated, task))
 	}
 
 	task.RedactReplyChannel()
@@ -112,8 +68,7 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 	filter := store.TaskFilter{
-		Limit:  50,
-		Offset: 0,
+		Limit: 50,
 	}
 	if s := r.URL.Query().Get("status"); s != "" {
 		status := models.TaskStatus(s)

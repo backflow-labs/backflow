@@ -86,11 +86,12 @@ type Config struct {
 	WebhookEvents []string
 
 	// SMS / Messaging
-	SMSProvider      string
-	TwilioAccountSID string
-	TwilioAuthToken  string
-	SMSFromNumber    string
-	SMSEvents        []string
+	SMSProvider        string
+	TwilioAccountSID   string
+	TwilioAuthToken    string
+	SMSFromNumber      string
+	SMSEvents          []string
+	SMSOutboundEnabled bool
 
 	// Slack (subscriber implementation is out of scope)
 	SlackWebhookURL string
@@ -188,6 +189,7 @@ func Load() (*Config, error) {
 	c.TwilioAuthToken = os.Getenv("TWILIO_AUTH_TOKEN")
 	c.SMSFromNumber = os.Getenv("BACKFLOW_SMS_FROM_NUMBER")
 	c.SMSEvents = envCSVOrDefault("BACKFLOW_SMS_EVENTS", []string{"task.completed", "task.failed"})
+	c.SMSOutboundEnabled = envOr("BACKFLOW_SMS_OUTBOUND_ENABLED", "true") == "true"
 	c.WebhookEvents = envCSV("BACKFLOW_WEBHOOK_EVENTS")
 
 	if c.Mode != ModeEC2 && c.Mode != ModeLocal && c.Mode != ModeFargate {

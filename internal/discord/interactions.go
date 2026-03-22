@@ -64,9 +64,14 @@ type ChannelMessageResponse struct {
 	Data MessageData `json:"data"`
 }
 
+// FlagEphemeral is the Discord message flag that makes a response visible
+// only to the user who triggered the interaction.
+const FlagEphemeral = 64
+
 // MessageData is the content payload inside a channel message response.
 type MessageData struct {
 	Content string `json:"content"`
+	Flags   int    `json:"flags,omitempty"`
 }
 
 type discordTaskStore interface {
@@ -76,7 +81,8 @@ type discordTaskStore interface {
 
 // InteractionHandler returns an http.HandlerFunc that verifies and routes
 // Discord interaction webhook requests.
-func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore) http.HandlerFunc {
+// createTask may be nil to disable task creation via Discord.
+func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore, createTask CreateTaskFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
@@ -113,8 +119,10 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore)
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand:
 			handleApplicationCommand(r.Context(), w, interaction, taskStore)
-		case InteractionTypeMessageComponent, InteractionTypeModalSubmit:
-			log.Info().Int("type", interaction.Type).Msg("discord: interaction received (stub)")
+		case InteractionTypeModalSubmit:
+			handleModalSubmit(r.Context(), w, interaction, createTask)
+		case InteractionTypeMessageComponent:
+			log.Info().Int("type", interaction.Type).Msg("discord: message component received (stub)")
 			respondJSON(w, InteractionResponse{Type: ResponseTypeDeferredChannelMessage})
 		default:
 			log.Warn().Int("type", interaction.Type).Msg("discord: unknown interaction type")
@@ -145,12 +153,14 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	if !ok {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Use /backflow status or /backflow list."},
+			Data: MessageData{Content: "Use /backflow create, /backflow status, or /backflow list."},
 		})
 		return
 	}
 
 	switch subcommand {
+	case "create":
+		openCreateModal(w)
 	case "status":
 		taskID, err := stringOption(options, "task_id")
 		if err != nil {
@@ -226,9 +236,31 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	default:
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Unknown command: %s %s", cmd.Name, subcommand)},
+			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /backflow create, /backflow status, or /backflow list.", subcommand)},
 		})
 	}
+}
+
+func handleModalSubmit(ctx context.Context, w http.ResponseWriter, interaction Interaction, createTask CreateTaskFunc) {
+	var data ModalSubmitData
+	if err := json.Unmarshal(interaction.Data, &data); err != nil {
+		log.Warn().Err(err).Msg("discord: failed to parse modal submit data")
+		http.Error(w, "invalid modal data", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().Str("custom_id", data.CustomID).Msg("discord: modal submit received")
+
+	if data.CustomID == modalIDCreate {
+		handleCreateSubmit(ctx, w, data, createTask)
+		return
+	}
+
+	log.Warn().Str("custom_id", data.CustomID).Msg("discord: unknown modal custom_id")
+	respondJSON(w, ChannelMessageResponse{
+		Type: ResponseTypeChannelMessage,
+		Data: MessageData{Content: "Unknown modal submission."},
+	})
 }
 
 func (c CommandData) firstSubcommand() (string, []CommandOption, bool) {

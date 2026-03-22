@@ -77,7 +77,7 @@ func main() {
 		messenger = messaging.NoopMessenger{}
 	}
 
-	if cfg.SMSProvider != "" {
+	if cfg.SMSProvider != "" && cfg.SMSOutboundEnabled {
 		bus.Subscribe(notify.NewMessagingNotifier(messenger, cfg.SMSEvents))
 	}
 
@@ -124,7 +124,10 @@ func main() {
 		if err != nil {
 			log.Fatal().Err(err).Msg("invalid BACKFLOW_DISCORD_PUBLIC_KEY")
 		}
-		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db))
+		createTaskFn := discord.CreateTaskFunc(func(ctx context.Context, req *models.CreateTaskRequest) (*models.Task, error) {
+			return api.NewTask(ctx, req, db, cfg, bus)
+		})
+		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db, createTaskFn))
 
 		now := time.Now().UTC()
 		install := &models.DiscordInstall{

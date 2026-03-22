@@ -21,6 +21,8 @@ make docker-build-local # Single-architecture build
 make docker-push        # Tag + push to ECR (requires REGISTRY=<ecr-uri>)
 make docker-deploy      # Full ECR pipeline: login, buildx, push
 make setup-aws          # Create AWS infrastructure
+make copy-env           # Copy .env from ~/dev/etc/.env to local .env
+make overwrite-env      # Copy local .env to ~/dev/etc/.env
 goose -dir migrations status # Show pending/applied migrations
 goose -dir migrations up     # Apply the next migration(s)
 goose -dir migrations down   # Roll back the last migration
@@ -47,11 +49,11 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 ### Key modules (`internal/`)
 
-- **api/** — chi router, handlers, JSON responses, `LogFetcher` interface
+- **api/** — chi router, handlers, JSON responses, `LogFetcher` interface, `NewTask` shared task-creation helper (used by both REST handler and Discord modal)
 - **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
 - **models/** — `Task`, `Instance`, `AllowedSender`, and `DiscordInstall` structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
-- **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing)
+- **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation)
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
@@ -67,7 +69,7 @@ Node.js 20 image with Claude Code CLI + Codex CLI + git + gh. `entrypoint.sh`: c
 
 ### Webhook events
 
-`task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`
+`task.created`, `task.running`, `task.completed`, `task.failed`, `task.needs_input`, `task.interrupted`, `task.recovering`, `task.cancelled`
 
 ### Discord integration
 
@@ -86,7 +88,7 @@ Optional env vars:
 - `BACKFLOW_DISCORD_ALLOWED_ROLES` (comma-separated role IDs for mutation authorization)
 - `BACKFLOW_DISCORD_EVENTS` (comma-separated event filter; nil = all events)
 
-At startup, Backflow persists the install config to the `discord_installs` table, registers the `/backflow` slash command via the Discord API, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` to the event bus. The notifier creates a channel message on the first event for each task, then posts subsequent events as replies in a per-task thread.
+At startup, Backflow persists the install config to the `discord_installs` table, registers the `/backflow` slash command (with `status`, `list`, and `create` subcommands) via the Discord API, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` to the event bus. The `/backflow create` subcommand opens a modal dialog for task creation. The notifier creates a channel message on the first event for each task, then posts subsequent events as replies in a per-task thread.
 
 ### Slack notification stub
 
@@ -138,6 +140,10 @@ ECS prerequisites:
 - Task definition configured with the `awslogs` log driver writing into `BACKFLOW_CLOUDWATCH_LOG_GROUP`
 - Subnets and security groups in the same VPC, with egress for git/GitHub/API traffic
 - IAM execution/task roles allowing image pull, log delivery, and whatever repository/API access the agent needs
+
+## Documentation guidelines
+
+Do not record default values for config or env vars in documentation. Defaults change frequently and docs drift silently. Instead, point to the source (`internal/config/config.go`) or say "see config for current defaults."
 
 ## Design patterns
 
