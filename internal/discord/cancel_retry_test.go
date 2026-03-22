@@ -66,7 +66,7 @@ func TestCancelCommand_Authorized(t *testing.T) {
 		cancelled = append(cancelled, id)
 		return nil
 	})
-	handler := InteractionHandler(pub, s, nil, cancelFn, nil, nil)
+	handler := InteractionHandler(pub, s, HandlerActions{CancelTask: cancelFn})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"cancel","type":1,"options":[{"name":"task_id","type":3,"value":"bf_run1"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -80,6 +80,9 @@ func TestCancelCommand_Authorized(t *testing.T) {
 	}
 	if !strings.Contains(resp.Data.Content, "bf_run1") {
 		t.Errorf("content = %q, want task ID in response", resp.Data.Content)
+	}
+	if resp.Data.Flags != FlagEphemeral {
+		t.Errorf("flags = %d, want %d (ephemeral)", resp.Data.Flags, FlagEphemeral)
 	}
 	if len(cancelled) != 1 || cancelled[0] != "bf_run1" {
 		t.Errorf("cancelled = %v, want [bf_run1]", cancelled)
@@ -96,8 +99,10 @@ func TestCancelCommand_Unauthorized(t *testing.T) {
 		cancelled = append(cancelled, id)
 		return nil
 	})
-	allowedRoles := []string{"admin-role"}
-	handler := InteractionHandler(pub, s, nil, cancelFn, nil, allowedRoles)
+	handler := InteractionHandler(pub, s, HandlerActions{
+		CancelTask:   cancelFn,
+		AllowedRoles: []string{"admin-role"},
+	})
 
 	body := memberBody(
 		`{"type":2,"data":{"name":"backflow","options":[{"name":"cancel","type":1,"options":[{"name":"task_id","type":3,"value":"bf_run1"}]}]}}`,
@@ -126,7 +131,7 @@ func TestCancelCommand_Unauthorized(t *testing.T) {
 func TestCancelCommand_MissingTaskID(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	cancelFn := CancelTaskFunc(func(id string) error { return nil })
-	handler := InteractionHandler(pub, nil, nil, cancelFn, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{CancelTask: cancelFn})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"cancel","type":1,"options":[]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -151,7 +156,7 @@ func TestCancelCommand_CancelFails(t *testing.T) {
 	cancelFn := CancelTaskFunc(func(id string) error {
 		return errCancelNotAllowed
 	})
-	handler := InteractionHandler(pub, s, nil, cancelFn, nil, nil)
+	handler := InteractionHandler(pub, s, HandlerActions{CancelTask: cancelFn})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"cancel","type":1,"options":[{"name":"task_id","type":3,"value":"bf_run1"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -170,7 +175,7 @@ func TestCancelCommand_CancelFails(t *testing.T) {
 
 func TestCancelCommand_NilCancelFunc(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"cancel","type":1,"options":[{"name":"task_id","type":3,"value":"bf_run1"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -199,7 +204,7 @@ func TestRetryCommand_Authorized(t *testing.T) {
 		retried = append(retried, id)
 		return nil
 	})
-	handler := InteractionHandler(pub, s, nil, nil, retryFn, nil)
+	handler := InteractionHandler(pub, s, HandlerActions{RetryTask: retryFn})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"retry","type":1,"options":[{"name":"task_id","type":3,"value":"bf_fail1"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -213,6 +218,9 @@ func TestRetryCommand_Authorized(t *testing.T) {
 	}
 	if !strings.Contains(resp.Data.Content, "bf_fail1") {
 		t.Errorf("content = %q, want task ID in response", resp.Data.Content)
+	}
+	if resp.Data.Flags != FlagEphemeral {
+		t.Errorf("flags = %d, want %d (ephemeral)", resp.Data.Flags, FlagEphemeral)
 	}
 	if len(retried) != 1 || retried[0] != "bf_fail1" {
 		t.Errorf("retried = %v, want [bf_fail1]", retried)
@@ -229,8 +237,10 @@ func TestRetryCommand_Unauthorized(t *testing.T) {
 		retried = append(retried, id)
 		return nil
 	})
-	allowedRoles := []string{"admin-role"}
-	handler := InteractionHandler(pub, s, nil, nil, retryFn, allowedRoles)
+	handler := InteractionHandler(pub, s, HandlerActions{
+		RetryTask:    retryFn,
+		AllowedRoles: []string{"admin-role"},
+	})
 
 	body := memberBody(
 		`{"type":2,"data":{"name":"backflow","options":[{"name":"retry","type":1,"options":[{"name":"task_id","type":3,"value":"bf_fail1"}]}]}}`,
@@ -264,7 +274,7 @@ func TestRetryCommand_RetryFails(t *testing.T) {
 	retryFn := RetryTaskFunc(func(id string) error {
 		return errRetryNotAllowed
 	})
-	handler := InteractionHandler(pub, s, nil, nil, retryFn, nil)
+	handler := InteractionHandler(pub, s, HandlerActions{RetryTask: retryFn})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"retry","type":1,"options":[{"name":"task_id","type":3,"value":"bf_fail1"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -283,7 +293,7 @@ func TestRetryCommand_RetryFails(t *testing.T) {
 
 func TestRetryCommand_NilRetryFunc(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"retry","type":1,"options":[{"name":"task_id","type":3,"value":"bf_fail1"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -309,7 +319,7 @@ func TestButtonCancel_Authorized(t *testing.T) {
 		cancelled = append(cancelled, id)
 		return nil
 	})
-	handler := InteractionHandler(pub, nil, nil, cancelFn, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{CancelTask: cancelFn})
 
 	body := `{"type":3,"data":{"custom_id":"bf_cancel:bf_run1","component_type":2}}`
 	rr := postInteraction(handler, priv, body)
@@ -339,7 +349,7 @@ func TestButtonRetry_Authorized(t *testing.T) {
 		retried = append(retried, id)
 		return nil
 	})
-	handler := InteractionHandler(pub, nil, nil, nil, retryFn, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{RetryTask: retryFn})
 
 	body := `{"type":3,"data":{"custom_id":"bf_retry:bf_fail1","component_type":2}}`
 	rr := postInteraction(handler, priv, body)
@@ -369,8 +379,10 @@ func TestButtonAction_Unauthorized(t *testing.T) {
 		cancelled = append(cancelled, id)
 		return nil
 	})
-	allowedRoles := []string{"admin-role"}
-	handler := InteractionHandler(pub, nil, nil, cancelFn, nil, allowedRoles)
+	handler := InteractionHandler(pub, nil, HandlerActions{
+		CancelTask:   cancelFn,
+		AllowedRoles: []string{"admin-role"},
+	})
 
 	body := memberBody(
 		`{"type":3,"data":{"custom_id":"bf_cancel:bf_run1","component_type":2}}`,
@@ -403,8 +415,10 @@ func TestButtonAction_AllowedRole(t *testing.T) {
 		cancelled = append(cancelled, id)
 		return nil
 	})
-	allowedRoles := []string{"admin-role", "ops-role"}
-	handler := InteractionHandler(pub, nil, nil, cancelFn, nil, allowedRoles)
+	handler := InteractionHandler(pub, nil, HandlerActions{
+		CancelTask:   cancelFn,
+		AllowedRoles: []string{"admin-role", "ops-role"},
+	})
 
 	// User has one of the allowed roles
 	body := memberBody(
@@ -426,7 +440,7 @@ func TestButtonCancel_ActionFails(t *testing.T) {
 	cancelFn := CancelTaskFunc(func(id string) error {
 		return errCancelNotAllowed
 	})
-	handler := InteractionHandler(pub, nil, nil, cancelFn, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{CancelTask: cancelFn})
 
 	body := `{"type":3,"data":{"custom_id":"bf_cancel:bf_run1","component_type":2}}`
 	rr := postInteraction(handler, priv, body)
@@ -448,7 +462,7 @@ func TestButtonCancel_ActionFails(t *testing.T) {
 
 func TestButtonUnknownCustomID(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":3,"data":{"custom_id":"unknown_action","component_type":2}}`
 	rr := postInteraction(handler, priv, body)

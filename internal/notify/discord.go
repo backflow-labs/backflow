@@ -149,20 +149,30 @@ func buttonsForEvent(event Event) []discord.Button {
 			Label:    "Cancel",
 			CustomID: discord.CustomIDCancelPrefix + event.TaskID,
 		}}
-	case EventTaskFailed, EventTaskInterrupted, EventTaskCancelled:
+	case EventTaskFailed, EventTaskInterrupted:
 		return []discord.Button{{
 			Type:     discord.ComponentTypeButton,
 			Style:    discord.ButtonStylePrimary,
 			Label:    "Retry",
 			CustomID: discord.CustomIDRetryPrefix + event.TaskID,
 		}}
+	case EventTaskCancelled:
+		if event.ReadyForRetry {
+			return []discord.Button{{
+				Type:     discord.ComponentTypeButton,
+				Style:    discord.ButtonStylePrimary,
+				Label:    "Retry",
+				CustomID: discord.CustomIDRetryPrefix + event.TaskID,
+			}}
+		}
+		return nil
 	default:
 		return nil
 	}
 }
 
 func discordEmbedForEvent(event Event) discord.Embed {
-	title := discordTitleForEvent(event.Type)
+	title := discordTitleForEvent(event)
 	description, fields, color := discordEmbedContent(event)
 
 	embed := discord.Embed{
@@ -180,8 +190,8 @@ func discordEmbedForEvent(event Event) discord.Embed {
 	return embed
 }
 
-func discordTitleForEvent(eventType EventType) string {
-	switch eventType {
+func discordTitleForEvent(event Event) string {
+	switch event.Type {
 	case EventTaskCreated:
 		return "Task created"
 	case EventTaskRunning:
@@ -197,7 +207,10 @@ func discordTitleForEvent(eventType EventType) string {
 	case EventTaskNeedsInput:
 		return "Task needs input"
 	case EventTaskCancelled:
-		return "Task cancelled"
+		if event.ReadyForRetry {
+			return "Task cancelled"
+		}
+		return "Cancellation requested"
 	default:
 		return "Task update"
 	}
@@ -251,7 +264,11 @@ func discordEmbedContent(event Event) (string, []discord.EmbedField, int) {
 			{Name: "Task", Value: event.TaskID, Inline: true},
 		}, 0x5865F2
 	case EventTaskCancelled:
-		return fmt.Sprintf("Task %s was cancelled.", event.TaskID), []discord.EmbedField{
+		desc := fmt.Sprintf("Task %s cancellation requested. Stopping container...", event.TaskID)
+		if event.ReadyForRetry {
+			desc = fmt.Sprintf("Task %s has been cancelled and is ready to retry.", event.TaskID)
+		}
+		return desc, []discord.EmbedField{
 			{Name: "Task", Value: event.TaskID, Inline: true},
 		}, 0x95A5A6
 	case EventTaskNeedsInput:

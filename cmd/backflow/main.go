@@ -124,38 +124,18 @@ func main() {
 		if err != nil {
 			log.Fatal().Err(err).Msg("invalid BACKFLOW_DISCORD_PUBLIC_KEY")
 		}
-		createTaskFn := discord.CreateTaskFunc(func(ctx context.Context, req *models.CreateTaskRequest) (*models.Task, error) {
-			return api.NewTask(ctx, req, db, cfg, bus)
-		})
-		cancelTaskFn := discord.CancelTaskFunc(func(taskID string) error {
-			task, err := db.GetTask(context.Background(), taskID)
-			if err != nil {
-				return err
-			}
-			switch task.Status {
-			case models.TaskStatusRunning, models.TaskStatusProvisioning, models.TaskStatusPending, models.TaskStatusRecovering:
-				if err := db.CancelTask(context.Background(), taskID); err != nil {
-					return err
-				}
-				bus.Emit(notify.NewEvent(notify.EventTaskCancelled, task))
-				return nil
-			default:
-				return fmt.Errorf("task %s is not in a cancellable state (status: %s)", taskID, task.Status)
-			}
-		})
-		retryTaskFn := discord.RetryTaskFunc(func(taskID string) error {
-			task, err := db.GetTask(context.Background(), taskID)
-			if err != nil {
-				return err
-			}
-			switch task.Status {
-			case models.TaskStatusFailed, models.TaskStatusInterrupted, models.TaskStatusCancelled:
-				return db.RequeueTask(context.Background(), taskID, "user_retry_via_discord")
-			default:
-				return fmt.Errorf("task %s cannot be retried (status: %s)", taskID, task.Status)
-			}
-		})
-		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db, createTaskFn, cancelTaskFn, retryTaskFn, cfg.DiscordAllowedRoles))
+		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db, discord.HandlerActions{
+			CreateTask: discord.CreateTaskFunc(func(ctx context.Context, req *models.CreateTaskRequest) (*models.Task, error) {
+				return api.NewTask(ctx, req, db, cfg, bus)
+			}),
+			CancelTask: discord.CancelTaskFunc(func(taskID string) error {
+				return api.CancelTask(context.Background(), taskID, db, bus)
+			}),
+			RetryTask: discord.RetryTaskFunc(func(taskID string) error {
+				return api.RetryTask(context.Background(), taskID, db)
+			}),
+			AllowedRoles: cfg.DiscordAllowedRoles,
+		}))
 
 		now := time.Now().UTC()
 		install := &models.DiscordInstall{

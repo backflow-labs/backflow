@@ -318,6 +318,8 @@ Events: `task.created`, `task.running`, `task.completed`, `task.failed`, `task.n
 
 See [docs/discord-setup.md](docs/discord-setup.md) for full setup instructions.
 
+> **Known issue:** Task retry via Discord (button and `/backflow retry`) is broken — clicking Retry immediately after Cancel requeues the task before the old container is stopped, so the old container runs to completion instead of a new one starting.
+
 ### SMS (Twilio)
 
 | Variable | Default | Description |

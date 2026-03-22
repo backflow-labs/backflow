@@ -25,15 +25,16 @@ const (
 )
 
 type Event struct {
-	Type         EventType `json:"event"`
-	TaskID       string    `json:"task_id"`
-	RepoURL      string    `json:"repo_url,omitempty"`
-	Prompt       string    `json:"prompt,omitempty"`
-	Message      string    `json:"message,omitempty"`
-	PRURL        string    `json:"pr_url,omitempty"`
-	AgentLogTail string    `json:"agent_log_tail,omitempty"`
-	ReplyChannel string    `json:"reply_channel,omitempty"`
-	Timestamp    time.Time `json:"timestamp"`
+	Type          EventType `json:"event"`
+	TaskID        string    `json:"task_id"`
+	RepoURL       string    `json:"repo_url,omitempty"`
+	Prompt        string    `json:"prompt,omitempty"`
+	Message       string    `json:"message,omitempty"`
+	PRURL         string    `json:"pr_url,omitempty"`
+	AgentLogTail  string    `json:"agent_log_tail,omitempty"`
+	ReplyChannel  string    `json:"reply_channel,omitempty"`
+	ReadyForRetry bool      `json:"ready_for_retry,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 // Emitter emits task lifecycle events.
@@ -44,27 +45,29 @@ type Emitter interface {
 // MarshalJSON redacts sensitive reply channel details before serialization.
 func (e Event) MarshalJSON() ([]byte, error) {
 	type eventJSON struct {
-		Type         EventType `json:"event"`
-		TaskID       string    `json:"task_id"`
-		RepoURL      string    `json:"repo_url,omitempty"`
-		Prompt       string    `json:"prompt,omitempty"`
-		Message      string    `json:"message,omitempty"`
-		PRURL        string    `json:"pr_url,omitempty"`
-		AgentLogTail string    `json:"agent_log_tail,omitempty"`
-		ReplyChannel string    `json:"reply_channel,omitempty"`
-		Timestamp    time.Time `json:"timestamp"`
+		Type          EventType `json:"event"`
+		TaskID        string    `json:"task_id"`
+		RepoURL       string    `json:"repo_url,omitempty"`
+		Prompt        string    `json:"prompt,omitempty"`
+		Message       string    `json:"message,omitempty"`
+		PRURL         string    `json:"pr_url,omitempty"`
+		AgentLogTail  string    `json:"agent_log_tail,omitempty"`
+		ReplyChannel  string    `json:"reply_channel,omitempty"`
+		ReadyForRetry bool      `json:"ready_for_retry,omitempty"`
+		Timestamp     time.Time `json:"timestamp"`
 	}
 
 	return json.Marshal(eventJSON{
-		Type:         e.Type,
-		TaskID:       e.TaskID,
-		RepoURL:      e.RepoURL,
-		Prompt:       e.Prompt,
-		Message:      e.Message,
-		PRURL:        e.PRURL,
-		AgentLogTail: e.AgentLogTail,
-		ReplyChannel: redactReplyChannel(e.ReplyChannel),
-		Timestamp:    e.Timestamp,
+		Type:          e.Type,
+		TaskID:        e.TaskID,
+		RepoURL:       e.RepoURL,
+		Prompt:        e.Prompt,
+		Message:       e.Message,
+		PRURL:         e.PRURL,
+		AgentLogTail:  e.AgentLogTail,
+		ReplyChannel:  redactReplyChannel(e.ReplyChannel),
+		ReadyForRetry: e.ReadyForRetry,
+		Timestamp:     e.Timestamp,
 	})
 }
 

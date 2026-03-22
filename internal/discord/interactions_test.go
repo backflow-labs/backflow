@@ -78,7 +78,7 @@ func postInteraction(handler http.HandlerFunc, priv ed25519.PrivateKey, body str
 
 func TestInteractionHandler_Ping(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":1}`)
 
@@ -96,7 +96,7 @@ func TestInteractionHandler_Ping(t *testing.T) {
 
 func TestInteractionHandler_InvalidSignature(t *testing.T) {
 	pub, _ := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
 	req.Header.Set("X-Signature-Ed25519", "deadbeef")
@@ -112,7 +112,7 @@ func TestInteractionHandler_InvalidSignature(t *testing.T) {
 
 func TestInteractionHandler_MissingHeaders(t *testing.T) {
 	pub, _ := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
 	// No signature headers
@@ -127,7 +127,7 @@ func TestInteractionHandler_MissingHeaders(t *testing.T) {
 
 func TestInteractionHandler_BackflowRootCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"backflow"}}`)
 
@@ -161,7 +161,7 @@ func TestInteractionHandler_BackflowStatusCommand(t *testing.T) {
 			},
 		},
 	}
-	handler := InteractionHandler(pub, store, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, store, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -191,7 +191,7 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 			{ID: "bf_3", Status: models.TaskStatusCompleted, RepoURL: "https://github.com/test/repo3", CreatedAt: now, UpdatedAt: now},
 		},
 	}
-	handler := InteractionHandler(pub, store, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, store, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1,"options":[{"name":"status","type":3,"value":"running"},{"name":"limit","type":4,"value":2},{"name":"offset","type":4,"value":0}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -220,7 +220,7 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	s := &fakeTaskStore{tasks: map[string]*models.Task{}}
-	handler := InteractionHandler(pub, s, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, s, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_missing"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -239,7 +239,7 @@ func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
 
 func TestInteractionHandler_NilStoreStatus(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -258,7 +258,7 @@ func TestInteractionHandler_NilStoreStatus(t *testing.T) {
 
 func TestInteractionHandler_NilStoreList(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -277,7 +277,7 @@ func TestInteractionHandler_NilStoreList(t *testing.T) {
 
 func TestInteractionHandler_UnknownCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"unknown"}}`)
 
@@ -349,7 +349,7 @@ func TestRegisterCommands(t *testing.T) {
 
 func TestInteractionHandler_UnknownType(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil, nil, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":99}`)
 

@@ -73,6 +73,8 @@ Node.js 20 image with Claude Code CLI + Codex CLI + git + gh. `entrypoint.sh`: c
 
 ### Discord integration
 
+> **Known issue:** Task retry via Discord (button and `/backflow retry`) is broken — clicking Retry immediately after Cancel requeues the task before the old container is stopped, so the old container runs to completion instead of a new one starting.
+
 When `BACKFLOW_DISCORD_APP_ID` is set, Backflow enables the Discord integration:
 
 Required env vars:
