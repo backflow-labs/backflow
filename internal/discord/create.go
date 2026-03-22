@@ -218,7 +218,7 @@ func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSu
 
 	respondJSON(w, ChannelMessageResponse{
 		Type: ResponseTypeChannelMessage,
-		Data: MessageData{Content: formatCreatedTask(task)},
+		Data: MessageData{Content: formatCreatedTask(task), Flags: FlagEphemeral},
 	})
 }
 
