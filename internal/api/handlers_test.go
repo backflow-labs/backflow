@@ -25,16 +25,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-type noopLogFetcher struct{}
-
-func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, error) {
-	return "test logs\n", nil
-}
-
-type noopEmitter struct{}
-
-func (noopEmitter) Emit(_ notify.Event) {}
-
 type capturingEmitter struct {
 	events []notify.Event
 }

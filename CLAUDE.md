@@ -39,9 +39,10 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 **Flow:** Client → API → PostgreSQL → Orchestrator → Docker on EC2 via SSM, local Docker, or ECS/Fargate → Webhooks.
 
-### API endpoints (`/api/v1`)
+### API endpoints
 
-- `GET /health` — Health check
+- `GET /health` — Health check (root-level, always accessible; used by Fly.io)
+- `GET /api/v1/health` — Health check (under API prefix; blocked when `BACKFLOW_RESTRICT_API=true`)
 - `POST /tasks` — Create task
 - `GET /tasks` — List tasks (query params: `status`, `limit`, `offset`)
 - `GET /tasks/{id}` — Get task
@@ -57,7 +58,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
 - **models/** — `Task`, `Instance`, `AllowedSender`, and `DiscordInstall` structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
-- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
+- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 
@@ -146,6 +147,14 @@ ECS prerequisites:
 - Subnets and security groups in the same VPC, with egress for git/GitHub/API traffic
 - IAM execution/task roles allowing image pull, log delivery, and whatever repository/API access the agent needs
 
+## Fly.io deployment
+
+The server runs on Fly.io in fargate mode. Configuration is in `fly.toml` (iad region, shared-cpu-1x/256MB). CI auto-deploys on push to main via `.github/workflows/ci.yml`.
+
+`BACKFLOW_RESTRICT_API=true` is set in `fly.toml`'s `[env]`, which activates middleware that returns 403 on all `/api/v1/*` endpoints. Webhook paths (`/webhooks/discord`, `/webhooks/sms/inbound`) and the root `/health` endpoint are unaffected.
+
+AWS credentials for ECS/S3/CloudWatch are provided via the `backflow-fly` IAM user (created by `make setup-aws`). See `docs/fly-setup.md` for deployment steps.
+
 ## Documentation guidelines
 
 Do not record default values for config or env vars in documentation. Defaults change frequently and docs drift silently. Instead, point to the source (`internal/config/config.go`) or say "see config for current defaults."
@@ -181,3 +190,4 @@ Additional docs in `docs/`:
 - `sms-setup.md` — Twilio SMS setup and allowed sender configuration
 - `sizing.md` — EC2 instance sizing and container density guide
 - `setup-ci.md` — GitHub Actions CI/CD setup for agent image builds
+- `fly-setup.md` — Fly.io deployment setup and configuration
