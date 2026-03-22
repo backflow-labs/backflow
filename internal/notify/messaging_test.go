@@ -148,6 +148,11 @@ func TestFormatEventMessage(t *testing.T) {
 			event:    Event{Type: EventTaskRunning, TaskID: "bf_1"},
 			contains: "running",
 		},
+		{
+			name:     "cancelled",
+			event:    Event{Type: EventTaskCancelled, TaskID: "bf_1"},
+			contains: "cancelled",
+		},
 	}
 
 	for _, tt := range tests {

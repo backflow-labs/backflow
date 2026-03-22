@@ -117,6 +117,7 @@ func TestNewEvent_AllEventTypes(t *testing.T) {
 		EventTaskNeedsInput,
 		EventTaskInterrupted,
 		EventTaskRecovering,
+		EventTaskCancelled,
 	}
 
 	for _, et := range types {

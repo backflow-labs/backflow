@@ -163,6 +163,7 @@ func (h *Handlers) DeleteTask(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to cancel task")
 			return
 		}
+		h.bus.Emit(notify.NewEvent(notify.EventTaskCancelled, task))
 	} else if !task.Status.IsTerminal() {
 		if err := h.store.DeleteTask(r.Context(), id); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to delete task")
