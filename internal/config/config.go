@@ -109,6 +109,9 @@ type Config struct {
 	// S3 (task data: agent output, offloaded config for large prompts)
 	S3Bucket string
 
+	// Logging
+	LogFile string
+
 	// Database
 	DatabaseURL string
 
@@ -176,6 +179,7 @@ func Load() (*Config, error) {
 		DiscordChannelID:      os.Getenv("BACKFLOW_DISCORD_CHANNEL_ID"),
 		DiscordAllowedRoles:   envCSV("BACKFLOW_DISCORD_ALLOWED_ROLES"),
 		DiscordEvents:         envCSV("BACKFLOW_DISCORD_EVENTS"),
+		LogFile:               os.Getenv("BACKFLOW_LOG_FILE"),
 		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}

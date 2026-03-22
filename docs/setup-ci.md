@@ -1,6 +1,6 @@
 # CI Setup (GitHub Actions)
 
-The `docker-deploy.yml` workflow builds a multi-arch agent image and pushes it to ECR whenever files under `docker/` change on `main`.
+The `docker-deploy.yml` workflow builds a multi-arch agent image and pushes it to ECR whenever files under `docker/agent/` change on `main`.
 
 ## Prerequisites
 
@@ -49,7 +49,7 @@ If you use a different region or repo name, update the `env:` block in `.github/
 
 ## Verifying
 
-Push a change to `docker/` on `main` and check the **Actions** tab. The `Build and Deploy Agent Image` workflow should complete with a green check. Confirm the image landed in ECR:
+Push a change to `docker/agent/` on `main` and check the **Actions** tab. The `Build and Deploy Agent Image` workflow should complete with a green check. Confirm the image landed in ECR:
 
 ```bash
 aws ecr describe-images \
