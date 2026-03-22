@@ -27,8 +27,8 @@ type slashCommandOption struct {
 }
 
 type slashCommandChoice struct {
-	Name  string      `json:"name"`
-	Value interface{} `json:"value"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // RegisterCommands registers the Backflow slash commands with Discord using

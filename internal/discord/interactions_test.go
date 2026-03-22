@@ -217,6 +217,64 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 	}
 }
 
+func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	s := &fakeTaskStore{tasks: map[string]*models.Task{}}
+	handler := InteractionHandler(pub, s)
+
+	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_missing"}]}]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var resp ChannelMessageResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp.Data.Content, "Task bf_missing not found.") {
+		t.Errorf("content = %q, want not-found message", resp.Data.Content)
+	}
+}
+
+func TestInteractionHandler_NilStoreStatus(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	handler := InteractionHandler(pub, nil)
+
+	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var resp ChannelMessageResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp.Data.Content, "Task lookup is unavailable") {
+		t.Errorf("content = %q, want unavailable message", resp.Data.Content)
+	}
+}
+
+func TestInteractionHandler_NilStoreList(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	handler := InteractionHandler(pub, nil)
+
+	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1}]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var resp ChannelMessageResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp.Data.Content, "Task lookup is unavailable") {
+		t.Errorf("content = %q, want unavailable message", resp.Data.Content)
+	}
+}
+
 func TestInteractionHandler_UnknownCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil)

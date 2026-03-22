@@ -5,10 +5,10 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -169,7 +169,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 		}
 		task, err := taskStore.GetTask(ctx, taskID)
 		if err != nil {
-			if err == store.ErrNotFound {
+			if errors.Is(err, store.ErrNotFound) {
 				respondJSON(w, ChannelMessageResponse{
 					Type: ResponseTypeChannelMessage,
 					Data: MessageData{Content: fmt.Sprintf("Task %s not found.", taskID)},
@@ -260,22 +260,10 @@ func intOption(options []CommandOption, name string) (int, error) {
 			continue
 		}
 		var n int
-		if err := json.Unmarshal(opt.Value, &n); err == nil {
-			return n, nil
+		if err := json.Unmarshal(opt.Value, &n); err != nil {
+			return 0, fmt.Errorf("invalid %s option", name)
 		}
-		var f float64
-		if err := json.Unmarshal(opt.Value, &f); err == nil {
-			return int(f), nil
-		}
-		var s string
-		if err := json.Unmarshal(opt.Value, &s); err == nil {
-			n, err := strconv.Atoi(s)
-			if err != nil {
-				return 0, fmt.Errorf("invalid %s option", name)
-			}
-			return n, nil
-		}
-		return 0, fmt.Errorf("invalid %s option", name)
+		return n, nil
 	}
 	return 0, fmt.Errorf("missing required option: %s", name)
 }
@@ -339,10 +327,11 @@ func formatTaskList(tasks []*models.Task, filter store.TaskFilter) string {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }
 
 func verifySignature(publicKey ed25519.PublicKey, signatureHex, timestamp string, body []byte) bool {
