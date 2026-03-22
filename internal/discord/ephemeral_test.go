@@ -1,13 +1,10 @@
 package discord
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
-
-	"github.com/backflow-labs/backflow/internal/models"
 )
 
 // TestModalSubmitErrors_AreEphemeral verifies that all error responses from
@@ -66,7 +63,7 @@ func TestModalSubmitErrors_AreEphemeral(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := InteractionHandler(pub, nil, tc.createFn)
-			customID := encodeCreateCustomID("", 0)
+			customID := modalIDCreate
 			body := buildModalSubmitBody(customID, tc.fields)
 			rr := postInteraction(handler, priv, body)
 
@@ -97,7 +94,7 @@ func TestModalSubmitSuccess_NotEphemeral(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
 
-	customID := encodeCreateCustomID("", 0)
+	customID := modalIDCreate
 	body := buildModalSubmitBody(customID, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
 		fieldPrompt:  "Add tests",
@@ -120,12 +117,5 @@ func TestModalSubmitSuccess_NotEphemeral(t *testing.T) {
 	}
 	if data.Flags != 0 {
 		t.Errorf("flags = %d, want 0 (not ephemeral for success)", data.Flags)
-	}
-}
-
-// suppress unused import warning
-var _ = func() CreateTaskFunc {
-	return func(_ context.Context, _ *models.CreateTaskRequest) (*models.Task, error) {
-		return nil, nil
 	}
 }

@@ -118,7 +118,7 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore,
 			log.Info().Msg("discord: PING received, responding with PONG")
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand:
-			handleApplicationCommand(r.Context(), w, interaction, taskStore, createTask)
+			handleApplicationCommand(r.Context(), w, interaction, taskStore)
 		case InteractionTypeModalSubmit:
 			handleModalSubmit(r.Context(), w, interaction, createTask)
 		case InteractionTypeMessageComponent:
@@ -131,7 +131,7 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore,
 	}
 }
 
-func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore, createTask CreateTaskFunc) {
+func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore) {
 	var cmd CommandData
 	if err := json.Unmarshal(interaction.Data, &cmd); err != nil {
 		log.Warn().Err(err).Msg("discord: failed to parse command data")
@@ -160,15 +160,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 
 	switch subcommand {
 	case "create":
-		var targetBranch string
-		if tb, err := stringOption(options, "target_branch"); err == nil {
-			targetBranch = tb
-		}
-		var runtimeMin int
-		if rt, err := intOption(options, "runtime"); err == nil && rt > 0 {
-			runtimeMin = rt
-		}
-		openCreateModal(w, targetBranch, runtimeMin)
+		openCreateModal(w)
 	case "status":
 		taskID, err := stringOption(options, "task_id")
 		if err != nil {
@@ -259,7 +251,7 @@ func handleModalSubmit(ctx context.Context, w http.ResponseWriter, interaction I
 
 	log.Info().Str("custom_id", data.CustomID).Msg("discord: modal submit received")
 
-	if strings.HasPrefix(data.CustomID, modalIDCreate) {
+	if data.CustomID == modalIDCreate {
 		handleCreateSubmit(ctx, w, data, createTask)
 		return
 	}

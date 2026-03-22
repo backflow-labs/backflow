@@ -21,7 +21,7 @@ type slashCommandOption struct {
 	Name        string               `json:"name"`
 	Description string               `json:"description"`
 	Type        int                  `json:"type"`
-	Required    bool                 `json:"required,omitempty"`
+	Required    bool                 `json:"required"`
 	Options     []slashCommandOption `json:"options,omitempty"`
 	Choices     []slashCommandChoice `json:"choices,omitempty"`
 }
@@ -49,18 +49,6 @@ func RegisterCommands(baseURL, appID, botToken string) error {
 					Name:        "create",
 					Description: "Create a new code task (opens a form)",
 					Type:        1, // SUB_COMMAND
-					Options: []slashCommandOption{
-						{
-							Name:        "target_branch",
-							Description: "Target branch for the pull request (e.g. main)",
-							Type:        3, // STRING
-						},
-						{
-							Name:        "runtime",
-							Description: "Maximum runtime in minutes",
-							Type:        4, // INTEGER
-						},
-					},
 				},
 				{
 					Name:        "status",

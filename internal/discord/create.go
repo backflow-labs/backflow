@@ -67,7 +67,7 @@ type TextInput struct {
 	CustomID    string `json:"custom_id"`
 	Label       string `json:"label,omitempty"`
 	Style       int    `json:"style,omitempty"`
-	Required    bool   `json:"required,omitempty"`
+	Required    bool   `json:"required"`
 	Placeholder string `json:"placeholder,omitempty"`
 	MaxLength   int    `json:"max_length,omitempty"`
 	Value       string `json:"value,omitempty"`
@@ -79,32 +79,12 @@ type ModalSubmitData struct {
 	Components []ActionRow `json:"components"`
 }
 
-// encodeCreateCustomID encodes optional slash-command options into the modal custom_id
-// so they survive the round-trip to the modal submit handler.
-// Format: "backflow_create:{target_branch}:{runtime_min}"
-func encodeCreateCustomID(targetBranch string, runtimeMin int) string {
-	return fmt.Sprintf("%s:%s:%d", modalIDCreate, targetBranch, runtimeMin)
-}
-
-// decodeCreateCustomID parses the custom_id set when the modal was opened.
-func decodeCreateCustomID(customID string) (targetBranch string, runtimeMin int) {
-	parts := strings.SplitN(customID, ":", 3)
-	if len(parts) < 3 {
-		return "", 0
-	}
-	targetBranch = parts[1]
-	runtimeMin, _ = strconv.Atoi(parts[2])
-	return targetBranch, runtimeMin
-}
-
 // openCreateModal responds with a Discord modal for code task creation.
-// targetBranch and runtimeMin are optional values from slash command options
-// that are encoded in the modal's custom_id to be retrieved on submit.
-func openCreateModal(w http.ResponseWriter, targetBranch string, runtimeMin int) {
+func openCreateModal(w http.ResponseWriter) {
 	modal := ModalResponse{
 		Type: ResponseTypeModal,
 		Data: ModalData{
-			CustomID: encodeCreateCustomID(targetBranch, runtimeMin),
+			CustomID: modalIDCreate,
 			Title:    "Create Backflow Task",
 			Components: []ActionRow{
 				{
@@ -171,9 +151,6 @@ func openCreateModal(w http.ResponseWriter, targetBranch string, runtimeMin int)
 
 // handleCreateSubmit processes a modal submit interaction for task creation.
 func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSubmitData, createTask CreateTaskFunc) {
-	// Parse the custom_id to recover slash-command options.
-	targetBranch, runtimeMin := decodeCreateCustomID(data.CustomID)
-
 	// Extract modal field values.
 	fields := extractModalFields(data.Components)
 	repoURL := strings.TrimSpace(fields[fieldRepoURL])
@@ -213,14 +190,12 @@ func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSu
 	}
 
 	req := &models.CreateTaskRequest{
-		TaskMode:      models.TaskModeCode,
-		RepoURL:       repoURL,
-		Prompt:        prompt,
-		Branch:        branch,
-		TargetBranch:  targetBranch,
-		Harness:       harness,
-		MaxBudgetUSD:  budgetUSD,
-		MaxRuntimeMin: runtimeMin,
+		TaskMode:     models.TaskModeCode,
+		RepoURL:      repoURL,
+		Prompt:       prompt,
+		Branch:       branch,
+		Harness:      harness,
+		MaxBudgetUSD: budgetUSD,
 	}
 
 	if createTask == nil {

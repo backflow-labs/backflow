@@ -342,6 +342,9 @@ func TestRegisterCommands(t *testing.T) {
 	if commands[0].Options[0].Name != "create" || commands[0].Options[1].Name != "status" || commands[0].Options[2].Name != "list" {
 		t.Fatalf("subcommands = %v, want create, status and list", commands[0].Options)
 	}
+	if len(commands[0].Options[0].Options) != 0 {
+		t.Errorf("create subcommand has %d options, want 0", len(commands[0].Options[0].Options))
+	}
 }
 
 func TestInteractionHandler_UnknownType(t *testing.T) {

@@ -55,58 +55,31 @@ func TestInteractionHandler_CreateCommand_OpensModal(t *testing.T) {
 	if resp.Data.Title == "" {
 		t.Error("modal title should not be empty")
 	}
-	if !strings.HasPrefix(resp.Data.CustomID, modalIDCreate) {
-		t.Errorf("custom_id = %q, want prefix %q", resp.Data.CustomID, modalIDCreate)
+	if resp.Data.CustomID != modalIDCreate {
+		t.Errorf("custom_id = %q, want %q", resp.Data.CustomID, modalIDCreate)
 	}
 	if len(resp.Data.Components) != 5 {
 		t.Errorf("components = %d, want 5", len(resp.Data.Components))
 	}
 }
 
-func TestInteractionHandler_CreateCommand_WithOptions(t *testing.T) {
-	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
-
-	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"create","type":1,"options":[{"name":"target_branch","type":3,"value":"main"},{"name":"runtime","type":4,"value":30}]}]}}`
-	rr := postInteraction(handler, priv, body)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-	var resp ModalResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Type != ResponseTypeModal {
-		t.Errorf("response type = %d, want %d", resp.Type, ResponseTypeModal)
-	}
-	// Verify the target_branch and runtime were encoded in the custom_id.
-	tb, rt := decodeCreateCustomID(resp.Data.CustomID)
-	if tb != "main" {
-		t.Errorf("target_branch = %q, want %q", tb, "main")
-	}
-	if rt != 30 {
-		t.Errorf("runtime = %d, want 30", rt)
-	}
-}
-
 // --- Modal submit ---
 
 func buildModalSubmitBody(customID string, fields map[string]string) string {
-	rows := make([]map[string]interface{}, 0, len(fields))
+	rows := make([]map[string]any, 0, len(fields))
 	for id, val := range fields {
-		rows = append(rows, map[string]interface{}{
+		rows = append(rows, map[string]any{
 			"type": ComponentTypeActionRow,
-			"components": []map[string]interface{}{{
+			"components": []map[string]any{{
 				"type":      ComponentTypeTextInput,
 				"custom_id": id,
 				"value":     val,
 			}},
 		})
 	}
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"type": InteractionTypeModalSubmit,
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"custom_id":  customID,
 			"components": rows,
 		},
@@ -120,8 +93,7 @@ func TestInteractionHandler_ModalSubmit_Success(t *testing.T) {
 	created := fakeTask()
 	handler := InteractionHandler(pub, nil, fakeCreateTask(created, nil))
 
-	customID := encodeCreateCustomID("main", 0)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
 		fieldPrompt:  "Add tests",
 	})
@@ -149,8 +121,7 @@ func TestInteractionHandler_ModalSubmit_MissingRepoURL(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
 
-	customID := encodeCreateCustomID("", 0)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldPrompt: "Add tests",
 	})
 	rr := postInteraction(handler, priv, body)
@@ -171,8 +142,7 @@ func TestInteractionHandler_ModalSubmit_MissingPrompt(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
 
-	customID := encodeCreateCustomID("", 0)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
 	})
 	rr := postInteraction(handler, priv, body)
@@ -193,8 +163,7 @@ func TestInteractionHandler_ModalSubmit_InvalidBudget(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
 
-	customID := encodeCreateCustomID("", 0)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL:   "https://github.com/owner/repo",
 		fieldPrompt:    "Add tests",
 		fieldBudgetUSD: "not-a-number",
@@ -217,8 +186,7 @@ func TestInteractionHandler_ModalSubmit_NilCreator(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, nil)
 
-	customID := encodeCreateCustomID("", 0)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
 		fieldPrompt:  "Add tests",
 	})
@@ -240,8 +208,7 @@ func TestInteractionHandler_ModalSubmit_CreatorError(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, fakeCreateTask(nil, fmt.Errorf("db connection refused")))
 
-	customID := encodeCreateCustomID("", 0)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
 		fieldPrompt:  "Add tests",
 	})
@@ -268,8 +235,7 @@ func TestInteractionHandler_ModalSubmit_WithHarnessAndBudget(t *testing.T) {
 	})
 	handler := InteractionHandler(pub, nil, creator)
 
-	customID := encodeCreateCustomID("develop", 45)
-	body := buildModalSubmitBody(customID, map[string]string{
+	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL:   "https://github.com/owner/repo",
 		fieldPrompt:    "Refactor auth",
 		fieldBranch:    "feature/auth",
@@ -293,40 +259,62 @@ func TestInteractionHandler_ModalSubmit_WithHarnessAndBudget(t *testing.T) {
 	if capturedReq.Branch != "feature/auth" {
 		t.Errorf("Branch = %q", capturedReq.Branch)
 	}
-	if capturedReq.TargetBranch != "develop" {
-		t.Errorf("TargetBranch = %q, want develop", capturedReq.TargetBranch)
-	}
 	if capturedReq.Harness != "claude_code" {
 		t.Errorf("Harness = %q, want claude_code", capturedReq.Harness)
 	}
 	if capturedReq.MaxBudgetUSD != 7.50 {
 		t.Errorf("MaxBudgetUSD = %v, want 7.50", capturedReq.MaxBudgetUSD)
 	}
-	if capturedReq.MaxRuntimeMin != 45 {
-		t.Errorf("MaxRuntimeMin = %d, want 45", capturedReq.MaxRuntimeMin)
-	}
 }
 
-// --- Custom ID encoding round-trip ---
+// --- Modal optional fields ---
 
-func TestEncodeDecodeCreateCustomID(t *testing.T) {
-	cases := []struct {
-		targetBranch string
-		runtimeMin   int
-	}{
-		{"main", 30},
-		{"", 0},
-		{"feature/my-branch", 120},
-		{"", 60},
+func TestCreateModal_OptionalFieldsSerializeRequiredFalse(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+
+	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"create","type":1}]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	for _, tc := range cases {
-		id := encodeCreateCustomID(tc.targetBranch, tc.runtimeMin)
-		gotBranch, gotRuntime := decodeCreateCustomID(id)
-		if gotBranch != tc.targetBranch {
-			t.Errorf("branch: encode(%q,%d) → decode = %q, want %q", tc.targetBranch, tc.runtimeMin, gotBranch, tc.targetBranch)
+
+	// Parse the raw JSON to check that "required":false is present for optional fields.
+	var raw map[string]json.RawMessage
+	json.NewDecoder(rr.Body).Decode(&raw)
+	rawJSON := string(raw["data"])
+
+	optionalFields := []string{fieldBranch, fieldHarness, fieldBudgetUSD}
+	for _, field := range optionalFields {
+		// Find this field's component and verify required is false.
+		var resp ModalResponse
+		json.Unmarshal([]byte(`{"type":9,"data":`+rawJSON+`}`), &resp)
+		for _, row := range resp.Data.Components {
+			for _, comp := range row.Components {
+				if comp.CustomID == field && comp.Required {
+					t.Errorf("field %q: required = true, want false", field)
+				}
+			}
 		}
-		if gotRuntime != tc.runtimeMin {
-			t.Errorf("runtime: encode(%q,%d) → decode = %d, want %d", tc.targetBranch, tc.runtimeMin, gotRuntime, tc.runtimeMin)
+	}
+
+	// Also verify the raw JSON contains "required":false (not omitted) for optional fields.
+	// This is the actual bug: omitempty drops false bools, and Discord defaults required to true.
+	rr = postInteraction(handler, priv, body)
+	fullBody := rr.Body.String()
+	for _, field := range optionalFields {
+		// The field's JSON object should contain "required":false
+		idx := strings.Index(fullBody, `"custom_id":"`+field+`"`)
+		if idx == -1 {
+			t.Fatalf("field %q not found in response JSON", field)
+		}
+		// Look for the enclosing object (between the previous { and next })
+		start := strings.LastIndex(fullBody[:idx], "{")
+		end := strings.Index(fullBody[idx:], "}") + idx + 1
+		fieldJSON := fullBody[start:end]
+		if !strings.Contains(fieldJSON, `"required":false`) {
+			t.Errorf("field %q: JSON missing \"required\":false — Discord will default to required.\nGot: %s", field, fieldJSON)
 		}
 	}
 }

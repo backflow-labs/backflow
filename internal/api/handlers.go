@@ -68,8 +68,7 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 	filter := store.TaskFilter{
-		Limit:  50,
-		Offset: 0,
+		Limit: 50,
 	}
 	if s := r.URL.Query().Get("status"); s != "" {
 		status := models.TaskStatus(s)
