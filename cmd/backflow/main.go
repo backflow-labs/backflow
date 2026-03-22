@@ -89,9 +89,10 @@ func main() {
 		log.Info().Str("bucket", cfg.S3Bucket).Msg("S3 storage enabled")
 	}
 
-	// Wire runner and scaler based on operating mode
+	// Wire runner, scaler, and spot checker based on operating mode
 	var runner orchestrator.Runner
 	var scaler orchestrator.Scaler
+	var spot orchestrator.SpotChecker
 
 	switch cfg.Mode {
 	case config.ModeLocal:
@@ -104,9 +105,10 @@ func main() {
 		runner = orchdocker.NewManager(cfg)
 		ec2mgr := orchec2.NewManager(cfg)
 		scaler = orchec2.NewScaler(db, ec2mgr, cfg)
+		spot = orchec2.NewSpotHandler(db, ec2mgr)
 	}
 
-	orch := orchestrator.New(db, cfg, bus, runner, scaler, s3Uploader)
+	orch := orchestrator.New(db, cfg, bus, runner, scaler, spot, s3Uploader)
 
 	router := api.NewServer(db, cfg, orch.Docker())
 
@@ -135,6 +137,10 @@ func main() {
 		}
 		if err := db.UpsertDiscordInstall(context.Background(), install); err != nil {
 			log.Fatal().Err(err).Msg("failed to persist discord install state")
+		}
+
+		if err := discord.RegisterCommands("", cfg.DiscordAppID, cfg.DiscordBotToken); err != nil {
+			log.Error().Err(err).Msg("failed to register discord slash commands")
 		}
 
 		bus.Subscribe(notify.NewDiscordNotifier(cfg.DiscordEvents))
