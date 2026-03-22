@@ -57,8 +57,12 @@ func setupLogger(logFile string) (zerolog.Logger, io.Closer, error) {
 
 func main() {
 	// Set up initial stderr-only logger; reconfigured after config load if LogFile is set.
-	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
-	log.Logger = zerolog.New(consoleWriter).With().Timestamp().Caller().Logger()
+	logger, _, err := setupLogger("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set up logger: %v\n", err)
+		os.Exit(1)
+	}
+	log.Logger = logger
 
 	cfg, err := config.Load()
 	if err != nil {
