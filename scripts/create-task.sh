@@ -29,7 +29,7 @@ Options:
   --target-branch <name>  Target branch (default: main)
   --harness <name>        Agent harness: claude_code (default) or codex
   --model <model>         Model to use (default: server default for the selected harness)
-  --effort <level>        Reasoning effort: low, medium, high (default: high)
+  --effort <level>        Reasoning effort: low, medium, high (default: medium)
   --budget <usd>          Max budget in USD
   --runtime <min>         Max runtime in minutes
   --turns <n>             Max conversation turns
@@ -65,7 +65,7 @@ HARNESS=""
 BRANCH=""
 TARGET_BRANCH=""
 MODEL=""
-EFFORT="high"
+EFFORT="medium"
 BUDGET=""
 RUNTIME=""
 TURNS=""
