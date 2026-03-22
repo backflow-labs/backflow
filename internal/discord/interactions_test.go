@@ -78,7 +78,7 @@ func postInteraction(handler http.HandlerFunc, priv ed25519.PrivateKey, body str
 
 func TestInteractionHandler_Ping(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":1}`)
 
@@ -96,7 +96,7 @@ func TestInteractionHandler_Ping(t *testing.T) {
 
 func TestInteractionHandler_InvalidSignature(t *testing.T) {
 	pub, _ := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
 	req.Header.Set("X-Signature-Ed25519", "deadbeef")
@@ -112,7 +112,7 @@ func TestInteractionHandler_InvalidSignature(t *testing.T) {
 
 func TestInteractionHandler_MissingHeaders(t *testing.T) {
 	pub, _ := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
 	// No signature headers
@@ -127,7 +127,7 @@ func TestInteractionHandler_MissingHeaders(t *testing.T) {
 
 func TestInteractionHandler_BackflowRootCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"backflow"}}`)
 
@@ -141,7 +141,7 @@ func TestInteractionHandler_BackflowRootCommand(t *testing.T) {
 	if resp.Type != ResponseTypeChannelMessage {
 		t.Errorf("response type = %d, want %d", resp.Type, ResponseTypeChannelMessage)
 	}
-	if !strings.Contains(resp.Data.Content, "Use /backflow create") {
+	if !strings.Contains(resp.Data.Content, "/backflow create") {
 		t.Errorf("content = %q, want usage guidance", resp.Data.Content)
 	}
 }
@@ -161,7 +161,7 @@ func TestInteractionHandler_BackflowStatusCommand(t *testing.T) {
 			},
 		},
 	}
-	handler := InteractionHandler(pub, store, nil)
+	handler := InteractionHandler(pub, store, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -191,7 +191,7 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 			{ID: "bf_3", Status: models.TaskStatusCompleted, RepoURL: "https://github.com/test/repo3", CreatedAt: now, UpdatedAt: now},
 		},
 	}
-	handler := InteractionHandler(pub, store, nil)
+	handler := InteractionHandler(pub, store, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1,"options":[{"name":"status","type":3,"value":"running"},{"name":"limit","type":4,"value":2},{"name":"offset","type":4,"value":0}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -220,7 +220,7 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	s := &fakeTaskStore{tasks: map[string]*models.Task{}}
-	handler := InteractionHandler(pub, s, nil)
+	handler := InteractionHandler(pub, s, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_missing"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -239,7 +239,7 @@ func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
 
 func TestInteractionHandler_NilStoreStatus(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -258,7 +258,7 @@ func TestInteractionHandler_NilStoreStatus(t *testing.T) {
 
 func TestInteractionHandler_NilStoreList(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -277,7 +277,7 @@ func TestInteractionHandler_NilStoreList(t *testing.T) {
 
 func TestInteractionHandler_UnknownCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"unknown"}}`)
 
@@ -336,11 +336,11 @@ func TestRegisterCommands(t *testing.T) {
 	if commands[0].Name != "backflow" {
 		t.Errorf("command name = %q, want %q", commands[0].Name, "backflow")
 	}
-	if len(commands[0].Options) != 3 {
-		t.Fatalf("options = %v, want 3 subcommands", commands[0].Options)
+	if len(commands[0].Options) != 5 {
+		t.Fatalf("options = %v, want 5 subcommands", commands[0].Options)
 	}
-	if commands[0].Options[0].Name != "create" || commands[0].Options[1].Name != "status" || commands[0].Options[2].Name != "list" {
-		t.Fatalf("subcommands = %v, want create, status and list", commands[0].Options)
+	if commands[0].Options[0].Name != "create" || commands[0].Options[1].Name != "status" || commands[0].Options[2].Name != "list" || commands[0].Options[3].Name != "cancel" || commands[0].Options[4].Name != "retry" {
+		t.Fatalf("subcommands = %v, want create, status, list, cancel and retry", commands[0].Options)
 	}
 	if len(commands[0].Options[0].Options) != 0 {
 		t.Errorf("create subcommand has %d options, want 0", len(commands[0].Options[0].Options))
@@ -349,7 +349,7 @@ func TestRegisterCommands(t *testing.T) {
 
 func TestInteractionHandler_UnknownType(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	rr := postInteraction(handler, priv, `{"type":99}`)
 

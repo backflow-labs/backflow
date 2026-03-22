@@ -36,6 +36,9 @@ func (o *Orchestrator) monitorCancelled(ctx context.Context) {
 		// Clear assignment so we don't process this task again
 		o.store.ClearTaskAssignment(ctx, task.ID)
 
+		// Re-emit cancelled event with ReadyForRetry so Discord shows the Retry button
+		o.bus.Emit(notify.NewEvent(notify.EventTaskCancelled, task, notify.WithReadyForRetry()))
+
 		log.Info().Str("task_id", task.ID).Msg("cleaned up cancelled task")
 	}
 }

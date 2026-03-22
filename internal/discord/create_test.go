@@ -37,7 +37,7 @@ func fakeTask() *models.Task {
 
 func TestInteractionHandler_CreateCommand_OpensModal(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(fakeTask(), nil)})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"create","type":1}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -91,7 +91,7 @@ func buildModalSubmitBody(customID string, fields map[string]string) string {
 func TestInteractionHandler_ModalSubmit_Success(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	created := fakeTask()
-	handler := InteractionHandler(pub, nil, fakeCreateTask(created, nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(created, nil)})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
@@ -119,7 +119,7 @@ func TestInteractionHandler_ModalSubmit_Success(t *testing.T) {
 
 func TestInteractionHandler_ModalSubmit_MissingRepoURL(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(fakeTask(), nil)})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldPrompt: "Add tests",
@@ -140,7 +140,7 @@ func TestInteractionHandler_ModalSubmit_MissingRepoURL(t *testing.T) {
 
 func TestInteractionHandler_ModalSubmit_MissingPrompt(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(fakeTask(), nil)})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
@@ -161,7 +161,7 @@ func TestInteractionHandler_ModalSubmit_MissingPrompt(t *testing.T) {
 
 func TestInteractionHandler_ModalSubmit_InvalidBudget(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(fakeTask(), nil)})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL:   "https://github.com/owner/repo",
@@ -184,7 +184,7 @@ func TestInteractionHandler_ModalSubmit_InvalidBudget(t *testing.T) {
 
 func TestInteractionHandler_ModalSubmit_NilCreator(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, nil)
+	handler := InteractionHandler(pub, nil, HandlerActions{})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
@@ -206,7 +206,7 @@ func TestInteractionHandler_ModalSubmit_NilCreator(t *testing.T) {
 
 func TestInteractionHandler_ModalSubmit_CreatorError(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(nil, fmt.Errorf("db connection refused")))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(nil, fmt.Errorf("db connection refused"))})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL: "https://github.com/owner/repo",
@@ -233,7 +233,7 @@ func TestInteractionHandler_ModalSubmit_WithHarnessAndBudget(t *testing.T) {
 		capturedReq = req
 		return fakeTask(), nil
 	})
-	handler := InteractionHandler(pub, nil, creator)
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: creator})
 
 	body := buildModalSubmitBody(modalIDCreate, map[string]string{
 		fieldRepoURL:   "https://github.com/owner/repo",
@@ -271,7 +271,7 @@ func TestInteractionHandler_ModalSubmit_WithHarnessAndBudget(t *testing.T) {
 
 func TestCreateModal_OptionalFieldsSerializeRequiredFalse(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(fakeTask(), nil)})
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"create","type":1}]}}`
 	rr := postInteraction(handler, priv, body)

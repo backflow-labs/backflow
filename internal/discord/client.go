@@ -73,11 +73,35 @@ type EmbedFooter struct {
 	Text string `json:"text"`
 }
 
+// Button style constants.
+const (
+	ButtonStylePrimary   = 1
+	ButtonStyleSecondary = 2
+	ButtonStyleSuccess   = 3
+	ButtonStyleDanger    = 4
+)
+
+// Button is a clickable button component.
+type Button struct {
+	Type     int    `json:"type"` // always ComponentTypeButton (2)
+	Style    int    `json:"style"`
+	Label    string `json:"label"`
+	CustomID string `json:"custom_id,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
+}
+
+// MessageActionRow is an action row containing buttons for use in message payloads.
+type MessageActionRow struct {
+	Type       int      `json:"type"` // always ComponentTypeActionRow (1)
+	Components []Button `json:"components"`
+}
+
 // MessagePayload is used for both channel and thread messages.
 type MessagePayload struct {
-	Content         string           `json:"content,omitempty"`
-	Embeds          []Embed          `json:"embeds,omitempty"`
-	AllowedMentions *AllowedMentions `json:"allowed_mentions,omitempty"`
+	Content         string             `json:"content,omitempty"`
+	Embeds          []Embed            `json:"embeds,omitempty"`
+	Components      []MessageActionRow `json:"components,omitempty"`
+	AllowedMentions *AllowedMentions   `json:"allowed_mentions,omitempty"`
 }
 
 // StartThreadPayload starts a thread from an existing message.

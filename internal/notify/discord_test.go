@@ -288,7 +288,7 @@ func TestDiscordEmbedFormatting(t *testing.T) {
 		}
 	})
 
-	t.Run("cancelled shows task ID", func(t *testing.T) {
+	t.Run("cancelled pending cleanup", func(t *testing.T) {
 		embed := discordEmbedForEvent(Event{
 			Type:      EventTaskCancelled,
 			TaskID:    "bf_1",
@@ -297,8 +297,20 @@ func TestDiscordEmbedFormatting(t *testing.T) {
 		if len(embed.Fields) != 1 {
 			t.Fatalf("embed fields = %#v, want 1 field", embed.Fields)
 		}
-		if !strings.Contains(embed.Description, "cancelled") {
-			t.Fatalf("description = %q, want to contain 'cancelled'", embed.Description)
+		if !strings.Contains(embed.Description, "Stopping container") {
+			t.Fatalf("description = %q, want cancellation-in-progress message", embed.Description)
+		}
+	})
+
+	t.Run("cancelled ready for retry", func(t *testing.T) {
+		embed := discordEmbedForEvent(Event{
+			Type:          EventTaskCancelled,
+			TaskID:        "bf_1",
+			ReadyForRetry: true,
+			Timestamp:     time.Now().UTC(),
+		})
+		if !strings.Contains(embed.Description, "ready to retry") {
+			t.Fatalf("description = %q, want ready-to-retry message", embed.Description)
 		}
 	})
 
@@ -349,4 +361,39 @@ func containsField(fields []discord.EmbedField, name, contains string) bool {
 		}
 	}
 	return false
+}
+
+func TestButtonsForEvent(t *testing.T) {
+	tests := []struct {
+		name      string
+		event     Event
+		wantLabel string // empty means no buttons
+	}{
+		{"running gets cancel", Event{Type: EventTaskRunning, TaskID: "bf_1"}, "Cancel"},
+		{"created gets cancel", Event{Type: EventTaskCreated, TaskID: "bf_1"}, "Cancel"},
+		{"recovering gets cancel", Event{Type: EventTaskRecovering, TaskID: "bf_1"}, "Cancel"},
+		{"failed gets retry", Event{Type: EventTaskFailed, TaskID: "bf_1"}, "Retry"},
+		{"interrupted gets retry", Event{Type: EventTaskInterrupted, TaskID: "bf_1"}, "Retry"},
+		{"cancelled no buttons", Event{Type: EventTaskCancelled, TaskID: "bf_1"}, ""},
+		{"cancelled ready gets retry", Event{Type: EventTaskCancelled, TaskID: "bf_1", ReadyForRetry: true}, "Retry"},
+		{"completed no buttons", Event{Type: EventTaskCompleted, TaskID: "bf_1"}, ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			btns := buttonsForEvent(tc.event)
+			if tc.wantLabel == "" {
+				if len(btns) != 0 {
+					t.Errorf("got %d buttons, want 0", len(btns))
+				}
+				return
+			}
+			if len(btns) != 1 {
+				t.Fatalf("got %d buttons, want 1", len(btns))
+			}
+			if btns[0].Label != tc.wantLabel {
+				t.Errorf("label = %q, want %q", btns[0].Label, tc.wantLabel)
+			}
+		})
+	}
 }

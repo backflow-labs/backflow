@@ -32,12 +32,12 @@ func TestMonitorCancelled_DecrementsRunning(t *testing.T) {
 		CompletedAt: &now,
 	})
 
-	bus, _ := newTestBus()
-	defer bus.Close()
+	bus, notifier := newTestBus()
 	o := newTestOrchestrator(s, bus)
 	o.running = 1
 
 	o.monitorCancelled(context.Background())
+	bus.Close()
 
 	if o.running != 0 {
 		t.Errorf("running = %d, want 0", o.running)
@@ -52,6 +52,17 @@ func TestMonitorCancelled_DecrementsRunning(t *testing.T) {
 	if inst.RunningContainers != 0 {
 		t.Errorf("RunningContainers = %d, want 0", inst.RunningContainers)
 	}
+
+	// Verify a cancelled event with ReadyForRetry was emitted after cleanup
+	events := notifier.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskCancelled {
+		t.Errorf("events = %v, want [task.cancelled]", events)
+	}
+	notifier.mu.Lock()
+	if !notifier.events[0].ReadyForRetry {
+		t.Error("expected ReadyForRetry=true on post-cleanup cancelled event")
+	}
+	notifier.mu.Unlock()
 }
 
 func TestMonitorCancelled_IgnoresWithoutContainer(t *testing.T) {

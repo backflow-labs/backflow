@@ -9,6 +9,13 @@ import (
 // EventOption is a functional option for NewEvent.
 type EventOption func(*Event)
 
+// WithReadyForRetry marks the event as ready for user retry (cleanup complete).
+func WithReadyForRetry() EventOption {
+	return func(e *Event) {
+		e.ReadyForRetry = true
+	}
+}
+
 // WithContainerStatus sets fields that come from container inspection.
 func WithContainerStatus(prURL, message, agentLogTail string) EventOption {
 	return func(e *Event) {

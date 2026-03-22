@@ -62,7 +62,7 @@ func TestModalSubmitErrors_AreEphemeral(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := InteractionHandler(pub, nil, tc.createFn)
+			handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: tc.createFn})
 			customID := modalIDCreate
 			body := buildModalSubmitBody(customID, tc.fields)
 			rr := postInteraction(handler, priv, body)
@@ -92,7 +92,7 @@ func TestModalSubmitErrors_AreEphemeral(t *testing.T) {
 // responses are ephemeral (only visible to the submitting user).
 func TestModalSubmitSuccess_IsEphemeral(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
+	handler := InteractionHandler(pub, nil, HandlerActions{CreateTask: fakeCreateTask(fakeTask(), nil)})
 
 	customID := modalIDCreate
 	body := buildModalSubmitBody(customID, map[string]string{
