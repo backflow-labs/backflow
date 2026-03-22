@@ -83,7 +83,7 @@ const (
 
 // Button is a clickable button component.
 type Button struct {
-	Type     int    `json:"type"`     // always ComponentTypeButton (2)
+	Type     int    `json:"type"` // always ComponentTypeButton (2)
 	Style    int    `json:"style"`
 	Label    string `json:"label"`
 	CustomID string `json:"custom_id,omitempty"`
