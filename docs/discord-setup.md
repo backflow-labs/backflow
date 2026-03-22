@@ -76,9 +76,13 @@ The endpoint must be publicly reachable over HTTPS. For local development, use `
 
 **Install state persistence:** At startup, Backflow writes the Discord configuration to the `discord_installs` table in PostgreSQL. This ensures the integration survives service restarts without losing context about which guild/channel to target.
 
-**Slash command registration:** At startup, Backflow registers a `/backflow` slash command with `status`, `list`, and `create` subcommands via the Discord bulk-overwrite endpoint. This happens automatically when `BACKFLOW_DISCORD_APP_ID` is set — no manual command creation is needed in the Developer Portal.
+**Slash command registration:** At startup, Backflow registers a `/backflow` slash command with `create`, `status`, `list`, `cancel`, and `retry` subcommands via the Discord bulk-overwrite endpoint. This happens automatically when `BACKFLOW_DISCORD_APP_ID` is set — no manual command creation is needed in the Developer Portal.
 
 **Task creation via Discord:** The `/backflow create` subcommand opens a modal dialog where users can fill in a repository URL, task description, branch, harness, and max budget. Submitting the modal creates a task and responds with a confirmation embed.
+
+**Cancel and retry:** `/backflow cancel <task_id>` cancels a running task; `/backflow retry <task_id>` requeues a failed, interrupted, or cancelled task. Both commands enforce role-based permissions via `BACKFLOW_DISCORD_ALLOWED_ROLES` — if roles are configured, only users with at least one matching role can execute these commands. If no roles are configured, all users are permitted. All cancel/retry responses are ephemeral (visible only to the invoking user).
+
+**Buttons:** Thread messages include inline buttons: a Cancel button on active tasks (`task.created`, `task.running`, `task.recovering`) and a Retry button on terminal tasks (`task.failed`, `task.interrupted`). Cancelled tasks show a Retry button only after the orchestrator finishes container cleanup. Buttons enforce the same role-based permissions as slash commands.
 
 **Event notifications:** Backflow subscribes a Discord notifier to the event bus. When task lifecycle events fire (`task.created`, `task.running`, `task.completed`, `task.failed`, `task.interrupted`, `task.recovering`, `task.cancelled`), Backflow posts an embed into the configured channel and continues the conversation in a per-task thread. Event filtering via `BACKFLOW_DISCORD_EVENTS` works the same as webhook and SMS filters — `nil` means all events, a CSV list restricts delivery.
 
