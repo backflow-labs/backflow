@@ -99,6 +99,8 @@ func formatEventMessage(event Event) string {
 		return fmt.Sprintf("Task %s was interrupted and will be retried.", event.TaskID)
 	case EventTaskRecovering:
 		return fmt.Sprintf("Task %s is recovering.", event.TaskID)
+	case EventTaskCancelled:
+		return fmt.Sprintf("Task %s was cancelled.", event.TaskID)
 	default:
 		return fmt.Sprintf("Task %s: %s", event.TaskID, event.Type)
 	}

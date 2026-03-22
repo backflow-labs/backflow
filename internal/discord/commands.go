@@ -11,9 +11,24 @@ import (
 )
 
 type slashCommand struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Type        int    `json:"type"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Type        int                  `json:"type"`
+	Options     []slashCommandOption `json:"options,omitempty"`
+}
+
+type slashCommandOption struct {
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Type        int                  `json:"type"`
+	Required    bool                 `json:"required,omitempty"`
+	Options     []slashCommandOption `json:"options,omitempty"`
+	Choices     []slashCommandChoice `json:"choices,omitempty"`
+}
+
+type slashCommandChoice struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // RegisterCommands registers the Backflow slash commands with Discord using
@@ -27,8 +42,55 @@ func RegisterCommands(baseURL, appID, botToken string) error {
 	commands := []slashCommand{
 		{
 			Name:        "backflow",
-			Description: "Check Backflow status",
+			Description: "Inspect Backflow tasks",
 			Type:        1, // CHAT_INPUT
+			Options: []slashCommandOption{
+				{
+					Name:        "status",
+					Description: "Look up a task by ID",
+					Type:        1, // SUB_COMMAND
+					Options: []slashCommandOption{
+						{
+							Name:        "task_id",
+							Description: "Backflow task ID",
+							Type:        3, // STRING
+							Required:    true,
+						},
+					},
+				},
+				{
+					Name:        "list",
+					Description: "List recent tasks",
+					Type:        1, // SUB_COMMAND
+					Options: []slashCommandOption{
+						{
+							Name:        "status",
+							Description: "Filter by task status",
+							Type:        3, // STRING
+							Choices: []slashCommandChoice{
+								{Name: "pending", Value: "pending"},
+								{Name: "provisioning", Value: "provisioning"},
+								{Name: "running", Value: "running"},
+								{Name: "completed", Value: "completed"},
+								{Name: "failed", Value: "failed"},
+								{Name: "interrupted", Value: "interrupted"},
+								{Name: "cancelled", Value: "cancelled"},
+								{Name: "recovering", Value: "recovering"},
+							},
+						},
+						{
+							Name:        "limit",
+							Description: "Maximum number of tasks to return",
+							Type:        4, // INTEGER
+						},
+						{
+							Name:        "offset",
+							Description: "Number of tasks to skip",
+							Type:        4, // INTEGER
+						},
+					},
+				},
+			},
 		},
 	}
 

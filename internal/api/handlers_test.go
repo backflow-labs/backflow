@@ -32,6 +32,12 @@ type noopEmitter struct{}
 
 func (noopEmitter) Emit(_ notify.Event) {}
 
+type capturingEmitter struct {
+	events []notify.Event
+}
+
+func (c *capturingEmitter) Emit(e notify.Event) { c.events = append(c.events, e) }
+
 var (
 	sharedConnStr string
 	truncatePool  *pgxpool.Pool
@@ -111,6 +117,39 @@ func testServer(t *testing.T) http.Handler {
 	}
 
 	return NewServer(s, cfg, noopLogFetcher{}, noopEmitter{})
+}
+
+func testServerWithEmitter(t *testing.T) (http.Handler, store.Store, *capturingEmitter) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := truncatePool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	_, thisFile, _, _ := runtime.Caller(0)
+	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
+
+	s, err := store.NewPostgres(ctx, sharedConnStr, migrationsDir)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	cfg := &config.Config{
+		AuthMode:           config.AuthModeAPIKey,
+		AnthropicAPIKey:    "sk-test",
+		DefaultHarness:     "claude_code",
+		DefaultClaudeModel: "claude-sonnet-4-6",
+		DefaultCodexModel:  "gpt-5.4-mini",
+		DefaultEffort:      "medium",
+		DefaultMaxBudget:   10.0,
+		DefaultMaxRuntime:  30 * 60e9,
+		DefaultMaxTurns:    200,
+	}
+
+	emitter := &capturingEmitter{}
+	return NewServer(s, cfg, noopLogFetcher{}, emitter), s, emitter
 }
 
 func TestHealthCheck(t *testing.T) {
@@ -366,5 +405,51 @@ func TestDeleteTask(t *testing.T) {
 
 	if w2.Code != http.StatusNoContent {
 		t.Errorf("delete status = %d, want %d", w2.Code, http.StatusNoContent)
+	}
+}
+
+func TestDeleteTask_EmitsCancelledEvent(t *testing.T) {
+	srv, s, emitter := testServerWithEmitter(t)
+	ctx := context.Background()
+
+	// Create a task via API
+	body := `{"repo_url":"https://github.com/test/repo","prompt":"Fix it"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+	taskID := resp.Data.ID
+
+	// Transition task to running so cancel path is triggered
+	s.StartTask(ctx, taskID, "container-abc")
+
+	// Clear events from creation
+	emitter.events = nil
+
+	// Cancel it
+	req2 := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+taskID, nil)
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d", w2.Code, http.StatusNoContent)
+	}
+
+	// Verify a cancelled event was emitted
+	if len(emitter.events) != 1 {
+		t.Fatalf("emitted %d events, want 1", len(emitter.events))
+	}
+	if emitter.events[0].Type != notify.EventTaskCancelled {
+		t.Fatalf("event type = %q, want %q", emitter.events[0].Type, notify.EventTaskCancelled)
+	}
+	if emitter.events[0].TaskID != taskID {
+		t.Fatalf("event task_id = %q, want %q", emitter.events[0].TaskID, taskID)
 	}
 }

@@ -169,6 +169,8 @@ func discordTitleForEvent(eventType EventType) string {
 		return "Task recovering"
 	case EventTaskNeedsInput:
 		return "Task needs input"
+	case EventTaskCancelled:
+		return "Task cancelled"
 	default:
 		return "Task update"
 	}
@@ -221,6 +223,10 @@ func discordEmbedContent(event Event) (string, []discord.EmbedField, int) {
 		return fmt.Sprintf("Task %s is recovering.", event.TaskID), []discord.EmbedField{
 			{Name: "Task", Value: event.TaskID, Inline: true},
 		}, 0x5865F2
+	case EventTaskCancelled:
+		return fmt.Sprintf("Task %s was cancelled.", event.TaskID), []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}, 0x95A5A6
 	case EventTaskNeedsInput:
 		fields := []discord.EmbedField{
 			{Name: "Task", Value: event.TaskID, Inline: true},

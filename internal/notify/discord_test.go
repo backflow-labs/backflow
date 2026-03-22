@@ -236,7 +236,7 @@ func TestDiscordNotifier_FiltersEvents(t *testing.T) {
 
 func TestDiscordNotifier_AllEvents(t *testing.T) {
 	notifier := NewDiscordNotifier(nil, nil, "", nil)
-	for _, et := range []EventType{EventTaskCreated, EventTaskRunning, EventTaskCompleted, EventTaskFailed, EventTaskInterrupted, EventTaskRecovering} {
+	for _, et := range []EventType{EventTaskCreated, EventTaskRunning, EventTaskCompleted, EventTaskFailed, EventTaskInterrupted, EventTaskRecovering, EventTaskCancelled} {
 		if err := notifier.Notify(Event{Type: et, TaskID: "bf_TEST001", Timestamp: time.Now()}); err != nil {
 			t.Fatalf("Notify(%s) = %v, want nil", et, err)
 		}
@@ -285,6 +285,20 @@ func TestDiscordEmbedFormatting(t *testing.T) {
 		}
 		if len(embed.Fields) < 2 {
 			t.Fatalf("embed fields = %#v, want at least 2 fields", embed.Fields)
+		}
+	})
+
+	t.Run("cancelled shows task ID", func(t *testing.T) {
+		embed := discordEmbedForEvent(Event{
+			Type:      EventTaskCancelled,
+			TaskID:    "bf_1",
+			Timestamp: time.Now().UTC(),
+		})
+		if len(embed.Fields) != 1 {
+			t.Fatalf("embed fields = %#v, want 1 field", embed.Fields)
+		}
+		if !strings.Contains(embed.Description, "cancelled") {
+			t.Fatalf("description = %q, want to contain 'cancelled'", embed.Description)
 		}
 	})
 

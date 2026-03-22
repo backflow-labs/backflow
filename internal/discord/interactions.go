@@ -1,14 +1,21 @@
 package discord
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/store"
 )
 
 // Discord interaction types.
@@ -34,7 +41,16 @@ type Interaction struct {
 
 // CommandData contains the parsed command name from an application command interaction.
 type CommandData struct {
-	Name string `json:"name"`
+	Name    string          `json:"name"`
+	Options []CommandOption `json:"options,omitempty"`
+}
+
+// CommandOption captures the subset of Discord option data needed for Backflow.
+type CommandOption struct {
+	Name    string          `json:"name"`
+	Type    int             `json:"type"`
+	Value   json.RawMessage `json:"value,omitempty"`
+	Options []CommandOption `json:"options,omitempty"`
 }
 
 // InteractionResponse is sent back to Discord.
@@ -53,9 +69,14 @@ type MessageData struct {
 	Content string `json:"content"`
 }
 
+type discordTaskStore interface {
+	GetTask(ctx context.Context, id string) (*models.Task, error)
+	ListTasks(ctx context.Context, filter store.TaskFilter) ([]*models.Task, error)
+}
+
 // InteractionHandler returns an http.HandlerFunc that verifies and routes
 // Discord interaction webhook requests.
-func InteractionHandler(publicKey ed25519.PublicKey) http.HandlerFunc {
+func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
@@ -91,7 +112,7 @@ func InteractionHandler(publicKey ed25519.PublicKey) http.HandlerFunc {
 			log.Info().Msg("discord: PING received, responding with PONG")
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand:
-			handleApplicationCommand(w, interaction)
+			handleApplicationCommand(r.Context(), w, interaction, taskStore)
 		case InteractionTypeMessageComponent, InteractionTypeModalSubmit:
 			log.Info().Int("type", interaction.Type).Msg("discord: interaction received (stub)")
 			respondJSON(w, InteractionResponse{Type: ResponseTypeDeferredChannelMessage})
@@ -102,7 +123,7 @@ func InteractionHandler(publicKey ed25519.PublicKey) http.HandlerFunc {
 	}
 }
 
-func handleApplicationCommand(w http.ResponseWriter, interaction Interaction) {
+func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore) {
 	var cmd CommandData
 	if err := json.Unmarshal(interaction.Data, &cmd); err != nil {
 		log.Warn().Err(err).Msg("discord: failed to parse command data")
@@ -112,18 +133,205 @@ func handleApplicationCommand(w http.ResponseWriter, interaction Interaction) {
 
 	log.Info().Str("command", cmd.Name).Msg("discord: application command received")
 
-	switch cmd.Name {
-	case "backflow":
-		respondJSON(w, ChannelMessageResponse{
-			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Backflow is running."},
-		})
-	default:
+	if cmd.Name != "backflow" {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
 			Data: MessageData{Content: fmt.Sprintf("Unknown command: %s", cmd.Name)},
 		})
+		return
 	}
+
+	subcommand, options, ok := cmd.firstSubcommand()
+	if !ok {
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: "Use /backflow status or /backflow list."},
+		})
+		return
+	}
+
+	switch subcommand {
+	case "status":
+		taskID, err := stringOption(options, "task_id")
+		if err != nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: err.Error()},
+			})
+			return
+		}
+		if taskStore == nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Task lookup is unavailable right now."},
+			})
+			return
+		}
+		task, err := taskStore.GetTask(ctx, taskID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				respondJSON(w, ChannelMessageResponse{
+					Type: ResponseTypeChannelMessage,
+					Data: MessageData{Content: fmt.Sprintf("Task %s not found.", taskID)},
+				})
+				return
+			}
+			log.Warn().Err(err).Str("task_id", taskID).Msg("discord: failed to load task")
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Failed to load task status."},
+			})
+			return
+		}
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: formatTaskStatus(task)},
+		})
+	case "list":
+		if taskStore == nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Task lookup is unavailable right now."},
+			})
+			return
+		}
+		filter := store.TaskFilter{Limit: defaultDiscordTaskListLimit}
+		if statusValue, err := stringOption(options, "status"); err == nil && statusValue != "" {
+			status := models.TaskStatus(statusValue)
+			filter.Status = &status
+		}
+		if limit, err := intOption(options, "limit"); err == nil && limit > 0 {
+			if limit > maxDiscordTaskListLimit {
+				limit = maxDiscordTaskListLimit
+			}
+			filter.Limit = limit
+		}
+		if offset, err := intOption(options, "offset"); err == nil && offset >= 0 {
+			filter.Offset = offset
+		}
+
+		tasks, err := taskStore.ListTasks(ctx, filter)
+		if err != nil {
+			log.Warn().Err(err).Msg("discord: failed to list tasks")
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Failed to list tasks."},
+			})
+			return
+		}
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: formatTaskList(tasks, filter)},
+		})
+	default:
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: fmt.Sprintf("Unknown command: %s %s", cmd.Name, subcommand)},
+		})
+	}
+}
+
+func (c CommandData) firstSubcommand() (string, []CommandOption, bool) {
+	for _, opt := range c.Options {
+		if opt.Type == 1 {
+			return opt.Name, opt.Options, true
+		}
+	}
+	return "", nil, false
+}
+
+func stringOption(options []CommandOption, name string) (string, error) {
+	for _, opt := range options {
+		if opt.Name != name {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(opt.Value, &s); err != nil {
+			return "", fmt.Errorf("invalid %s option", name)
+		}
+		return s, nil
+	}
+	return "", fmt.Errorf("missing required option: %s", name)
+}
+
+func intOption(options []CommandOption, name string) (int, error) {
+	for _, opt := range options {
+		if opt.Name != name {
+			continue
+		}
+		var n int
+		if err := json.Unmarshal(opt.Value, &n); err != nil {
+			return 0, fmt.Errorf("invalid %s option", name)
+		}
+		return n, nil
+	}
+	return 0, fmt.Errorf("missing required option: %s", name)
+}
+
+const (
+	defaultDiscordTaskListLimit = 5
+	maxDiscordTaskListLimit     = 10
+	maxDiscordMessageLength     = 1900
+)
+
+func formatTaskStatus(task *models.Task) string {
+	parts := []string{
+		fmt.Sprintf("Task %s is %s.", task.ID, task.Status),
+	}
+	if task.RepoURL != "" {
+		parts = append(parts, task.RepoURL)
+	}
+	if task.PRURL != "" {
+		parts = append(parts, task.PRURL)
+	}
+	if task.CompletedAt != nil {
+		parts = append(parts, "completed "+task.CompletedAt.UTC().Format(time.RFC3339))
+	}
+	if task.StartedAt != nil && task.CompletedAt == nil {
+		parts = append(parts, "started "+task.StartedAt.UTC().Format(time.RFC3339))
+	}
+	content := strings.Join(parts, " | ")
+	return truncate(content, maxDiscordMessageLength)
+}
+
+func formatTaskList(tasks []*models.Task, filter store.TaskFilter) string {
+	if len(tasks) == 0 {
+		if filter.Status != nil {
+			return fmt.Sprintf("No tasks found for status %s.", *filter.Status)
+		}
+		return "No tasks found."
+	}
+
+	var b strings.Builder
+	header := fmt.Sprintf("Tasks (%d shown", len(tasks))
+	if filter.Offset > 0 {
+		header += fmt.Sprintf(", offset %d", filter.Offset)
+	}
+	if filter.Status != nil {
+		header += fmt.Sprintf(", status %s", *filter.Status)
+	}
+	header += "):"
+	b.WriteString(header)
+	for _, task := range tasks {
+		line := fmt.Sprintf("\n- %s | %s", task.ID, task.Status)
+		if task.RepoURL != "" {
+			line += " | " + task.RepoURL
+		}
+		if b.Len()+len(line) > maxDiscordMessageLength {
+			b.WriteString("\n- ...")
+			break
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
+func truncate(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-3]) + "..."
 }
 
 func verifySignature(publicKey ed25519.PublicKey, signatureHex, timestamp string, body []byte) bool {
