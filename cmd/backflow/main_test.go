@@ -58,11 +58,9 @@ func TestSetupLogger_WithFile(t *testing.T) {
 	if closer == nil {
 		t.Fatal("closer should not be nil when log file is specified")
 	}
-	defer closer.Close()
-
 	logger.Info().Msg("hello from test")
 
-	// Flush by closing, then verify file has content
+	// Close to flush, then verify file has content
 	closer.Close()
 
 	data, err := os.ReadFile(logPath)
