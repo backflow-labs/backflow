@@ -77,7 +77,7 @@ func main() {
 		messenger = messaging.NoopMessenger{}
 	}
 
-	if cfg.SMSProvider != "" {
+	if cfg.SMSProvider != "" && cfg.SMSOutboundEnabled {
 		bus.Subscribe(notify.NewMessagingNotifier(messenger, cfg.SMSEvents))
 	}
 
