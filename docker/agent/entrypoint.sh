@@ -129,6 +129,9 @@ if [ -z "$PREP_RESULT" ]; then
     exit 1
 fi
 
+# Strip markdown code fences if present (e.g. ```json ... ```)
+PREP_RESULT=$(echo "$PREP_RESULT" | sed '/^```/d')
+
 # The result text should be JSON — write it to prep.json
 echo "$PREP_RESULT" | jq . > /tmp/prep.json 2>/dev/null || {
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
