@@ -142,18 +142,13 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 		taskMode := models.TaskModeCode
 		reviewPRURL := ""
 		reviewPRNumber := 0
-		mode, prURL, inferredRepo, prNumber := models.InferReviewMode(body)
-		if mode == models.TaskModeReview {
-			taskMode = models.TaskModeReview
-			reviewPRURL = prURL
-			reviewPRNumber = prNumber
-		}
-
-		// For review mode the PR URL is the repo source — skip ParseTaskFromSMS
-		// which would reject a bare PR URL as "prompt is required".
 		var repoURL, prompt string
-		if taskMode == models.TaskModeReview {
-			repoURL = inferredRepo
+
+		if inf := models.InferReviewMode(body); inf != nil {
+			taskMode = models.TaskModeReview
+			reviewPRURL = inf.PRURL
+			reviewPRNumber = inf.PRNumber
+			repoURL = inf.RepoURL
 			// Strip the PR URL from the body to get a prompt; default if empty.
 			prompt = strings.TrimSpace(strings.Replace(body, reviewPRURL, "", 1))
 			if prompt == "" {

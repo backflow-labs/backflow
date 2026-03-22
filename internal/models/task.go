@@ -175,37 +175,42 @@ func FindFirstURL(text string) string {
 	return match
 }
 
+// ReviewInference holds the fields parsed from a PR URL found in a prompt.
+type ReviewInference struct {
+	PRURL    string
+	RepoURL  string
+	PRNumber int
+}
+
 // InferReviewMode checks whether a prompt's first URL is a GitHub PR URL.
-// If so, it returns review mode with the parsed fields. Otherwise it returns code mode.
-func InferReviewMode(prompt string) (taskMode, prURL, repoURL string, prNumber int) {
+// Returns nil if no PR URL is found.
+func InferReviewMode(prompt string) *ReviewInference {
 	firstURL := FindFirstURL(prompt)
 	if firstURL == "" {
-		return TaskModeCode, "", "", 0
+		return nil
 	}
 	repo, num, err := ParsePullRequestURL(firstURL)
 	if err != nil {
-		return TaskModeCode, "", "", 0
+		return nil
 	}
-	return TaskModeReview, firstURL, repo, num
+	return &ReviewInference{PRURL: firstURL, RepoURL: repo, PRNumber: num}
 }
 
 func (r *CreateTaskRequest) Validate() error {
-	// Auto-detect review mode when task_mode is not explicitly set
-	// and the first URL in the prompt is a GitHub PR URL.
-	if r.TaskMode == "" {
-		mode, prURL, _, _ := InferReviewMode(r.Prompt)
-		if mode == TaskModeReview {
-			r.TaskMode = TaskModeReview
-			r.ReviewPRURL = prURL
-			// Clear fields that would conflict with ReviewPRURL in validation.
-			r.RepoURL = ""
-			r.ReviewPRNumber = 0
-		}
-	}
-
 	// Validate task_mode
 	switch r.TaskMode {
 	case "", TaskModeCode:
+		// Auto-detect: if task_mode is unset and the first URL is a PR,
+		// switch to review mode with all fields populated directly.
+		if r.TaskMode == "" {
+			if inf := InferReviewMode(r.Prompt); inf != nil {
+				r.TaskMode = TaskModeReview
+				r.ReviewPRURL = inf.PRURL
+				r.RepoURL = inf.RepoURL
+				r.ReviewPRNumber = inf.PRNumber
+				break
+			}
+		}
 		// In code mode, repo_url and prompt are required
 		if r.RepoURL == "" {
 			return fmt.Errorf("repo_url is required")
