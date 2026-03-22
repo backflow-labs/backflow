@@ -58,7 +58,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 ### Agent container (`docker/`)
 
-Node.js 20 image with Claude Code CLI + Codex CLI + git + gh. `entrypoint.sh`: clone → checkout → inject CLAUDE.md → run agent (with retry up to 3 attempts) → commit → push → create PR → optional self-review. Supports two harnesses: `claude_code` (`--output-format stream-json`, `--max-turns`) and `codex` (default, `exec --dangerously-bypass-approvals-and-sandbox`). Both harnesses work in code and review modes. Writes `status.json` for Docker-based modes and emits a `BACKFLOW_STATUS_JSON:` line for Fargate log parsing.
+Node.js 20 image with Claude Code CLI + Codex CLI + git + gh. `entrypoint.sh`: clone → checkout → inject CLAUDE.md → run agent (with retry up to 3 attempts) → commit → push → create PR → optional self-review. Supports two harnesses: `claude_code` (`--output-format stream-json`, `--max-turns`) and `codex` (`exec --dangerously-bypass-approvals-and-sandbox`). Both harnesses work in code and review modes. Writes `status.json` for Docker-based modes and emits a `BACKFLOW_STATUS_JSON:` line for Fargate log parsing.
 
 ### Statuses
 
@@ -98,7 +98,7 @@ If the Slack webhook URL is set, `cmd/backflow/main.go` logs that the subscriber
 ## Harnesses
 
 - **`claude_code`** — Claude Code CLI. Requires `ANTHROPIC_API_KEY` or Max subscription credentials.
-- **`codex`** (default) — OpenAI Codex CLI. Requires `OPENAI_API_KEY`. Defaults to `gpt-5.4-mini` model.
+- **`codex`** — OpenAI Codex CLI. Requires `OPENAI_API_KEY`.
 
 Configured per-task via the `harness` field or globally via `BACKFLOW_DEFAULT_HARNESS`.
 

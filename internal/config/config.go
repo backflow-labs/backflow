@@ -158,7 +158,7 @@ func Load() (*Config, error) {
 		MaxConcurrentTasks:    envInt("BACKFLOW_MAX_CONCURRENT_TASKS", 5),
 		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "codex"),
 		DefaultClaudeModel:    envOr("BACKFLOW_DEFAULT_CLAUDE_MODEL", "claude-sonnet-4-6"),
-		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4-mini"),
+		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4"),
 		DefaultEffort:         envOr("BACKFLOW_DEFAULT_EFFORT", "medium"),
 		DefaultMaxBudget:      envFloat("BACKFLOW_DEFAULT_MAX_BUDGET", 10.0),
 		DefaultMaxRuntime:     time.Duration(envInt("BACKFLOW_DEFAULT_MAX_RUNTIME_MIN", 30)) * time.Minute,
