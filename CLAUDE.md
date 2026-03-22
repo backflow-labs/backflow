@@ -16,10 +16,13 @@ make clean              # Remove bin/ directory
 make cloudflared-setup  # Create cloudflared tunnel, DNS route, and config (one-time)
 make tunnel             # Start cloudflared tunnel → $BACKFLOW_DOMAIN → localhost:8080
 make db-running         # Show running tasks (also: db-pending, db-completed, db-failed, etc.)
-make docker-build       # Buildx multi-platform (amd64+arm64) image
-make docker-build-local # Single-architecture build
-make docker-push        # Tag + push to ECR (requires REGISTRY=<ecr-uri>)
-make docker-deploy      # Full ECR pipeline: login, buildx, push
+make docker-agent-build       # Buildx multi-platform agent image (amd64+arm64)
+make docker-agent-build-local # Single-architecture agent build
+make docker-agent-push        # Tag + push agent to ECR (requires REGISTRY=<ecr-uri>)
+make docker-agent-deploy      # Full agent ECR pipeline: login, buildx, push
+make docker-server-build       # Buildx multi-platform server image (amd64+arm64)
+make docker-server-build-local # Single-architecture server build
+make docker-server-deploy      # Full server ECR pipeline: login, buildx, push
 make setup-aws          # Create AWS infrastructure
 make copy-env           # Copy .env from ~/dev/etc/.env to local .env
 make overwrite-env      # Copy local .env to ~/dev/etc/.env
@@ -58,7 +61,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 
-### Agent container (`docker/`)
+### Agent container (`docker/agent/`)
 
 Node.js 20 image with Claude Code CLI + Codex CLI + git + gh. `entrypoint.sh`: clone → checkout → inject CLAUDE.md → run agent (with retry up to 3 attempts) → commit → push → create PR → optional self-review. Supports two harnesses: `claude_code` (`--output-format stream-json`, `--max-turns`) and `codex` (`exec --dangerously-bypass-approvals-and-sandbox`). Both harnesses work in code and review modes. Writes `status.json` for Docker-based modes and emits a `BACKFLOW_STATUS_JSON:` line for Fargate log parsing.
 

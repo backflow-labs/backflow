@@ -1,4 +1,6 @@
-.PHONY: build run test clean docker-build docker-build-local docker-push docker-deploy lint \
+.PHONY: build run test clean lint \
+       docker-agent-build docker-agent-build-local docker-agent-push docker-agent-deploy \
+       docker-server-build docker-server-build-local docker-server-deploy \
        db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
        setup-aws deps tunnel cloudflared-setup test-docker-status-writer copy-env overwrite-env
 
@@ -36,21 +38,21 @@ lint:
 clean:
 	rm -rf bin/
 
-docker-build:
+docker-agent-build:
 	$(DOCKER) buildx build \
 		--platform linux/amd64,linux/arm64 \
 		-t backflow-agent \
-		docker/
+		docker/agent/
 
-docker-build-local:
-	$(DOCKER) build -t backflow-agent docker/
+docker-agent-build-local:
+	$(DOCKER) build -t backflow-agent docker/agent/
 
-docker-push:
-	@echo "Usage: make docker-push REGISTRY=<ecr-uri>"
+docker-agent-push:
+	@echo "Usage: make docker-agent-push REGISTRY=<ecr-uri>"
 	$(DOCKER) tag backflow-agent $(REGISTRY):latest
 	$(DOCKER) push $(REGISTRY):latest
 
-docker-deploy:
+docker-agent-deploy:
 	@$(ENV); \
 	ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text) && \
 	REGION=$${AWS_REGION:-us-east-1} && \
@@ -60,8 +62,30 @@ docker-deploy:
 		--platform linux/amd64,linux/arm64 \
 		-t $$ECR/backflow-agent:latest \
 		--push \
-		docker/ && \
+		docker/agent/ && \
 	echo "Pushed to $$ECR/backflow-agent:latest"
+
+docker-server-build:
+	$(DOCKER) buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t backflow-server \
+		-f docker/server/Dockerfile .
+
+docker-server-build-local:
+	$(DOCKER) build -t backflow-server -f docker/server/Dockerfile .
+
+docker-server-deploy:
+	@$(ENV); \
+	ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text) && \
+	REGION=$${AWS_REGION:-us-east-1} && \
+	ECR=$$ACCOUNT_ID.dkr.ecr.$$REGION.amazonaws.com && \
+	aws ecr get-login-password --region $$REGION | $(DOCKER) login --username AWS --password-stdin $$ECR && \
+	$(DOCKER) buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t $$ECR/backflow-server:latest \
+		--push \
+		-f docker/server/Dockerfile . && \
+	echo "Pushed to $$ECR/backflow-server:latest"
 
 DB_QUERY = @$(ENV); psql "$$BACKFLOW_DATABASE_URL" -c
 

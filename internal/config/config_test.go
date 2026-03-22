@@ -213,6 +213,33 @@ func TestLoad_SMSOutboundEnabled_DefaultTrue(t *testing.T) {
 	}
 }
 
+func TestLoad_LogFile_DefaultEmpty(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.LogFile != "" {
+		t.Errorf("LogFile = %q, want empty string", cfg.LogFile)
+	}
+}
+
+func TestLoad_LogFile_Set(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("BACKFLOW_LOG_FILE", "/tmp/backflow.log")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.LogFile != "/tmp/backflow.log" {
+		t.Errorf("LogFile = %q, want %q", cfg.LogFile, "/tmp/backflow.log")
+	}
+}
+
 func TestLoad_SMSOutboundEnabled_ExplicitFalse(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")

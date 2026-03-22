@@ -19,6 +19,6 @@ docker buildx build \
     --platform linux/amd64,linux/arm64 \
     -t "${ECR_URI}:latest" \
     --push \
-    docker/
+    docker/agent/
 
 echo "==> Pushed to ${ECR_URI}:latest"

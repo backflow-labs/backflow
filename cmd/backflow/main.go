@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -29,27 +30,49 @@ import (
 
 const eventBusShutdownTimeout = 10 * time.Second
 
-func main() {
-	if err := os.MkdirAll("logs", 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create logs directory: %v\n", err)
-		os.Exit(1)
-	}
-	logFileName := fmt.Sprintf("logs/server_%s.log", time.Now().Format("20060102_150405"))
-	logFile, err := os.Create(logFileName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create log file: %v\n", err)
-		os.Exit(1)
-	}
-	defer logFile.Close()
-
+// setupLogger configures a zerolog.Logger. When logFile is empty, logs go to
+// stderr only. When set, logs go to both stderr and the specified file path.
+// Returns the logger, an io.Closer for the file (nil when stderr-only), and any error.
+func setupLogger(logFile string) (zerolog.Logger, io.Closer, error) {
 	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
-	multi := io.MultiWriter(consoleWriter, logFile)
-	log.Logger = zerolog.New(multi).With().Timestamp().Caller().Logger()
-	log.Info().Str("log_file", logFileName).Msg("logging to file")
+
+	if logFile == "" {
+		logger := zerolog.New(consoleWriter).With().Timestamp().Caller().Logger()
+		return logger, nil, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
+		return zerolog.Logger{}, nil, fmt.Errorf("create log directory: %w", err)
+	}
+
+	f, err := os.Create(logFile)
+	if err != nil {
+		return zerolog.Logger{}, nil, fmt.Errorf("create log file: %w", err)
+	}
+
+	multi := io.MultiWriter(consoleWriter, f)
+	logger := zerolog.New(multi).With().Timestamp().Caller().Logger()
+	return logger, f, nil
+}
+
+func main() {
+	// Set up initial stderr-only logger; reconfigured after config load if LogFile is set.
+	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+	log.Logger = zerolog.New(consoleWriter).With().Timestamp().Caller().Logger()
 
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
+	if cfg.LogFile != "" {
+		logger, closer, err := setupLogger(cfg.LogFile)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to set up log file")
+		}
+		defer closer.Close()
+		log.Logger = logger
+		log.Info().Str("log_file", cfg.LogFile).Msg("logging to file")
 	}
 
 	db, err := store.NewPostgres(context.Background(), cfg.DatabaseURL, "migrations")
