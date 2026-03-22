@@ -489,6 +489,63 @@ func TestPG_CompleteTask(t *testing.T) {
 	}
 }
 
+func TestPG_CompleteTask_InferredFields(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	pgTestTask(t, s) // creates with RepoURL="https://github.com/test/repo", TaskMode="code"
+
+	result := TaskResult{
+		Status:         models.TaskStatusCompleted,
+		RepoURL:        "https://github.com/inferred/repo",
+		TargetBranch:   "develop",
+		TaskMode:       "code",
+		ReviewPRURL:    "https://github.com/inferred/repo/pull/42",
+		ReviewPRNumber: 42,
+	}
+	if err := s.CompleteTask(ctx, "bf_TEST001", result); err != nil {
+		t.Fatalf("CompleteTask: %v", err)
+	}
+
+	got, _ := s.GetTask(ctx, "bf_TEST001")
+	if got.RepoURL != "https://github.com/inferred/repo" {
+		t.Errorf("RepoURL = %q, want %q", got.RepoURL, "https://github.com/inferred/repo")
+	}
+	if got.TargetBranch != "develop" {
+		t.Errorf("TargetBranch = %q, want %q", got.TargetBranch, "develop")
+	}
+	if got.TaskMode != "code" {
+		t.Errorf("TaskMode = %q, want %q", got.TaskMode, "code")
+	}
+	if got.ReviewPRURL != "https://github.com/inferred/repo/pull/42" {
+		t.Errorf("ReviewPRURL = %q, want PR URL", got.ReviewPRURL)
+	}
+	if got.ReviewPRNumber != 42 {
+		t.Errorf("ReviewPRNumber = %d, want 42", got.ReviewPRNumber)
+	}
+}
+
+func TestPG_CompleteTask_InferredFieldsCoalesce(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	pgTestTask(t, s) // creates with RepoURL="https://github.com/test/repo"
+
+	// Complete with empty inferred fields — should NOT overwrite existing values
+	result := TaskResult{
+		Status: models.TaskStatusCompleted,
+	}
+	if err := s.CompleteTask(ctx, "bf_TEST001", result); err != nil {
+		t.Fatalf("CompleteTask: %v", err)
+	}
+
+	got, _ := s.GetTask(ctx, "bf_TEST001")
+	if got.RepoURL != "https://github.com/test/repo" {
+		t.Errorf("RepoURL was clobbered: %q, want %q", got.RepoURL, "https://github.com/test/repo")
+	}
+	if got.TaskMode != models.TaskModeCode {
+		t.Errorf("TaskMode was clobbered: %q, want %q", got.TaskMode, models.TaskModeCode)
+	}
+}
+
 func TestPG_RequeueTask(t *testing.T) {
 	s := testPostgresStore(t)
 	ctx := context.Background()

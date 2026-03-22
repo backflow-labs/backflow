@@ -15,6 +15,11 @@ write_status() {
     local pr_url="${6:-}"
     local cost_usd="${7:-0}"
     local elapsed_sec="${8:-0}"
+    local repo_url="${9:-}"
+    local target_branch="${10:-}"
+    local task_type="${11:-}"
+    local review_pr_url="${12:-}"
+    local review_pr_number="${13:-0}"
 
     : "${STATUS_FILE:?STATUS_FILE is required}"
 
@@ -27,7 +32,12 @@ write_status() {
   "error": $(json_string "$error_msg"),
   "pr_url": $(json_string "$pr_url"),
   "cost_usd": ${cost_usd},
-  "elapsed_time_sec": ${elapsed_sec}
+  "elapsed_time_sec": ${elapsed_sec},
+  "repo_url": $(json_string "$repo_url"),
+  "target_branch": $(json_string "$target_branch"),
+  "task_mode": $(json_string "$task_type"),
+  "review_pr_url": $(json_string "$review_pr_url"),
+  "review_pr_number": ${review_pr_number}
 }
 STATUSEOF
 

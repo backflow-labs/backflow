@@ -221,6 +221,32 @@ func TestFargateParseStatusFromLogEvents_EscapedMultilineError(t *testing.T) {
 	}
 }
 
+func TestFargateParseStatusFromLogEvents_InferredFields(t *testing.T) {
+	events := []cloudwatchlogstypes.OutputLogEvent{
+		{Message: aws.String(`BACKFLOW_STATUS_JSON:{"needs_input":false,"question":"","complete":true,"error":"","pr_url":"https://github.com/test/repo/pull/5","repo_url":"https://github.com/test/repo","target_branch":"develop","task_mode":"code","review_pr_url":"","review_pr_number":0}`)},
+	}
+
+	status, ok := parseStatusFromLogEvents(events)
+	if !ok {
+		t.Fatal("expected status JSON to be parsed")
+	}
+	if status.RepoURL != "https://github.com/test/repo" {
+		t.Errorf("RepoURL = %q, want %q", status.RepoURL, "https://github.com/test/repo")
+	}
+	if status.TargetBranch != "develop" {
+		t.Errorf("TargetBranch = %q, want %q", status.TargetBranch, "develop")
+	}
+	if status.TaskMode != "code" {
+		t.Errorf("TaskMode = %q, want %q", status.TaskMode, "code")
+	}
+	if status.ReviewPRURL != "" {
+		t.Errorf("ReviewPRURL = %q, want empty", status.ReviewPRURL)
+	}
+	if status.ReviewPRNumber != 0 {
+		t.Errorf("ReviewPRNumber = %d, want 0", status.ReviewPRNumber)
+	}
+}
+
 func TestFargateBuildLogStreamName(t *testing.T) {
 	manager := NewManager(&config.Config{
 		ECSContainerName:   "backflow-agent",

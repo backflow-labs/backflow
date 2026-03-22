@@ -198,8 +198,15 @@ func (s *PostgresStore) StartTask(ctx context.Context, id string, containerID st
 func (s *PostgresStore) CompleteTask(ctx context.Context, id string, result TaskResult) error {
 	now := time.Now().UTC()
 	_, err := s.q.Exec(ctx,
-		`UPDATE tasks SET status=$1, error=$2, pr_url=$3, output_url=$4, cost_usd=$5, elapsed_time_sec=$6, completed_at=$7, updated_at=$8 WHERE id=$9`,
+		`UPDATE tasks SET status=$1, error=$2, pr_url=$3, output_url=$4, cost_usd=$5, elapsed_time_sec=$6,
+		 repo_url=COALESCE(NULLIF($7, ''), repo_url),
+		 target_branch=COALESCE(NULLIF($8, ''), target_branch),
+		 task_mode=COALESCE(NULLIF($9, ''), task_mode),
+		 review_pr_url=COALESCE(NULLIF($10, ''), review_pr_url),
+		 review_pr_number=CASE WHEN $11 > 0 THEN $11 ELSE review_pr_number END,
+		 completed_at=$12, updated_at=$13 WHERE id=$14`,
 		result.Status, result.Error, result.PRURL, result.OutputURL, result.CostUSD, result.ElapsedTimeSec,
+		result.RepoURL, result.TargetBranch, result.TaskMode, result.ReviewPRURL, result.ReviewPRNumber,
 		now, now, id,
 	)
 	return err

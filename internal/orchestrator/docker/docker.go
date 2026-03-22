@@ -218,6 +218,11 @@ func (m *Manager) enrichFromStatusJSON(ctx context.Context, instanceID, containe
 	status.PRURL = agent.PRURL
 	status.CostUSD = agent.CostUSD
 	status.ElapsedTimeSec = agent.ElapsedTimeSec
+	status.RepoURL = agent.RepoURL
+	status.TargetBranch = agent.TargetBranch
+	status.TaskMode = agent.TaskMode
+	status.ReviewPRURL = agent.ReviewPRURL
+	status.ReviewPRNumber = agent.ReviewPRNumber
 	if agent.Error != "" {
 		status.Error = agent.Error
 	}

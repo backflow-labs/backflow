@@ -18,6 +18,11 @@ type TaskResult struct {
 	OutputURL      string
 	CostUSD        float64
 	ElapsedTimeSec int
+	RepoURL        string
+	TargetBranch   string
+	TaskMode       string
+	ReviewPRURL    string
+	ReviewPRNumber int
 }
 
 // TaskFilter controls listing behavior.
