@@ -400,6 +400,37 @@ func (s *PostgresStore) DeleteDiscordInstall(ctx context.Context, guildID string
 	return err
 }
 
+// --- Discord task threads ---
+
+func (s *PostgresStore) UpsertDiscordTaskThread(ctx context.Context, thread *models.DiscordTaskThread) error {
+	_, err := s.q.Exec(ctx, `
+		INSERT INTO discord_task_threads (task_id, root_message_id, thread_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (task_id) DO UPDATE SET
+			root_message_id = EXCLUDED.root_message_id,
+			thread_id = EXCLUDED.thread_id,
+			updated_at = EXCLUDED.updated_at`,
+		thread.TaskID, thread.RootMessageID, thread.ThreadID, thread.CreatedAt, thread.UpdatedAt,
+	)
+	return err
+}
+
+func (s *PostgresStore) GetDiscordTaskThread(ctx context.Context, taskID string) (*models.DiscordTaskThread, error) {
+	row := s.q.QueryRow(ctx,
+		"SELECT task_id, root_message_id, thread_id, created_at, updated_at FROM discord_task_threads WHERE task_id = $1",
+		taskID,
+	)
+	var thread models.DiscordTaskThread
+	err := row.Scan(&thread.TaskID, &thread.RootMessageID, &thread.ThreadID, &thread.CreatedAt, &thread.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &thread, nil
+}
+
 // --- Transactions ---
 
 func (s *PostgresStore) WithTx(ctx context.Context, fn func(Store) error) error {

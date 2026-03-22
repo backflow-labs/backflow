@@ -154,7 +154,7 @@ func Load() (*Config, error) {
 		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "codex"),
 		DefaultClaudeModel:    envOr("BACKFLOW_DEFAULT_CLAUDE_MODEL", "claude-sonnet-4-6"),
 		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4-mini"),
-		DefaultEffort:         envOr("BACKFLOW_DEFAULT_EFFORT", "high"),
+		DefaultEffort:         envOr("BACKFLOW_DEFAULT_EFFORT", "medium"),
 		DefaultMaxBudget:      envFloat("BACKFLOW_DEFAULT_MAX_BUDGET", 10.0),
 		DefaultMaxRuntime:     time.Duration(envInt("BACKFLOW_DEFAULT_MAX_RUNTIME_MIN", 30)) * time.Minute,
 		DefaultMaxTurns:       envInt("BACKFLOW_DEFAULT_MAX_TURNS", 200),

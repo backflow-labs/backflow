@@ -80,7 +80,13 @@ func (m *mockStore) UpsertDiscordInstall(context.Context, *models.DiscordInstall
 func (m *mockStore) GetDiscordInstall(context.Context, string) (*models.DiscordInstall, error) {
 	return nil, store.ErrNotFound
 }
-func (m *mockStore) DeleteDiscordInstall(context.Context, string) error         { return nil }
+func (m *mockStore) DeleteDiscordInstall(context.Context, string) error { return nil }
+func (m *mockStore) UpsertDiscordTaskThread(context.Context, *models.DiscordTaskThread) error {
+	return nil
+}
+func (m *mockStore) GetDiscordTaskThread(context.Context, string) (*models.DiscordTaskThread, error) {
+	return nil, store.ErrNotFound
+}
 func (m *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *mockStore) Close() error                                               { return nil }
 
@@ -88,7 +94,7 @@ func newTestConfig() *config.Config {
 	return &config.Config{
 		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",
-		DefaultEffort:      "high",
+		DefaultEffort:      "medium",
 	}
 }
 
@@ -137,8 +143,8 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 	if task.ReplyChannel != "sms:+15551234567" {
 		t.Errorf("reply_channel = %q", task.ReplyChannel)
 	}
-	if !task.CreatePR || !task.SelfReview {
-		t.Error("expected create_pr and self_review to be true")
+	if !task.CreatePR || task.SelfReview {
+		t.Error("expected create_pr true and self_review false")
 	}
 
 	// Verify TwiML response

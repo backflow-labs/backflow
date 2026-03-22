@@ -13,6 +13,7 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
@@ -25,10 +26,11 @@ type Handlers struct {
 	store  store.Store
 	config *config.Config
 	logs   LogFetcher
+	bus    notify.Emitter
 }
 
-func NewHandlers(s store.Store, cfg *config.Config, logs LogFetcher) *Handlers {
-	return &Handlers{store: s, config: cfg, logs: logs}
+func NewHandlers(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Emitter) *Handlers {
+	return &Handlers{store: s, config: cfg, logs: logs, bus: bus}
 }
 
 func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +86,10 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.CreateTask(r.Context(), task); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
 		return
+	}
+
+	if h.bus != nil {
+		h.bus.Emit(notify.NewEvent(notify.EventTaskCreated, task))
 	}
 
 	task.RedactReplyChannel()

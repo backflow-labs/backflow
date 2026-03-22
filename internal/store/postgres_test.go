@@ -116,7 +116,7 @@ func testPostgresStore(t *testing.T) *PostgresStore {
 	s := &PostgresStore{pool: pool, q: pool}
 
 	// Clean slate for test isolation.
-	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders, discord_installs CASCADE"); err != nil {
+	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders, discord_installs, discord_task_threads CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return s
@@ -858,5 +858,87 @@ func TestPG_DeleteDiscordInstall(t *testing.T) {
 	_, err := s.GetDiscordInstall(ctx, "guild-del")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetDiscordInstall after delete = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPG_UpsertAndGetDiscordTaskThread(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	// Create a parent task so the FK is satisfied.
+	task := &models.Task{
+		ID:        "bf_thread_1",
+		Status:    models.TaskStatusPending,
+		TaskMode:  models.TaskModeCode,
+		Harness:   models.HarnessClaudeCode,
+		RepoURL:   "https://github.com/test/repo",
+		Prompt:    "test",
+		Model:     "claude-sonnet-4-6",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	thread := &models.DiscordTaskThread{
+		TaskID:        "bf_thread_1",
+		RootMessageID: "root-123",
+		ThreadID:      "thread-123",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.UpsertDiscordTaskThread(ctx, thread); err != nil {
+		t.Fatalf("UpsertDiscordTaskThread: %v", err)
+	}
+
+	got, err := s.GetDiscordTaskThread(ctx, "bf_thread_1")
+	if err != nil {
+		t.Fatalf("GetDiscordTaskThread: %v", err)
+	}
+	if got.TaskID != thread.TaskID {
+		t.Errorf("TaskID = %q, want %q", got.TaskID, thread.TaskID)
+	}
+	if got.RootMessageID != thread.RootMessageID {
+		t.Errorf("RootMessageID = %q, want %q", got.RootMessageID, thread.RootMessageID)
+	}
+	if got.ThreadID != thread.ThreadID {
+		t.Errorf("ThreadID = %q, want %q", got.ThreadID, thread.ThreadID)
+	}
+	if !got.CreatedAt.Equal(now) {
+		t.Errorf("CreatedAt = %v, want %v", got.CreatedAt, now)
+	}
+
+	updated := time.Now().UTC().Truncate(time.Microsecond)
+	thread.RootMessageID = "root-456"
+	thread.ThreadID = "thread-456"
+	thread.UpdatedAt = updated
+	if err := s.UpsertDiscordTaskThread(ctx, thread); err != nil {
+		t.Fatalf("UpsertDiscordTaskThread (update): %v", err)
+	}
+
+	got, err = s.GetDiscordTaskThread(ctx, "bf_thread_1")
+	if err != nil {
+		t.Fatalf("GetDiscordTaskThread after update: %v", err)
+	}
+	if got.RootMessageID != "root-456" {
+		t.Errorf("RootMessageID after update = %q, want %q", got.RootMessageID, "root-456")
+	}
+	if got.ThreadID != "thread-456" {
+		t.Errorf("ThreadID after update = %q, want %q", got.ThreadID, "thread-456")
+	}
+	if !got.UpdatedAt.Equal(updated) {
+		t.Errorf("UpdatedAt = %v, want %v", got.UpdatedAt, updated)
+	}
+}
+
+func TestPG_GetDiscordTaskThread_NotFound(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+
+	_, err := s.GetDiscordTaskThread(ctx, "missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetDiscordTaskThread = %v, want ErrNotFound", err)
 	}
 }

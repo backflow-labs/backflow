@@ -26,6 +26,36 @@ func TestParseTaskFromSMS(t *testing.T) {
 			wantPrompt: "Fix the flaky test",
 		},
 		{
+			name:       "github issue URL with prompt after",
+			body:       "https://github.com/backflow-labs/backflow/issues/123 Implement the fix",
+			wantRepo:   "https://github.com/backflow-labs/backflow",
+			wantPrompt: "Implement the fix",
+		},
+		{
+			name:       "github issue URL with prompt before",
+			body:       "Implement the fix https://github.com/backflow-labs/backflow/issues/123",
+			wantRepo:   "https://github.com/backflow-labs/backflow",
+			wantPrompt: "Implement the fix",
+		},
+		{
+			name:       "github pr URL with prompt after",
+			body:       "https://github.com/backflow-labs/backflow/pull/42 Review the PR",
+			wantRepo:   "https://github.com/backflow-labs/backflow",
+			wantPrompt: "Review the PR",
+		},
+		{
+			name:       "github pr URL with prompt before",
+			body:       "Review the PR https://github.com/backflow-labs/backflow/pull/42",
+			wantRepo:   "https://github.com/backflow-labs/backflow",
+			wantPrompt: "Review the PR",
+		},
+		{
+			name:       "multiple URLs uses first github.com URL",
+			body:       "See https://example.com/docs and github.com/backflow-labs/backflow/issues/108 please review",
+			wantRepo:   "https://github.com/backflow-labs/backflow",
+			wantPrompt: "See https://example.com/docs and please review",
+		},
+		{
 			name:        "prompt only with default repo",
 			body:        "Fix the flaky test",
 			defaultRepo: "https://github.com/backflow-labs/backflow",
@@ -50,6 +80,16 @@ func TestParseTaskFromSMS(t *testing.T) {
 		{
 			name:    "URL without prompt",
 			body:    "github.com/backflow-labs/backflow",
+			wantErr: true,
+		},
+		{
+			name:    "issue URL without prompt",
+			body:    "github.com/backflow-labs/backflow/issues/123",
+			wantErr: true,
+		},
+		{
+			name:    "pr URL without prompt",
+			body:    "github.com/backflow-labs/backflow/pull/42",
 			wantErr: true,
 		},
 		{

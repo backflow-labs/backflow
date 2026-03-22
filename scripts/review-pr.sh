@@ -26,7 +26,7 @@ Options:
   --prompt <text>         Custom review instructions
   --harness <name>        Agent harness: claude_code (default) or codex
   --model <model>         Model to use (default: claude-sonnet-4-6 or gpt-5.4 for codex)
-  --effort <level>        Reasoning effort: low, medium, high (default: high)
+  --effort <level>        Reasoning effort: low, medium, high (default: medium)
   --budget <usd>          Max budget in USD
   --runtime <min>         Max runtime in minutes
   --turns <n>             Max conversation turns
@@ -54,7 +54,7 @@ fi
 PROMPT=""
 HARNESS=""
 MODEL=""
-EFFORT="high"
+EFFORT="medium"
 BUDGET=""
 RUNTIME=""
 TURNS=""

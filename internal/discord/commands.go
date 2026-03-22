@@ -10,8 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const discordAPIBase = "https://discord.com/api/v10"
-
 type slashCommand struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`

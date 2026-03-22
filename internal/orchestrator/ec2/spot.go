@@ -6,6 +6,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
@@ -14,10 +15,11 @@ import (
 type SpotHandler struct {
 	store store.Store
 	ec2   *Manager
+	bus   notify.Emitter
 }
 
-func NewSpotHandler(s store.Store, ec2 *Manager) *SpotHandler {
-	return &SpotHandler{store: s, ec2: ec2}
+func NewSpotHandler(s store.Store, ec2 *Manager, bus notify.Emitter) *SpotHandler {
+	return &SpotHandler{store: s, ec2: ec2, bus: bus}
 }
 
 // CheckInterruptions polls running instances for spot termination notices.
@@ -74,6 +76,10 @@ func (h *SpotHandler) handleInterruption(ctx context.Context, inst *models.Insta
 		}
 
 		log.Info().Str("task_id", task.ID).Msg("spot: re-queuing interrupted task")
+
+		if h.bus != nil {
+			h.bus.Emit(notify.NewEvent(notify.EventTaskInterrupted, task, notify.WithContainerStatus("", "spot interruption", "")))
+		}
 
 		if err := h.store.RequeueTask(ctx, task.ID, "spot interruption"); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("spot: failed to re-queue task")
