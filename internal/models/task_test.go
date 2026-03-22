@@ -247,108 +247,84 @@ func TestFindFirstURL(t *testing.T) {
 }
 
 func TestValidateAutoDetectsReviewMode(t *testing.T) {
-	tests := []struct {
-		name         string
-		req          CreateTaskRequest
-		wantMode     string
-		wantPRURL    string
-		wantRepoURL  string
-		wantPRNumber int
-		wantErr      bool
-	}{
-		{
-			name: "first URL is a PR URL, auto-detect review",
-			req: CreateTaskRequest{
-				RepoURL: "https://github.com/test/repo",
-				Prompt:  "Review the PR: https://github.com/test/repo/pull/115",
-			},
-			wantMode:     TaskModeReview,
-			wantPRURL:    "https://github.com/test/repo/pull/115",
-			wantRepoURL:  "https://github.com/test/repo",
-			wantPRNumber: 115,
-		},
-		{
-			name: "first URL is a PR URL no repo_url provided",
-			req: CreateTaskRequest{
-				Prompt: "Check https://github.com/org/project/pull/42 for issues",
-			},
-			wantMode:     TaskModeReview,
-			wantPRURL:    "https://github.com/org/project/pull/42",
-			wantRepoURL:  "https://github.com/org/project",
-			wantPRNumber: 42,
-		},
-		{
-			name: "first URL is not a PR, stays code mode",
-			req: CreateTaskRequest{
-				RepoURL: "https://github.com/test/repo",
-				Prompt:  "Fix the issue https://github.com/test/repo/issues/5",
-			},
-			wantMode: "", // not explicitly set, stays empty (treated as code)
-		},
-		{
-			name: "no URL in prompt stays code mode",
-			req: CreateTaskRequest{
-				RepoURL: "https://github.com/test/repo",
-				Prompt:  "review the latest changes on main",
-			},
-			wantMode: "", // not explicitly set, stays empty (treated as code)
-		},
-		{
-			name: "explicit task_mode code is not overridden",
-			req: CreateTaskRequest{
-				TaskMode: TaskModeCode,
-				RepoURL:  "https://github.com/test/repo",
-				Prompt:   "Review https://github.com/test/repo/pull/5 and fix the issues",
-			},
-			wantMode: TaskModeCode,
-		},
-		{
-			name: "explicit review mode still works",
-			req: CreateTaskRequest{
-				TaskMode:    TaskModeReview,
-				ReviewPRURL: "https://github.com/test/repo/pull/42",
-			},
-			wantMode:     TaskModeReview,
-			wantPRURL:    "https://github.com/test/repo/pull/42",
-			wantRepoURL:  "https://github.com/test/repo",
-			wantPRNumber: 42,
-		},
-		{
-			name: "first URL is PR with trailing /files",
-			req: CreateTaskRequest{
-				Prompt: "https://github.com/owner/repo/pull/7/files needs review",
-			},
-			wantMode:     TaskModeReview,
-			wantPRURL:    "https://github.com/owner/repo/pull/7/files",
-			wantRepoURL:  "https://github.com/owner/repo",
-			wantPRNumber: 7,
-		},
-	}
+	t.Run("PR URL in prompt auto-detects review mode", func(t *testing.T) {
+		req := CreateTaskRequest{
+			Prompt: "Review the PR: https://github.com/test/repo/pull/115",
+		}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("Validate() unexpected error: %v", err)
+		}
+		if req.TaskMode != TaskModeReview {
+			t.Errorf("TaskMode = %q, want %q", req.TaskMode, TaskModeReview)
+		}
+		if req.ReviewPRURL != "https://github.com/test/repo/pull/115" {
+			t.Errorf("ReviewPRURL = %q", req.ReviewPRURL)
+		}
+		if req.RepoURL != "https://github.com/test/repo" {
+			t.Errorf("RepoURL = %q", req.RepoURL)
+		}
+		if req.ReviewPRNumber != 115 {
+			t.Errorf("ReviewPRNumber = %d, want 115", req.ReviewPRNumber)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.req.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.wantErr {
-				return
-			}
-			if tt.req.TaskMode != tt.wantMode {
-				t.Errorf("TaskMode = %q, want %q", tt.req.TaskMode, tt.wantMode)
-			}
-			if tt.wantPRURL != "" && tt.req.ReviewPRURL != tt.wantPRURL {
-				t.Errorf("ReviewPRURL = %q, want %q", tt.req.ReviewPRURL, tt.wantPRURL)
-			}
-			if tt.wantRepoURL != "" && tt.req.RepoURL != tt.wantRepoURL {
-				t.Errorf("RepoURL = %q, want %q", tt.req.RepoURL, tt.wantRepoURL)
-			}
-			if tt.wantPRNumber != 0 && tt.req.ReviewPRNumber != tt.wantPRNumber {
-				t.Errorf("ReviewPRNumber = %d, want %d", tt.req.ReviewPRNumber, tt.wantPRNumber)
-			}
-		})
-	}
+	t.Run("PR URL with trailing /files auto-detects", func(t *testing.T) {
+		req := CreateTaskRequest{
+			Prompt: "https://github.com/owner/repo/pull/7/files needs review",
+		}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("Validate() unexpected error: %v", err)
+		}
+		if req.TaskMode != TaskModeReview {
+			t.Errorf("TaskMode = %q, want %q", req.TaskMode, TaskModeReview)
+		}
+		if req.ReviewPRNumber != 7 {
+			t.Errorf("ReviewPRNumber = %d, want 7", req.ReviewPRNumber)
+		}
+	})
+
+	t.Run("non-PR URL does not trigger auto-detect", func(t *testing.T) {
+		req := CreateTaskRequest{
+			RepoURL: "https://github.com/test/repo",
+			Prompt:  "Fix the issue https://github.com/test/repo/issues/5",
+		}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("Validate() unexpected error: %v", err)
+		}
+		if req.TaskMode != "" {
+			t.Errorf("TaskMode = %q, want empty (code default)", req.TaskMode)
+		}
+	})
+
+	t.Run("no URL in prompt does not trigger auto-detect", func(t *testing.T) {
+		req := CreateTaskRequest{
+			RepoURL: "https://github.com/test/repo",
+			Prompt:  "review the latest changes on main",
+		}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("Validate() unexpected error: %v", err)
+		}
+		if req.TaskMode != "" {
+			t.Errorf("TaskMode = %q, want empty (code default)", req.TaskMode)
+		}
+	})
+
+	t.Run("explicit task_mode=code is not overridden", func(t *testing.T) {
+		req := CreateTaskRequest{
+			TaskMode: TaskModeCode,
+			RepoURL:  "https://github.com/test/repo",
+			Prompt:   "Review https://github.com/test/repo/pull/5 and fix the issues",
+		}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("Validate() unexpected error: %v", err)
+		}
+		if req.TaskMode != TaskModeCode {
+			t.Errorf("TaskMode = %q, want %q", req.TaskMode, TaskModeCode)
+		}
+		if req.ReviewPRURL != "" {
+			t.Errorf("ReviewPRURL should be empty, got %q", req.ReviewPRURL)
+		}
+	})
 }
 
 func TestTaskStatusIsTerminal(t *testing.T) {
