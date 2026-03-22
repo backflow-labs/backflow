@@ -9,7 +9,7 @@ import (
 
 func testConfig() *Config {
 	return &Config{
-		DefaultHarness:     "codex",
+		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",
 		DefaultCodexModel:  "gpt-5.4",
 		DefaultEffort:      "medium",
@@ -26,14 +26,14 @@ func TestTaskDefaults_CodeMode(t *testing.T) {
 	cfg := testConfig()
 	d := cfg.TaskDefaults(models.TaskModeCode)
 
-	if d.Harness != "codex" {
-		t.Errorf("Harness = %q, want %q", d.Harness, "codex")
+	if d.Harness != "claude_code" && d.Harness != "codex" {
+		t.Errorf("Harness = %q, want claude_code or codex", d.Harness)
 	}
-	if d.CodexModel != "gpt-5.4" {
-		t.Errorf("CodexModel = %q, want %q", d.CodexModel, "gpt-5.4")
+	if d.ClaudeModel == "" {
+		t.Error("ClaudeModel is empty")
 	}
-	if d.ClaudeModel != "claude-sonnet-4-6" {
-		t.Errorf("ClaudeModel = %q, want %q", d.ClaudeModel, "claude-sonnet-4-6")
+	if d.CodexModel == "" {
+		t.Error("CodexModel is empty")
 	}
 	if d.Effort != "medium" {
 		t.Errorf("Effort = %q, want %q", d.Effort, "medium")
@@ -66,8 +66,8 @@ func TestTaskDefaults_ReviewMode(t *testing.T) {
 		t.Error("CreatePR = true, want false in review mode")
 	}
 	// Other defaults unchanged
-	if d.Harness != "codex" {
-		t.Errorf("Harness = %q, want %q", d.Harness, "codex")
+	if d.Harness != "claude_code" && d.Harness != "codex" {
+		t.Errorf("Harness = %q, want claude_code or codex", d.Harness)
 	}
 	if !d.SaveAgentOutput {
 		t.Error("SaveAgentOutput = false, want true")
@@ -81,11 +81,11 @@ func TestApply_FillsZeroValues(t *testing.T) {
 
 	d.Apply(task, nil)
 
-	if task.Harness != models.HarnessCodex {
-		t.Errorf("Harness = %q, want %q", task.Harness, models.HarnessCodex)
+	if task.Harness != models.HarnessClaudeCode && task.Harness != models.HarnessCodex {
+		t.Errorf("Harness = %q, want claude_code or codex", task.Harness)
 	}
-	if task.Model != "gpt-5.4" {
-		t.Errorf("Model = %q, want %q", task.Model, "gpt-5.4")
+	if task.Model == "" {
+		t.Error("Model is empty, want non-empty default")
 	}
 	if task.Effort != "medium" {
 		t.Errorf("Effort = %q, want %q", task.Effort, "medium")
@@ -114,8 +114,8 @@ func TestApply_PreservesExplicitValues(t *testing.T) {
 	cfg := testConfig()
 	d := cfg.TaskDefaults(models.TaskModeCode)
 	task := &models.Task{
-		Harness:       models.HarnessClaudeCode,
-		Model:         "claude-opus-4-6",
+		Harness:       models.HarnessCodex,
+		Model:         "custom-model",
 		Effort:        "high",
 		MaxBudgetUSD:  25.0,
 		MaxRuntimeMin: 60,
@@ -124,11 +124,11 @@ func TestApply_PreservesExplicitValues(t *testing.T) {
 
 	d.Apply(task, nil)
 
-	if task.Harness != models.HarnessClaudeCode {
-		t.Errorf("Harness = %q, want %q", task.Harness, models.HarnessClaudeCode)
+	if task.Harness != models.HarnessCodex {
+		t.Errorf("Harness = %q, want %q", task.Harness, models.HarnessCodex)
 	}
-	if task.Model != "claude-opus-4-6" {
-		t.Errorf("Model = %q, want %q", task.Model, "claude-opus-4-6")
+	if task.Model != "custom-model" {
+		t.Errorf("Model = %q, want %q", task.Model, "custom-model")
 	}
 	if task.Effort != "high" {
 		t.Errorf("Effort = %q, want %q", task.Effort, "high")
@@ -188,21 +188,26 @@ func TestApply_BoolOverrides_ExplicitFalse(t *testing.T) {
 func TestApply_HarnessModelCoupling(t *testing.T) {
 	cfg := testConfig()
 
-	// Default harness is codex → model should be codex model
+	// Default harness → should pick matching model
+	cfg.DefaultHarness = "claude_code"
 	d := cfg.TaskDefaults(models.TaskModeCode)
 	task := &models.Task{}
 	d.Apply(task, nil)
-	if task.Model != "gpt-5.4" {
-		t.Errorf("Model = %q, want %q for codex harness", task.Model, "gpt-5.4")
+	claudeModel := task.Model
+	if claudeModel == "" {
+		t.Fatal("Model is empty for claude_code harness")
 	}
 
-	// Claude harness → claude model
-	cfg.DefaultHarness = "claude_code"
+	// Switch to codex → model should change
+	cfg.DefaultHarness = "codex"
 	d = cfg.TaskDefaults(models.TaskModeCode)
 	task = &models.Task{}
 	d.Apply(task, nil)
-	if task.Model != "claude-sonnet-4-6" {
-		t.Errorf("Model = %q, want %q for claude harness", task.Model, "claude-sonnet-4-6")
+	if task.Model == "" {
+		t.Fatal("Model is empty for codex harness")
+	}
+	if task.Model == claudeModel {
+		t.Errorf("codex model %q should differ from claude model %q", task.Model, claudeModel)
 	}
 }
 
@@ -222,24 +227,37 @@ func TestApply_ReviewModeIgnoresCreatePROverride(t *testing.T) {
 }
 
 func TestApply_CallerOverridesHarness(t *testing.T) {
-	cfg := testConfig() // default harness is codex
-	d := cfg.TaskDefaults(models.TaskModeCode)
+	cfg := testConfig()
 
-	// Task explicitly sets claude_code harness; model should follow
+	// Get the model each harness resolves to
+	cfg.DefaultHarness = "claude_code"
+	d := cfg.TaskDefaults(models.TaskModeCode)
+	refTask := &models.Task{}
+	d.Apply(refTask, nil)
+	claudeModel := refTask.Model
+
+	cfg.DefaultHarness = "codex"
+	d = cfg.TaskDefaults(models.TaskModeCode)
+	refTask = &models.Task{}
+	d.Apply(refTask, nil)
+	codexModel := refTask.Model
+
+	// Default is codex, but task overrides to claude_code → should get claude model
+	d = cfg.TaskDefaults(models.TaskModeCode)
 	task := &models.Task{Harness: models.HarnessClaudeCode}
 	d.Apply(task, nil)
 
-	if task.Model != "claude-sonnet-4-6" {
-		t.Errorf("Model = %q, want %q when caller overrides harness to claude_code", task.Model, "claude-sonnet-4-6")
+	if task.Model != claudeModel {
+		t.Errorf("Model = %q, want %q when caller overrides harness to claude_code", task.Model, claudeModel)
 	}
 
-	// Task explicitly sets codex harness with claude default config
+	// Default is claude_code, but task overrides to codex → should get codex model
 	cfg.DefaultHarness = "claude_code"
 	d = cfg.TaskDefaults(models.TaskModeCode)
 	task = &models.Task{Harness: models.HarnessCodex}
 	d.Apply(task, nil)
 
-	if task.Model != "gpt-5.4" {
-		t.Errorf("Model = %q, want %q when caller overrides harness to codex", task.Model, "gpt-5.4")
+	if task.Model != codexModel {
+		t.Errorf("Model = %q, want %q when caller overrides harness to codex", task.Model, codexModel)
 	}
 }

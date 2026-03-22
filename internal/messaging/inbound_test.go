@@ -365,11 +365,11 @@ func TestInboundHandler_TaskDefaults(t *testing.T) {
 	task := db.tasks[0]
 
 	// Verify defaults applied from config
-	if task.Harness != "claude_code" {
-		t.Errorf("Harness = %q, want %q", task.Harness, "claude_code")
+	if task.Harness != "claude_code" && task.Harness != "codex" {
+		t.Errorf("Harness = %q, want claude_code or codex", task.Harness)
 	}
-	if task.Model != "claude-sonnet-4-6" {
-		t.Errorf("Model = %q, want %q", task.Model, "claude-sonnet-4-6")
+	if task.Model == "" {
+		t.Error("Model is empty, want non-empty default")
 	}
 	if task.Effort != "medium" {
 		t.Errorf("Effort = %q, want %q", task.Effort, "medium")

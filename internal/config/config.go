@@ -156,7 +156,7 @@ func Load() (*Config, error) {
 		CloudWatchLogGroup:    os.Getenv("BACKFLOW_CLOUDWATCH_LOG_GROUP"),
 		ECSLogStreamPrefix:    envOr("BACKFLOW_ECS_LOG_STREAM_PREFIX", "ecs"),
 		MaxConcurrentTasks:    envInt("BACKFLOW_MAX_CONCURRENT_TASKS", 5),
-		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "codex"),
+		DefaultHarness:        envOr("BACKFLOW_DEFAULT_HARNESS", "claude_code"),
 		DefaultClaudeModel:    envOr("BACKFLOW_DEFAULT_CLAUDE_MODEL", "claude-sonnet-4-6"),
 		DefaultCodexModel:     envOr("BACKFLOW_DEFAULT_CODEX_MODEL", "gpt-5.4"),
 		DefaultEffort:         envOr("BACKFLOW_DEFAULT_EFFORT", "medium"),

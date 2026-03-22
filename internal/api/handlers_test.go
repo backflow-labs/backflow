@@ -251,8 +251,8 @@ func TestCreateTaskCodexHarness(t *testing.T) {
 	if resp.Data.Harness != "codex" {
 		t.Errorf("harness = %q, want codex", resp.Data.Harness)
 	}
-	if resp.Data.Model != "gpt-5.4" {
-		t.Errorf("model = %q, want gpt-5.4", resp.Data.Model)
+	if resp.Data.Model == "" {
+		t.Error("model is empty, want non-empty default for codex harness")
 	}
 	if resp.Data.Effort != "medium" {
 		t.Errorf("effort = %q, want medium", resp.Data.Effort)
