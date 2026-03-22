@@ -79,6 +79,10 @@ func main() {
 		log.Info().Str("log_file", cfg.LogFile).Msg("logging to file")
 	}
 
+	if cfg.RestrictAPI {
+		log.Info().Msg("API access restricted: all /api/v1/* endpoints return 403")
+	}
+
 	db, err := store.NewPostgres(context.Background(), cfg.DatabaseURL, "migrations")
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to open database")

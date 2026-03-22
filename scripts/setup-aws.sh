@@ -554,18 +554,20 @@ FLY_POLICY=$(cat <<FLYEOF
         "ecs:DescribeTasks",
         "ecs:ListTasks"
       ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "ecs:cluster": "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${ECS_CLUSTER}"
-        }
-      }
+      "Resource": [
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${ECS_CLUSTER}",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task/${ECS_CLUSTER}/*",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${ECS_CONTAINER_NAME}:*"
+      ]
     },
     {
       "Sid": "ECSPassRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::${ACCOUNT_ID}:role/*",
+      "Resource": [
+        "arn:aws:iam::${ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE}",
+        "arn:aws:iam::${ACCOUNT_ID}:role/${ECS_TASK_ROLE}"
+      ],
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "ecs-tasks.amazonaws.com"
