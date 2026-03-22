@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -148,16 +149,24 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			reviewPRNumber = prNumber
 		}
 
-		// Parse SMS into repo + prompt
-		repoURL, prompt, err := ParseTaskFromSMS(body, sender.DefaultRepo)
-		if err != nil {
-			log.Warn().Err(err).Str("from", from).Msg("sms: failed to parse task")
-			writeTwiML(w, fmt.Sprintf("Error: %s", err.Error()))
-			return
-		}
-
+		// For review mode the PR URL is the repo source — skip ParseTaskFromSMS
+		// which would reject a bare PR URL as "prompt is required".
+		var repoURL, prompt string
 		if taskMode == models.TaskModeReview {
 			repoURL = inferredRepo
+			// Strip the PR URL from the body to get a prompt; default if empty.
+			prompt = strings.TrimSpace(strings.Replace(body, reviewPRURL, "", 1))
+			if prompt == "" {
+				prompt = fmt.Sprintf("Review pull request %s", reviewPRURL)
+			}
+		} else {
+			var err error
+			repoURL, prompt, err = ParseTaskFromSMS(body, sender.DefaultRepo)
+			if err != nil {
+				log.Warn().Err(err).Str("from", from).Msg("sms: failed to parse task")
+				writeTwiML(w, fmt.Sprintf("Error: %s", err.Error()))
+				return
+			}
 		}
 
 		now := time.Now().UTC()
