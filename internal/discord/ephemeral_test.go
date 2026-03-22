@@ -88,9 +88,10 @@ func TestModalSubmitErrors_AreEphemeral(t *testing.T) {
 	}
 }
 
-// TestModalSubmitSuccess_NotEphemeral verifies that successful task creation
-// responses are visible to the whole channel (no ephemeral flag).
-func TestModalSubmitSuccess_NotEphemeral(t *testing.T) {
+// TestModalSubmitSuccess_IsEphemeral verifies that successful task creation
+// responses are ephemeral so the DiscordNotifier's task.created embed is the
+// single visible channel message (and thread root) for the task.
+func TestModalSubmitSuccess_IsEphemeral(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	handler := InteractionHandler(pub, nil, fakeCreateTask(fakeTask(), nil))
 
@@ -115,7 +116,7 @@ func TestModalSubmitSuccess_NotEphemeral(t *testing.T) {
 	if err := json.Unmarshal(raw["data"], &data); err != nil {
 		t.Fatalf("decode data: %v", err)
 	}
-	if data.Flags != 0 {
-		t.Errorf("flags = %d, want 0 (not ephemeral for success)", data.Flags)
+	if data.Flags != FlagEphemeral {
+		t.Errorf("flags = %d, want %d (ephemeral)", data.Flags, FlagEphemeral)
 	}
 }
