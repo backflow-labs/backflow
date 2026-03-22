@@ -148,7 +148,6 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
             exec
             --model "$MODEL"
             -c "model_reasoning_effort=${EFFORT}"
-            -c "max_steps=${MAX_TURNS}"
             --dangerously-bypass-approvals-and-sandbox
             "$FULL_REVIEW_PROMPT"
         )
