@@ -76,11 +76,11 @@ The endpoint must be publicly reachable over HTTPS. For local development, use `
 
 **Install state persistence:** At startup, Backflow writes the Discord configuration to the `discord_installs` table in PostgreSQL. This ensures the integration survives service restarts without losing context about which guild/channel to target.
 
-**Slash command registration:** At startup, Backflow registers a `/backflow` slash command with `status` and `list` subcommands via the Discord bulk-overwrite endpoint. This happens automatically when `BACKFLOW_DISCORD_APP_ID` is set — no manual command creation is needed in the Developer Portal.
+**Slash command registration:** At startup, Backflow registers a `/backflow` slash command with `status`, `list`, and `create` subcommands via the Discord bulk-overwrite endpoint. This happens automatically when `BACKFLOW_DISCORD_APP_ID` is set — no manual command creation is needed in the Developer Portal.
 
-**Event notifications:** Backflow subscribes a Discord notifier to the event bus. When task lifecycle events fire (`task.created`, `task.running`, `task.completed`, `task.failed`, `task.interrupted`, `task.recovering`), Backflow posts an embed into the configured channel and continues the conversation in a per-task thread. Event filtering via `BACKFLOW_DISCORD_EVENTS` works the same as webhook and SMS filters — `nil` means all events, a CSV list restricts delivery.
+**Task creation via Discord:** The `/backflow create` subcommand opens a modal dialog where users can fill in a repository URL, task description, branch, harness, and max budget. Submitting the modal creates a task and responds with a confirmation embed.
 
-**Current limitations:** The Discord integration still returns a deferred acknowledgment for non-command interactions. Full modals and buttons will be added in future releases.
+**Event notifications:** Backflow subscribes a Discord notifier to the event bus. When task lifecycle events fire (`task.created`, `task.running`, `task.completed`, `task.failed`, `task.interrupted`, `task.recovering`, `task.cancelled`), Backflow posts an embed into the configured channel and continues the conversation in a per-task thread. Event filtering via `BACKFLOW_DISCORD_EVENTS` works the same as webhook and SMS filters — `nil` means all events, a CSV list restricts delivery.
 
 ## 7. Deployment Notes
 
