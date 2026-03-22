@@ -151,13 +151,13 @@ func TestInteractionHandler_BackflowStatusCommand(t *testing.T) {
 	store := &fakeTaskStore{
 		tasks: map[string]*models.Task{
 			"bf_123": {
-				ID:          "bf_123",
-				Status:      models.TaskStatusRunning,
-				RepoURL:     "https://github.com/test/repo",
-				PRURL:       "https://github.com/test/repo/pull/42",
-				StartedAt:   ptrTime(time.Date(2026, 3, 22, 12, 0, 0, 0, time.UTC)),
-				CreatedAt:   time.Now().UTC(),
-				UpdatedAt:   time.Now().UTC(),
+				ID:        "bf_123",
+				Status:    models.TaskStatusRunning,
+				RepoURL:   "https://github.com/test/repo",
+				PRURL:     "https://github.com/test/repo/pull/42",
+				StartedAt: ptrTime(time.Date(2026, 3, 22, 12, 0, 0, 0, time.UTC)),
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
 			},
 		},
 	}

@@ -11,9 +11,9 @@ import (
 )
 
 type slashCommand struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Type        int    `json:"type"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Type        int                  `json:"type"`
 	Options     []slashCommandOption `json:"options,omitempty"`
 }
 
