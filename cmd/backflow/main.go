@@ -127,7 +127,35 @@ func main() {
 		createTaskFn := discord.CreateTaskFunc(func(ctx context.Context, req *models.CreateTaskRequest) (*models.Task, error) {
 			return api.NewTask(ctx, req, db, cfg, bus)
 		})
-		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db, createTaskFn))
+		cancelTaskFn := discord.CancelTaskFunc(func(taskID string) error {
+			task, err := db.GetTask(context.Background(), taskID)
+			if err != nil {
+				return err
+			}
+			switch task.Status {
+			case models.TaskStatusRunning, models.TaskStatusProvisioning, models.TaskStatusPending, models.TaskStatusRecovering:
+				if err := db.CancelTask(context.Background(), taskID); err != nil {
+					return err
+				}
+				bus.Emit(notify.NewEvent(notify.EventTaskCancelled, task.ID, task.RepoURL, task.Prompt))
+				return nil
+			default:
+				return fmt.Errorf("task %s is not in a cancellable state (status: %s)", taskID, task.Status)
+			}
+		})
+		retryTaskFn := discord.RetryTaskFunc(func(taskID string) error {
+			task, err := db.GetTask(context.Background(), taskID)
+			if err != nil {
+				return err
+			}
+			switch task.Status {
+			case models.TaskStatusFailed, models.TaskStatusInterrupted, models.TaskStatusCancelled:
+				return db.RequeueTask(context.Background(), taskID, "user_retry_via_discord")
+			default:
+				return fmt.Errorf("task %s cannot be retried (status: %s)", taskID, task.Status)
+			}
+		})
+		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db, createTaskFn, cancelTaskFn, retryTaskFn, cfg.DiscordAllowedRoles))
 
 		now := time.Now().UTC()
 		install := &models.DiscordInstall{

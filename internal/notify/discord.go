@@ -126,11 +126,38 @@ func (d *DiscordNotifier) postThreadEvent(ctx context.Context, threadID string, 
 
 func discordMessagePayload(event Event) discord.MessagePayload {
 	embed := discordEmbedForEvent(event)
-	return discord.MessagePayload{
+	payload := discord.MessagePayload{
 		Embeds: []discord.Embed{embed},
 		AllowedMentions: &discord.AllowedMentions{
 			Parse: []string{},
 		},
+	}
+	if btns := buttonsForEvent(event); len(btns) > 0 {
+		payload.Components = []discord.MessageActionRow{
+			{Type: discord.ComponentTypeActionRow, Components: btns},
+		}
+	}
+	return payload
+}
+
+func buttonsForEvent(event Event) []discord.Button {
+	switch event.Type {
+	case EventTaskCreated, EventTaskRunning, EventTaskRecovering:
+		return []discord.Button{{
+			Type:     discord.ComponentTypeButton,
+			Style:    discord.ButtonStyleDanger,
+			Label:    "Cancel",
+			CustomID: discord.CustomIDCancelPrefix + event.TaskID,
+		}}
+	case EventTaskFailed, EventTaskInterrupted, EventTaskCancelled:
+		return []discord.Button{{
+			Type:     discord.ComponentTypeButton,
+			Style:    discord.ButtonStylePrimary,
+			Label:    "Retry",
+			CustomID: discord.CustomIDRetryPrefix + event.TaskID,
+		}}
+	default:
+		return nil
 	}
 }
 

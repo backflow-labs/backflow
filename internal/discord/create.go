@@ -15,6 +15,7 @@ import (
 // Discord component type constants.
 const (
 	ComponentTypeActionRow = 1
+	ComponentTypeButton    = 2
 	ComponentTypeTextInput = 4
 )
 

@@ -95,6 +95,32 @@ func RegisterCommands(baseURL, appID, botToken string) error {
 						},
 					},
 				},
+				{
+					Name:        "cancel",
+					Description: "Cancel a running task",
+					Type:        1, // SUB_COMMAND
+					Options: []slashCommandOption{
+						{
+							Name:        "task_id",
+							Description: "Backflow task ID to cancel",
+							Type:        3, // STRING
+							Required:    true,
+						},
+					},
+				},
+				{
+					Name:        "retry",
+					Description: "Retry a failed or interrupted task",
+					Type:        1, // SUB_COMMAND
+					Options: []slashCommandOption{
+						{
+							Name:        "task_id",
+							Description: "Backflow task ID to retry",
+							Type:        3, // STRING
+							Required:    true,
+						},
+					},
+				},
 			},
 		},
 	}

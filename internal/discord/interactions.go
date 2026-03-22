@@ -33,10 +33,22 @@ const (
 	ResponseTypeDeferredChannelMessage = 5
 )
 
+// Button custom ID prefixes used by Backflow buttons.
+const (
+	CustomIDCancelPrefix = "bf_cancel:"
+	CustomIDRetryPrefix  = "bf_retry:"
+)
+
 // Interaction is the minimal Discord interaction payload needed for routing.
 type Interaction struct {
-	Type int             `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Type   int             `json:"type"`
+	Data   json.RawMessage `json:"data,omitempty"`
+	Member *MemberInfo     `json:"member,omitempty"`
+}
+
+// MemberInfo holds the guild member information sent with an interaction.
+type MemberInfo struct {
+	Roles []string `json:"roles"`
 }
 
 // CommandData contains the parsed command name from an application command interaction.
@@ -51,6 +63,12 @@ type CommandOption struct {
 	Type    int             `json:"type"`
 	Value   json.RawMessage `json:"value,omitempty"`
 	Options []CommandOption `json:"options,omitempty"`
+}
+
+// ComponentData is the data from a message component (button click) interaction.
+type ComponentData struct {
+	CustomID      string `json:"custom_id"`
+	ComponentType int    `json:"component_type"`
 }
 
 // InteractionResponse is sent back to Discord.
@@ -74,6 +92,14 @@ type MessageData struct {
 	Flags   int    `json:"flags,omitempty"`
 }
 
+// CancelTaskFunc cancels a task by ID. It is responsible for all validation,
+// state changes, and event emission.
+type CancelTaskFunc func(taskID string) error
+
+// RetryTaskFunc requeues a task by ID. It is responsible for all validation,
+// state changes, and event emission.
+type RetryTaskFunc func(taskID string) error
+
 type discordTaskStore interface {
 	GetTask(ctx context.Context, id string) (*models.Task, error)
 	ListTasks(ctx context.Context, filter store.TaskFilter) ([]*models.Task, error)
@@ -81,8 +107,10 @@ type discordTaskStore interface {
 
 // InteractionHandler returns an http.HandlerFunc that verifies and routes
 // Discord interaction webhook requests.
-// createTask may be nil to disable task creation via Discord.
-func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore, createTask CreateTaskFunc) http.HandlerFunc {
+// createTask, cancelTask, and retryTask may be nil to disable those actions.
+// allowedRoles restricts cancel/retry to users with at least one matching role;
+// if empty, all users are permitted.
+func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore, createTask CreateTaskFunc, cancelTask CancelTaskFunc, retryTask RetryTaskFunc, allowedRoles []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
@@ -118,12 +146,11 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore,
 			log.Info().Msg("discord: PING received, responding with PONG")
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand:
-			handleApplicationCommand(r.Context(), w, interaction, taskStore)
+			handleApplicationCommand(r.Context(), w, interaction, taskStore, createTask, cancelTask, retryTask, allowedRoles)
 		case InteractionTypeModalSubmit:
 			handleModalSubmit(r.Context(), w, interaction, createTask)
 		case InteractionTypeMessageComponent:
-			log.Info().Int("type", interaction.Type).Msg("discord: message component received (stub)")
-			respondJSON(w, InteractionResponse{Type: ResponseTypeDeferredChannelMessage})
+			handleMessageComponent(r.Context(), w, interaction, cancelTask, retryTask, allowedRoles)
 		default:
 			log.Warn().Int("type", interaction.Type).Msg("discord: unknown interaction type")
 			http.Error(w, "unknown interaction type", http.StatusBadRequest)
@@ -131,7 +158,7 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore,
 	}
 }
 
-func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore) {
+func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore, createTask CreateTaskFunc, cancelTask CancelTaskFunc, retryTask RetryTaskFunc, allowedRoles []string) {
 	var cmd CommandData
 	if err := json.Unmarshal(interaction.Data, &cmd); err != nil {
 		log.Warn().Err(err).Msg("discord: failed to parse command data")
@@ -153,7 +180,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	if !ok {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Use /backflow create, /backflow status, or /backflow list."},
+			Data: MessageData{Content: "Use /backflow create, /backflow status, /backflow list, /backflow cancel, or /backflow retry."},
 		})
 		return
 	}
@@ -233,10 +260,80 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 			Type: ResponseTypeChannelMessage,
 			Data: MessageData{Content: formatTaskList(tasks, filter)},
 		})
+	case "cancel":
+		if !hasPermission(interaction.Member, allowedRoles) {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "You don't have permission to cancel tasks.", Flags: FlagEphemeral},
+			})
+			return
+		}
+		taskID, err := stringOption(options, "task_id")
+		if err != nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: err.Error()},
+			})
+			return
+		}
+		if cancelTask == nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Task cancellation is unavailable right now."},
+			})
+			return
+		}
+		if err := cancelTask(taskID); err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("discord: failed to cancel task")
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: fmt.Sprintf("Failed to cancel task %s: %s", taskID, err.Error())},
+			})
+			return
+		}
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: fmt.Sprintf("Task %s has been cancelled.", taskID)},
+		})
+	case "retry":
+		if !hasPermission(interaction.Member, allowedRoles) {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "You don't have permission to retry tasks.", Flags: FlagEphemeral},
+			})
+			return
+		}
+		taskID, err := stringOption(options, "task_id")
+		if err != nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: err.Error()},
+			})
+			return
+		}
+		if retryTask == nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Task retry is unavailable right now."},
+			})
+			return
+		}
+		if err := retryTask(taskID); err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("discord: failed to retry task")
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: fmt.Sprintf("Failed to retry task %s: %s", taskID, err.Error())},
+			})
+			return
+		}
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: fmt.Sprintf("Task %s has been queued for retry.", taskID)},
+		})
 	default:
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /backflow create, /backflow status, or /backflow list.", subcommand)},
+			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /backflow create, /backflow status, /backflow list, /backflow cancel, or /backflow retry.", subcommand)},
 		})
 	}
 }
@@ -261,6 +358,95 @@ func handleModalSubmit(ctx context.Context, w http.ResponseWriter, interaction I
 		Type: ResponseTypeChannelMessage,
 		Data: MessageData{Content: "Unknown modal submission."},
 	})
+}
+
+func handleMessageComponent(ctx context.Context, w http.ResponseWriter, interaction Interaction, cancelTask CancelTaskFunc, retryTask RetryTaskFunc, allowedRoles []string) {
+	var data ComponentData
+	if err := json.Unmarshal(interaction.Data, &data); err != nil {
+		log.Warn().Err(err).Msg("discord: failed to parse component data")
+		http.Error(w, "invalid component data", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().Str("custom_id", data.CustomID).Msg("discord: message component received")
+
+	if !hasPermission(interaction.Member, allowedRoles) {
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: "You don't have permission to perform this action.", Flags: FlagEphemeral},
+		})
+		return
+	}
+
+	switch {
+	case strings.HasPrefix(data.CustomID, CustomIDCancelPrefix):
+		taskID := strings.TrimPrefix(data.CustomID, CustomIDCancelPrefix)
+		if cancelTask == nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Task cancellation is unavailable right now.", Flags: FlagEphemeral},
+			})
+			return
+		}
+		if err := cancelTask(taskID); err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("discord: button cancel failed")
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: fmt.Sprintf("Failed to cancel task %s: %s", taskID, err.Error()), Flags: FlagEphemeral},
+			})
+			return
+		}
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: fmt.Sprintf("Task %s has been cancelled.", taskID), Flags: FlagEphemeral},
+		})
+	case strings.HasPrefix(data.CustomID, CustomIDRetryPrefix):
+		taskID := strings.TrimPrefix(data.CustomID, CustomIDRetryPrefix)
+		if retryTask == nil {
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: "Task retry is unavailable right now.", Flags: FlagEphemeral},
+			})
+			return
+		}
+		if err := retryTask(taskID); err != nil {
+			log.Warn().Err(err).Str("task_id", taskID).Msg("discord: button retry failed")
+			respondJSON(w, ChannelMessageResponse{
+				Type: ResponseTypeChannelMessage,
+				Data: MessageData{Content: fmt.Sprintf("Failed to retry task %s: %s", taskID, err.Error()), Flags: FlagEphemeral},
+			})
+			return
+		}
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: fmt.Sprintf("Task %s has been queued for retry.", taskID), Flags: FlagEphemeral},
+		})
+	default:
+		log.Warn().Str("custom_id", data.CustomID).Msg("discord: unknown message component custom_id")
+		respondJSON(w, ChannelMessageResponse{
+			Type: ResponseTypeChannelMessage,
+			Data: MessageData{Content: "Unknown button action.", Flags: FlagEphemeral},
+		})
+	}
+}
+
+// hasPermission returns true if no roles are configured (open access) or the
+// member holds at least one of the allowed roles.
+func hasPermission(member *MemberInfo, allowedRoles []string) bool {
+	if len(allowedRoles) == 0 {
+		return true
+	}
+	if member == nil {
+		return false
+	}
+	for _, allowed := range allowedRoles {
+		for _, memberRole := range member.Roles {
+			if allowed == memberRole {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c CommandData) firstSubcommand() (string, []CommandOption, bool) {
