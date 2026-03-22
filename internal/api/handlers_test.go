@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
@@ -26,6 +27,10 @@ type noopLogFetcher struct{}
 func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, error) {
 	return "test logs\n", nil
 }
+
+type noopEmitter struct{}
+
+func (noopEmitter) Emit(_ notify.Event) {}
 
 var (
 	sharedConnStr string
@@ -99,13 +104,13 @@ func testServer(t *testing.T) http.Handler {
 		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",
 		DefaultCodexModel:  "gpt-5.4-mini",
-		DefaultEffort:      "high",
+		DefaultEffort:      "medium",
 		DefaultMaxBudget:   10.0,
 		DefaultMaxRuntime:  30 * 60e9, // 30 min
 		DefaultMaxTurns:    200,
 	}
 
-	return NewServer(s, cfg, noopLogFetcher{})
+	return NewServer(s, cfg, noopLogFetcher{}, noopEmitter{})
 }
 
 func TestHealthCheck(t *testing.T) {
@@ -210,8 +215,8 @@ func TestCreateTaskCodexHarness(t *testing.T) {
 	if resp.Data.Model != "gpt-5.4-mini" {
 		t.Errorf("model = %q, want gpt-5.4-mini", resp.Data.Model)
 	}
-	if resp.Data.Effort != "high" {
-		t.Errorf("effort = %q, want high", resp.Data.Effort)
+	if resp.Data.Effort != "medium" {
+		t.Errorf("effort = %q, want medium", resp.Data.Effort)
 	}
 }
 

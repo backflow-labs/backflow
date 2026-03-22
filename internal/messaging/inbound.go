@@ -164,7 +164,7 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			MaxRuntimeMin:   int(cfg.DefaultMaxRuntime.Minutes()),
 			MaxTurns:        cfg.DefaultMaxTurns,
 			CreatePR:        true,
-			SelfReview:      true,
+			SelfReview:      false,
 			SaveAgentOutput: true,
 			ReplyChannel:    fmt.Sprintf("%s:%s", ChannelSMS, from),
 			CreatedAt:       now,

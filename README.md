@@ -43,7 +43,7 @@ make cloudflared-setup   # One-time: create tunnel, DNS route, and config
 make tunnel              # Start the tunnel
 ```
 
-This routes `https://$BACKFLOW_DOMAIN` to `localhost:8080`. Set the domain as the Discord Interactions Endpoint URL and Twilio webhook URL. See [docs/discord-setup.md](docs/discord-setup.md) and [docs/sms-setup.md](docs/sms-setup.md) for full configuration.
+This routes `https://$BACKFLOW_DOMAIN` to `localhost:8080`. Set the domain as the Discord Interactions Endpoint URL and Twilio webhook URL. Discord task lifecycle notifications will then land in the configured channel and per-task thread. See [docs/discord-setup.md](docs/discord-setup.md) and [docs/sms-setup.md](docs/sms-setup.md) for full configuration.
 
 ## Submitting Tasks
 
@@ -62,7 +62,7 @@ PRs are created by default. Use `--no-pr` to skip.
   --branch my-feature --target-branch develop \
   --context "Focus on the auth module" \
   --claude-md "Always use table-driven tests" \
-  --effort high --self-review
+  --effort medium --self-review
 
 # Prompt from a file
 ./scripts/create-task.sh https://github.com/org/repo --plan plan.md
@@ -89,8 +89,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
   -d '{
     "repo_url": "https://github.com/org/repo",
     "prompt": "Fix the bug",
-    "create_pr": true,
-    "self_review": true
+    "create_pr": true
   }'
 
 # Review a PR
@@ -135,7 +134,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `task_mode` | string | `code` (default) or `review` |
 | `harness` | string | `codex` (default) or `claude_code` |
 | `model` | string | Model override (default: `claude-sonnet-4-6` / `gpt-5.4-mini` for codex) |
-| `effort` | string | `low`, `medium`, `high` (default), or `xhigh` |
+| `effort` | string | `low`, `medium` (default), `high`, or `xhigh` |
 | `branch` | string | Working branch name |
 | `target_branch` | string | Target branch (default: main) |
 | `create_pr` | bool | Create a PR on completion |
@@ -254,7 +253,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | `BACKFLOW_DEFAULT_HARNESS` | `codex` | `claude_code` or `codex` |
 | `BACKFLOW_DEFAULT_CLAUDE_MODEL` | `claude-sonnet-4-6` | Default model for Claude Code |
 | `BACKFLOW_DEFAULT_CODEX_MODEL` | `gpt-5.4-mini` | Default model for Codex |
-| `BACKFLOW_DEFAULT_EFFORT` | `high` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
+| `BACKFLOW_DEFAULT_EFFORT` | `medium` | Reasoning effort (`low`, `medium`, `high`, `xhigh`) |
 | `BACKFLOW_DEFAULT_MAX_BUDGET` | `10` | Budget cap (USD) |
 | `BACKFLOW_DEFAULT_MAX_RUNTIME_MIN` | `30` | Runtime cap (minutes) |
 | `BACKFLOW_DEFAULT_MAX_TURNS` | `200` | Max conversation turns |
