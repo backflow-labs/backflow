@@ -137,7 +137,7 @@ func main() {
 				if err := db.CancelTask(context.Background(), taskID); err != nil {
 					return err
 				}
-				bus.Emit(notify.NewEvent(notify.EventTaskCancelled, task.ID, task.RepoURL, task.Prompt))
+				bus.Emit(notify.NewEvent(notify.EventTaskCancelled, task))
 				return nil
 			default:
 				return fmt.Errorf("task %s is not in a cancellable state (status: %s)", taskID, task.Status)
