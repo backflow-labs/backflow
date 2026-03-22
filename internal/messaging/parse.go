@@ -54,39 +54,6 @@ func looksLikeGitHubURL(s string) bool {
 	return host == "github.com" || host == "www.github.com"
 }
 
-func looksLikeURL(s string) bool {
-	lower := strings.ToLower(s)
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
-		return true
-	}
-	// Require domain/path pattern: the part before the first "/" must look
-	// like a hostname (e.g. "github.com/org/repo"). Both sides of the dot
-	// must contain a letter to avoid false positives like "v2.0/migration".
-	// Also require at least two path segments (host/a/b) to filter out
-	// patterns like "config.yaml/broken".
-	slashIdx := strings.Index(s, "/")
-	if slashIdx > 0 {
-		host := lower[:slashIdx]
-		path := s[slashIdx+1:]
-		dotIdx := strings.LastIndex(host, ".")
-		if dotIdx > 0 && dotIdx < len(host)-1 &&
-			containsLetter(host[:dotIdx]) && containsLetter(host[dotIdx+1:]) &&
-			strings.Contains(path, "/") {
-			return true
-		}
-	}
-	return false
-}
-
-func containsLetter(s string) bool {
-	for _, c := range s {
-		if c >= 'a' && c <= 'z' {
-			return true
-		}
-	}
-	return false
-}
-
 func normalizeGitHubRepoURL(s string) (string, error) {
 	u, err := parseURLToken(s)
 	if err != nil {
