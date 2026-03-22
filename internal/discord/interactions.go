@@ -76,7 +76,8 @@ type discordTaskStore interface {
 
 // InteractionHandler returns an http.HandlerFunc that verifies and routes
 // Discord interaction webhook requests.
-func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore) http.HandlerFunc {
+// createTask may be nil to disable task creation via Discord.
+func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore, createTask CreateTaskFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
@@ -112,9 +113,11 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore)
 			log.Info().Msg("discord: PING received, responding with PONG")
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand:
-			handleApplicationCommand(r.Context(), w, interaction, taskStore)
-		case InteractionTypeMessageComponent, InteractionTypeModalSubmit:
-			log.Info().Int("type", interaction.Type).Msg("discord: interaction received (stub)")
+			handleApplicationCommand(r.Context(), w, interaction, taskStore, createTask)
+		case InteractionTypeModalSubmit:
+			handleModalSubmit(r.Context(), w, interaction, createTask)
+		case InteractionTypeMessageComponent:
+			log.Info().Int("type", interaction.Type).Msg("discord: message component received (stub)")
 			respondJSON(w, InteractionResponse{Type: ResponseTypeDeferredChannelMessage})
 		default:
 			log.Warn().Int("type", interaction.Type).Msg("discord: unknown interaction type")
@@ -123,7 +126,7 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore)
 	}
 }
 
-func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore) {
+func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore, createTask CreateTaskFunc) {
 	var cmd CommandData
 	if err := json.Unmarshal(interaction.Data, &cmd); err != nil {
 		log.Warn().Err(err).Msg("discord: failed to parse command data")
@@ -145,12 +148,22 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	if !ok {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Use /backflow status or /backflow list."},
+			Data: MessageData{Content: "Use /backflow create, /backflow status, or /backflow list."},
 		})
 		return
 	}
 
 	switch subcommand {
+	case "create":
+		var targetBranch string
+		if tb, err := stringOption(options, "target_branch"); err == nil {
+			targetBranch = tb
+		}
+		var runtimeMin int
+		if rt, err := intOption(options, "runtime"); err == nil && rt > 0 {
+			runtimeMin = rt
+		}
+		openCreateModal(w, targetBranch, runtimeMin)
 	case "status":
 		taskID, err := stringOption(options, "task_id")
 		if err != nil {
@@ -226,9 +239,31 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	default:
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Unknown command: %s %s", cmd.Name, subcommand)},
+			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /backflow create, /backflow status, or /backflow list.", subcommand)},
 		})
 	}
+}
+
+func handleModalSubmit(ctx context.Context, w http.ResponseWriter, interaction Interaction, createTask CreateTaskFunc) {
+	var data ModalSubmitData
+	if err := json.Unmarshal(interaction.Data, &data); err != nil {
+		log.Warn().Err(err).Msg("discord: failed to parse modal submit data")
+		http.Error(w, "invalid modal data", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().Str("custom_id", data.CustomID).Msg("discord: modal submit received")
+
+	if strings.HasPrefix(data.CustomID, modalIDCreate) {
+		handleCreateSubmit(ctx, w, data, createTask)
+		return
+	}
+
+	log.Warn().Str("custom_id", data.CustomID).Msg("discord: unknown modal custom_id")
+	respondJSON(w, ChannelMessageResponse{
+		Type: ResponseTypeChannelMessage,
+		Data: MessageData{Content: "Unknown modal submission."},
+	})
 }
 
 func (c CommandData) firstSubcommand() (string, []CommandOption, bool) {
