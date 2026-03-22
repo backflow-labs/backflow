@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -407,6 +408,83 @@ func TestDeleteTask(t *testing.T) {
 
 	if w2.Code != http.StatusNoContent {
 		t.Errorf("delete status = %d, want %d", w2.Code, http.StatusNoContent)
+	}
+}
+
+func TestNewTask_Integration(t *testing.T) {
+	ctx := context.Background()
+
+	if _, err := truncatePool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	_, thisFile, _, _ := runtime.Caller(0)
+	migrationsDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations")
+	s, err := store.NewPostgres(ctx, sharedConnStr, migrationsDir)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	cfg := &config.Config{
+		AuthMode:           config.AuthModeAPIKey,
+		AnthropicAPIKey:    "sk-test",
+		DefaultHarness:     "claude_code",
+		DefaultClaudeModel: "claude-sonnet-4-6",
+		DefaultCodexModel:  "gpt-5.4",
+		DefaultEffort:      "medium",
+		DefaultMaxBudget:   10.0,
+		DefaultMaxRuntime:  30 * 60e9,
+		DefaultMaxTurns:    200,
+	}
+
+	emitter := &capturingEmitter{}
+
+	req := &models.CreateTaskRequest{
+		RepoURL: "https://github.com/test/repo",
+		Prompt:  "Add tests for auth module",
+		Harness: "claude_code",
+	}
+
+	task, err := NewTask(ctx, req, s, cfg, emitter)
+	if err != nil {
+		t.Fatalf("NewTask returned error: %v", err)
+	}
+
+	if task.ID == "" {
+		t.Error("task ID is empty")
+	}
+	if task.Status != "pending" {
+		t.Errorf("status = %q, want pending", task.Status)
+	}
+	if task.RepoURL != "https://github.com/test/repo" {
+		t.Errorf("repo_url = %q", task.RepoURL)
+	}
+	if task.Prompt != "Add tests for auth module" {
+		t.Errorf("prompt = %q", task.Prompt)
+	}
+	if task.Harness != "claude_code" {
+		t.Errorf("harness = %q, want claude_code", task.Harness)
+	}
+
+	// Verify it was persisted to the store.
+	got, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask(%s): %v", task.ID, err)
+	}
+	if got.Prompt != task.Prompt {
+		t.Errorf("stored prompt = %q, want %q", got.Prompt, task.Prompt)
+	}
+
+	// Verify event was emitted.
+	if len(emitter.events) != 1 {
+		t.Fatalf("emitted %d events, want 1", len(emitter.events))
+	}
+	if emitter.events[0].Type != notify.EventTaskCreated {
+		t.Errorf("event type = %q, want %q", emitter.events[0].Type, notify.EventTaskCreated)
+	}
+	if emitter.events[0].TaskID != task.ID {
+		t.Errorf("event task_id = %q, want %q", emitter.events[0].TaskID, task.ID)
 	}
 }
 

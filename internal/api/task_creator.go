@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,9 +14,14 @@ import (
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
+// ErrStoreFailure is returned when the store fails to persist a task.
+// Callers can use errors.Is(err, ErrStoreFailure) to distinguish store
+// errors from validation errors returned by NewTask.
+var ErrStoreFailure = errors.New("failed to create task")
+
 // NewTask validates the request, applies config defaults, persists the task, and emits
 // a task.created event. Validation errors are returned as-is with user-friendly messages.
-// Store errors are wrapped with "failed to create task".
+// Store errors wrap ErrStoreFailure.
 func NewTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, cfg *config.Config, bus notify.Emitter) (*models.Task, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -60,7 +66,7 @@ func NewTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, 
 	})
 
 	if err := s.CreateTask(ctx, task); err != nil {
-		return nil, fmt.Errorf("failed to create task: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrStoreFailure, err)
 	}
 
 	if bus != nil {

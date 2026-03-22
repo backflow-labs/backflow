@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -40,9 +39,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := NewTask(r.Context(), &req, h.store, h.config, h.bus)
 	if err != nil {
-		// NewTask wraps store errors with "failed to create task"; unwrapped
-		// errors are validation failures.
-		if strings.HasPrefix(err.Error(), "failed to create task") {
+		if errors.Is(err, ErrStoreFailure) {
 			writeError(w, http.StatusInternalServerError, "failed to create task")
 		} else {
 			writeError(w, http.StatusBadRequest, err.Error())

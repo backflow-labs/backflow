@@ -29,12 +29,12 @@ const ResponseTypeModal = 9
 
 // Modal field custom_id constants.
 const (
-	modalIDCreate      = "backflow_create"
-	fieldRepoURL       = "repo_url"
-	fieldPrompt        = "prompt"
-	fieldBranch        = "branch"
-	fieldHarness       = "harness"
-	fieldBudgetUSD     = "budget_usd"
+	modalIDCreate  = "backflow_create"
+	fieldRepoURL   = "repo_url"
+	fieldPrompt    = "prompt"
+	fieldBranch    = "branch"
+	fieldHarness   = "harness"
+	fieldBudgetUSD = "budget_usd"
 )
 
 // CreateTaskFunc creates a new Backflow task from a request.
@@ -49,15 +49,15 @@ type ModalResponse struct {
 
 // ModalData describes the modal to show the user.
 type ModalData struct {
-	CustomID   string        `json:"custom_id"`
-	Title      string        `json:"title"`
-	Components []ActionRow   `json:"components"`
+	CustomID   string      `json:"custom_id"`
+	Title      string      `json:"title"`
+	Components []ActionRow `json:"components"`
 }
 
 // ActionRow wraps one or more components in a row container.
 type ActionRow struct {
-	Type       int           `json:"type"`
-	Components []TextInput   `json:"components"`
+	Type       int         `json:"type"`
+	Components []TextInput `json:"components"`
 }
 
 // TextInput is a single text field inside a modal action row.
@@ -75,8 +75,8 @@ type TextInput struct {
 
 // ModalSubmitData is the parsed data from an MODAL_SUBMIT interaction.
 type ModalSubmitData struct {
-	CustomID   string        `json:"custom_id"`
-	Components []ActionRow   `json:"components"`
+	CustomID   string      `json:"custom_id"`
+	Components []ActionRow `json:"components"`
 }
 
 // encodeCreateCustomID encodes optional slash-command options into the modal custom_id
@@ -186,14 +186,14 @@ func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSu
 	if repoURL == "" {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "repo_url is required."},
+			Data: MessageData{Content: "repo_url is required.", Flags: FlagEphemeral},
 		})
 		return
 	}
 	if prompt == "" {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "prompt is required."},
+			Data: MessageData{Content: "prompt is required.", Flags: FlagEphemeral},
 		})
 		return
 	}
@@ -206,7 +206,7 @@ func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSu
 		if err != nil || budgetUSD < 0 {
 			respondJSON(w, ChannelMessageResponse{
 				Type: ResponseTypeChannelMessage,
-				Data: MessageData{Content: fmt.Sprintf("Invalid budget %q: must be a non-negative number (e.g. 5.00).", budgetStr)},
+				Data: MessageData{Content: fmt.Sprintf("Invalid budget %q: must be a non-negative number (e.g. 5.00).", budgetStr), Flags: FlagEphemeral},
 			})
 			return
 		}
@@ -226,7 +226,7 @@ func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSu
 	if createTask == nil {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Task creation is unavailable right now."},
+			Data: MessageData{Content: "Task creation is unavailable right now.", Flags: FlagEphemeral},
 		})
 		return
 	}
@@ -236,7 +236,7 @@ func handleCreateSubmit(ctx context.Context, w http.ResponseWriter, data ModalSu
 		log.Warn().Err(err).Msg("discord: failed to create task from modal")
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Failed to create task: %s", err.Error())},
+			Data: MessageData{Content: fmt.Sprintf("Failed to create task: %s", err.Error()), Flags: FlagEphemeral},
 		})
 		return
 	}

@@ -64,9 +64,14 @@ type ChannelMessageResponse struct {
 	Data MessageData `json:"data"`
 }
 
+// FlagEphemeral is the Discord message flag that makes a response visible
+// only to the user who triggered the interaction.
+const FlagEphemeral = 64
+
 // MessageData is the content payload inside a channel message response.
 type MessageData struct {
 	Content string `json:"content"`
+	Flags   int    `json:"flags,omitempty"`
 }
 
 type discordTaskStore interface {
