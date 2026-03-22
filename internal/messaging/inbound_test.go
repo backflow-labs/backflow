@@ -15,6 +15,7 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
@@ -23,6 +24,10 @@ import (
 type mockStore struct {
 	senders map[string]*models.AllowedSender
 	tasks   []*models.Task
+}
+
+type mockEmitter struct {
+	events []notify.Event
 }
 
 func (m *mockStore) GetAllowedSender(_ context.Context, channelType, address string) (*models.AllowedSender, error) {
@@ -36,6 +41,10 @@ func (m *mockStore) GetAllowedSender(_ context.Context, channelType, address str
 func (m *mockStore) CreateTask(_ context.Context, task *models.Task) error {
 	m.tasks = append(m.tasks, task)
 	return nil
+}
+
+func (m *mockEmitter) Emit(event notify.Event) {
+	m.events = append(m.events, event)
 }
 
 // Unused Store methods — satisfy the interface.
@@ -118,7 +127,8 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	emitter := &mockEmitter{}
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, emitter)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -146,6 +156,15 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 	if !task.CreatePR || task.SelfReview {
 		t.Error("expected create_pr true and self_review false")
 	}
+	if len(emitter.events) != 1 {
+		t.Fatalf("expected 1 emitted event, got %d", len(emitter.events))
+	}
+	if emitter.events[0].Type != notify.EventTaskCreated {
+		t.Fatalf("emitted event type = %s, want %s", emitter.events[0].Type, notify.EventTaskCreated)
+	}
+	if emitter.events[0].TaskID != task.ID {
+		t.Fatalf("emitted task_id = %q, want %q", emitter.events[0].TaskID, task.ID)
+	}
 
 	// Verify TwiML response
 	var resp twiMLResponse
@@ -164,7 +183,7 @@ func TestInboundHandler_RejectedSender(t *testing.T) {
 	db := &mockStore{
 		senders: map[string]*models.AllowedSender{},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15559999999"},
@@ -195,7 +214,7 @@ func TestInboundHandler_DisabledSender(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -220,7 +239,7 @@ func TestInboundHandler_WithExplicitRepo(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -240,7 +259,7 @@ func TestInboundHandler_WithExplicitRepo(t *testing.T) {
 
 func TestInboundHandler_MissingFields(t *testing.T) {
 	db := &mockStore{senders: map[string]*models.AllowedSender{}}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -306,7 +325,7 @@ func TestInboundHandler_RejectsInvalidSignature(t *testing.T) {
 	}
 	cfg := newTestConfig()
 	cfg.TwilioAuthToken = "test-auth-token"
-	handler := InboundHandler(db, cfg, NoopMessenger{})
+	handler := InboundHandler(db, cfg, NoopMessenger{}, nil)
 
 	// Request with no signature header
 	w := postForm(handler, url.Values{
@@ -335,7 +354,7 @@ func TestInboundHandler_AcceptsValidSignature(t *testing.T) {
 	}
 	cfg := newTestConfig()
 	cfg.TwilioAuthToken = "test-auth-token"
-	handler := InboundHandler(db, cfg, NoopMessenger{})
+	handler := InboundHandler(db, cfg, NoopMessenger{}, nil)
 
 	params := url.Values{
 		"From": {"+15551234567"},

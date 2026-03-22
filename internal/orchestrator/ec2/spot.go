@@ -76,13 +76,13 @@ func (h *SpotHandler) handleInterruption(ctx context.Context, inst *models.Insta
 		}
 
 		log.Info().Str("task_id", task.ID).Msg("spot: re-queuing interrupted task")
+		if err := h.store.RequeueTask(ctx, task.ID, "spot interruption"); err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("spot: failed to re-queue task")
+			continue
+		}
 
 		if h.bus != nil {
 			h.bus.Emit(notify.NewEvent(notify.EventTaskInterrupted, task, notify.WithContainerStatus("", "spot interruption", "")))
-		}
-
-		if err := h.store.RequeueTask(ctx, task.ID, "spot interruption"); err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("spot: failed to re-queue task")
 		}
 	}
 }

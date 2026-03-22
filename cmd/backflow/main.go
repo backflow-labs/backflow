@@ -114,7 +114,7 @@ func main() {
 
 	// Mount SMS inbound webhook if provider is configured
 	if cfg.SMSProvider != "" {
-		router.Post("/webhooks/sms/inbound", messaging.InboundHandler(db, cfg, messenger))
+		router.Post("/webhooks/sms/inbound", messaging.InboundHandler(db, cfg, messenger, bus))
 		log.Info().Msg("SMS inbound webhook mounted at /webhooks/sms/inbound")
 	}
 

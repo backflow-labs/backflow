@@ -17,6 +17,7 @@ import (
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
@@ -89,7 +90,7 @@ func requestURL(r *http.Request) string {
 }
 
 // InboundHandler returns an http.HandlerFunc that processes inbound SMS from Twilio.
-func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) http.HandlerFunc {
+func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger, bus notify.Emitter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			log.Warn().Err(err).Msg("sms: failed to parse form")
@@ -175,6 +176,10 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			log.Error().Err(err).Msg("sms: failed to create task")
 			writeTwiML(w, "Error: failed to create task.")
 			return
+		}
+
+		if bus != nil {
+			bus.Emit(notify.NewEvent(notify.EventTaskCreated, task))
 		}
 
 		log.Info().Str("task_id", task.ID).Str("from", from).Str("repo", repoURL).Msg("sms: task created")

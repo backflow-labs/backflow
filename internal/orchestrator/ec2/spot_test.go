@@ -18,9 +18,10 @@ func (e *recordingEmitter) Emit(event notify.Event) {
 }
 
 type interruptionStore struct {
-	task           *models.Task
-	emitter        *recordingEmitter
-	requeueChecked bool
+	task                *models.Task
+	emitter             *recordingEmitter
+	requeueChecked      bool
+	eventCountAtRequeue int
 }
 
 func (s *interruptionStore) ListInstances(context.Context, *models.InstanceStatus) ([]*models.Instance, error) {
@@ -40,12 +41,7 @@ func (s *interruptionStore) ListTasks(_ context.Context, filter store.TaskFilter
 
 func (s *interruptionStore) RequeueTask(_ context.Context, id string, reason string) error {
 	s.requeueChecked = true
-	if len(s.emitter.events) == 0 {
-		return &testError{"event not emitted before requeue"}
-	}
-	if s.emitter.events[0].Type != notify.EventTaskInterrupted {
-		return &testError{"wrong event emitted before requeue"}
-	}
+	s.eventCountAtRequeue = len(s.emitter.events)
 	if id != s.task.ID {
 		return &testError{"unexpected task id"}
 	}
@@ -107,7 +103,7 @@ type testError struct{ msg string }
 
 func (e *testError) Error() string { return e.msg }
 
-func TestHandleInterruption_EmitsBeforeRequeue(t *testing.T) {
+func TestHandleInterruption_RequeuesThenEmits(t *testing.T) {
 	emitter := &recordingEmitter{}
 	st := &interruptionStore{
 		task: &models.Task{
@@ -129,5 +125,8 @@ func TestHandleInterruption_EmitsBeforeRequeue(t *testing.T) {
 	}
 	if !st.requeueChecked {
 		t.Fatal("requeue path was not executed")
+	}
+	if st.eventCountAtRequeue != 0 {
+		t.Fatalf("event count at requeue = %d, want 0", st.eventCountAtRequeue)
 	}
 }
