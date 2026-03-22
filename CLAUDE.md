@@ -52,7 +52,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
 - **models/** — `Task`, `Instance`, `AllowedSender`, and `DiscordInstall` structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing)
-- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`)
+- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 

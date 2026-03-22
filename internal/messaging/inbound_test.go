@@ -95,6 +95,8 @@ func newTestConfig() *config.Config {
 		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",
 		DefaultEffort:      "medium",
+		DefaultCreatePR:    true,
+		DefaultSaveOutput:  true,
 	}
 }
 
