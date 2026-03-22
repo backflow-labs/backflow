@@ -206,6 +206,21 @@ func TestApply_HarnessModelCoupling(t *testing.T) {
 	}
 }
 
+func TestApply_ReviewModeIgnoresCreatePROverride(t *testing.T) {
+	cfg := testConfig()
+	d := cfg.TaskDefaults(models.TaskModeReview)
+	task := &models.Task{TaskMode: models.TaskModeReview}
+
+	// Caller tries to override CreatePR to true in review mode — should be ignored
+	d.Apply(task, &BoolOverrides{
+		CreatePR: boolPtr(true),
+	})
+
+	if task.CreatePR {
+		t.Error("CreatePR = true, want false — review mode should ignore CreatePR override")
+	}
+}
+
 func TestApply_CallerOverridesHarness(t *testing.T) {
 	cfg := testConfig() // default harness is codex
 	d := cfg.TaskDefaults(models.TaskModeCode)

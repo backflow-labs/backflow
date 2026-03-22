@@ -73,8 +73,13 @@ func (d TaskDefaults) Apply(task *models.Task, overrides *BoolOverrides) {
 		task.MaxTurns = d.MaxTurns
 	}
 
-	// Booleans: use override if provided, otherwise default
-	task.CreatePR = boolOrDefault(overrides.createPR(), d.CreatePR)
+	// Booleans: use override if provided, otherwise default.
+	// Review mode always forces CreatePR=false regardless of override.
+	if task.TaskMode == models.TaskModeReview {
+		task.CreatePR = false
+	} else {
+		task.CreatePR = boolOrDefault(overrides.createPR(), d.CreatePR)
+	}
 	task.SelfReview = boolOrDefault(overrides.selfReview(), d.SelfReview)
 	task.SaveAgentOutput = boolOrDefault(overrides.saveAgentOutput(), d.SaveAgentOutput)
 }
