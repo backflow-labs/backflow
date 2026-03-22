@@ -2,29 +2,39 @@ package messaging
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
 // ParseTaskFromSMS extracts a repo URL and prompt from an SMS body.
 //
 // Format: "<repo_url> <prompt>" or just "<prompt>" when defaultRepo is set.
-// The first token is treated as a repo URL if it contains "/" or starts with
-// "http://"/"https://".
+// A GitHub repo, issue, or PR URL can appear anywhere in the body and will be
+// used to derive the repository URL automatically.
 func ParseTaskFromSMS(body, defaultRepo string) (repoURL, prompt string, err error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return "", "", fmt.Errorf("empty message")
 	}
 
-	parts := strings.SplitN(body, " ", 2)
-	first := parts[0]
-
-	if looksLikeURL(first) {
-		repoURL = normalizeRepoURL(first)
-		if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
-			return "", "", fmt.Errorf("prompt is required after repo URL")
+	parts := strings.Fields(body)
+	for i, part := range parts {
+		if !looksLikeGitHubURL(part) {
+			continue
 		}
-		prompt = strings.TrimSpace(parts[1])
+
+		repoURL, err = normalizeGitHubRepoURL(part)
+		if err != nil {
+			return "", "", err
+		}
+
+		promptParts := make([]string, 0, len(parts)-1)
+		promptParts = append(promptParts, parts[:i]...)
+		promptParts = append(promptParts, parts[i+1:]...)
+		prompt = strings.TrimSpace(strings.Join(promptParts, " "))
+		if prompt == "" {
+			return "", "", fmt.Errorf("prompt is required when a GitHub URL is provided")
+		}
 		return repoURL, prompt, nil
 	}
 
@@ -33,6 +43,15 @@ func ParseTaskFromSMS(body, defaultRepo string) (repoURL, prompt string, err err
 		return "", "", fmt.Errorf("no repo URL found and no default repo configured for this sender")
 	}
 	return defaultRepo, body, nil
+}
+
+func looksLikeGitHubURL(s string) bool {
+	u, err := parseURLToken(s)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Host)
+	return host == "github.com" || host == "www.github.com"
 }
 
 func looksLikeURL(s string) bool {
@@ -68,10 +87,31 @@ func containsLetter(s string) bool {
 	return false
 }
 
-func normalizeRepoURL(s string) string {
+func normalizeGitHubRepoURL(s string) (string, error) {
+	u, err := parseURLToken(s)
+	if err != nil {
+		return "", fmt.Errorf("invalid GitHub URL: %w", err)
+	}
+	if u.Host == "" || u.Path == "" {
+		return "", fmt.Errorf("invalid GitHub URL: missing host or path")
+	}
+
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid GitHub URL: expected owner/repo path")
+	}
+
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/%s/%s", scheme, u.Host, parts[0], parts[1]), nil
+}
+
+func parseURLToken(s string) (*url.URL, error) {
 	lower := strings.ToLower(s)
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-		return "https://" + s
+		s = "https://" + s
 	}
-	return s
+	return url.Parse(s)
 }
