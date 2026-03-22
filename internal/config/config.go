@@ -112,6 +112,9 @@ type Config struct {
 	// Logging
 	LogFile string
 
+	// API access restriction
+	RestrictAPI bool
+
 	// Database
 	DatabaseURL string
 
@@ -183,6 +186,8 @@ func Load() (*Config, error) {
 		DatabaseURL:           os.Getenv("BACKFLOW_DATABASE_URL"),
 		PollInterval:          time.Duration(envInt("BACKFLOW_POLL_INTERVAL_SEC", 5)) * time.Second,
 	}
+
+	c.RestrictAPI = envBool("BACKFLOW_RESTRICT_API", false)
 
 	c.DefaultCreatePR = envBool("BACKFLOW_DEFAULT_CREATE_PR", true)
 	c.DefaultSelfReview = envBool("BACKFLOW_DEFAULT_SELF_REVIEW", false)
