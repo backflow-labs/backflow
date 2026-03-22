@@ -340,7 +340,7 @@ func (m *mockDockerManager) GetLogs(_ context.Context, _, _ string, _ int) (stri
 	return "", nil
 }
 
-func (m *mockDockerManager) RunCommand(_ context.Context, _, _ string) (string, error) {
+func (m *mockDockerManager) GetAgentOutput(_ context.Context, _, _ string) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
 

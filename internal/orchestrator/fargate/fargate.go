@@ -55,10 +55,10 @@ func (m *Manager) ensureClients(ctx context.Context) error {
 	return nil
 }
 
-// RunCommand is not supported in Fargate mode — there is no host to run
-// arbitrary shell commands on. Callers should fall back to GetLogs.
-func (m *Manager) RunCommand(_ context.Context, _, _ string) (string, error) {
-	return "", fmt.Errorf("RunCommand not supported in Fargate mode")
+// GetAgentOutput retrieves the agent's output from CloudWatch logs since there
+// is no host to docker-cp from in Fargate mode.
+func (m *Manager) GetAgentOutput(ctx context.Context, instanceID, containerID string) (string, error) {
+	return m.GetLogs(ctx, instanceID, containerID, 0)
 }
 
 func (m *Manager) RunAgent(ctx context.Context, _ *models.Instance, task *models.Task) (string, error) {

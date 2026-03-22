@@ -26,6 +26,7 @@ type Orchestrator struct {
 	bus    *notify.EventBus
 	docker Runner
 	scaler Scaler
+	spot   SpotChecker
 	s3     S3Client
 
 	mu              sync.Mutex
@@ -34,13 +35,14 @@ type Orchestrator struct {
 	inspectFailures map[string]int // task ID -> consecutive inspect failure count
 }
 
-func New(s store.Store, cfg *config.Config, bus *notify.EventBus, runner Runner, scaler Scaler, s3 S3Client) *Orchestrator {
+func New(s store.Store, cfg *config.Config, bus *notify.EventBus, runner Runner, scaler Scaler, spot SpotChecker, s3 S3Client) *Orchestrator {
 	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
 		bus:             bus,
 		docker:          runner,
 		scaler:          scaler,
+		spot:            spot,
 		s3:              s3,
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
@@ -199,6 +201,9 @@ func (o *Orchestrator) Stop() {
 
 // tick runs a single orchestration cycle: monitor, dispatch, scale.
 func (o *Orchestrator) tick(ctx context.Context) {
+	if o.spot != nil {
+		o.spot.CheckInterruptions(ctx)
+	}
 	o.monitorCancelled(ctx)
 	o.monitorRecovering(ctx)
 	o.monitorRunning(ctx)

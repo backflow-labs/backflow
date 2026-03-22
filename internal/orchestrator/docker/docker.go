@@ -30,7 +30,7 @@ func NewManager(cfg *config.Config) *Manager {
 func (m *Manager) RunAgent(ctx context.Context, instance *models.Instance, task *models.Task) (string, error) {
 	cmd := m.buildRunCommand(task)
 
-	output, err := m.RunCommand(ctx, instance.InstanceID, cmd)
+	output, err := m.runCommand(ctx, instance.InstanceID, cmd)
 	if err != nil {
 		return "", fmt.Errorf("run container: %w", err)
 	}
@@ -54,7 +54,7 @@ func (m *Manager) InspectContainer(ctx context.Context, instanceID, containerID 
 		"docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' %s 2>/dev/null && docker logs --tail 20 %s 2>&1",
 		containerID, containerID,
 	)
-	output, err := m.RunCommand(ctx, instanceID, cmd)
+	output, err := m.runCommand(ctx, instanceID, cmd)
 	if err != nil {
 		return orchestrator.ContainerStatus{}, err
 	}
@@ -74,14 +74,14 @@ func (m *Manager) InspectContainer(ctx context.Context, instanceID, containerID 
 // StopContainer stops and removes a container.
 func (m *Manager) StopContainer(ctx context.Context, instanceID, containerID string) error {
 	cmd := fmt.Sprintf("docker stop -t 30 %s 2>/dev/null; docker rm %s 2>/dev/null", containerID, containerID)
-	_, err := m.RunCommand(ctx, instanceID, cmd)
+	_, err := m.runCommand(ctx, instanceID, cmd)
 	return err
 }
 
 // GetLogs retrieves the last N lines of a container's logs.
 func (m *Manager) GetLogs(ctx context.Context, instanceID, containerID string, tail int) (string, error) {
 	cmd := fmt.Sprintf("docker logs --tail %d %s 2>&1", tail, containerID)
-	return m.RunCommand(ctx, instanceID, cmd)
+	return m.runCommand(ctx, instanceID, cmd)
 }
 
 // buildRunCommand constructs the full `docker run` command for an agent task.
@@ -198,7 +198,7 @@ func parseInspectOutput(output string) (orchestrator.ContainerStatus, error) {
 // merges its fields into the ContainerStatus.
 func (m *Manager) enrichFromStatusJSON(ctx context.Context, instanceID, containerID string, status *orchestrator.ContainerStatus) {
 	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/status.json \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", containerID)
-	statusJSON, err := m.RunCommand(ctx, instanceID, cmd)
+	statusJSON, err := m.runCommand(ctx, instanceID, cmd)
 	if err != nil {
 		log.Warn().Err(err).Str("container", containerID[:12]).Msg("failed to read status.json from container")
 		return
@@ -221,6 +221,12 @@ func (m *Manager) enrichFromStatusJSON(ctx context.Context, instanceID, containe
 	if agent.Error != "" {
 		status.Error = agent.Error
 	}
+}
+
+// GetAgentOutput extracts the agent's output log from a container via docker cp.
+func (m *Manager) GetAgentOutput(ctx context.Context, instanceID, containerID string) (string, error) {
+	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/claude_output.log \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", containerID)
+	return m.runCommand(ctx, instanceID, cmd)
 }
 
 // shellEscape wraps a string in single quotes, escaping any embedded single

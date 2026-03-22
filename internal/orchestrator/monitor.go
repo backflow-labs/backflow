@@ -145,16 +145,7 @@ func (o *Orchestrator) saveAgentOutput(ctx context.Context, task *models.Task) {
 		return
 	}
 
-	var data string
-	var err error
-
-	// In Docker-based modes we can docker-cp the log file directly.
-	// In Fargate mode RunCommand returns an error, so we fall back to GetLogs.
-	cmd := fmt.Sprintf("f=$(mktemp) && docker cp %s:/home/agent/workspace/claude_output.log \"$f\" 2>/dev/null && cat \"$f\" && rm -f \"$f\"", task.ContainerID)
-	data, err = o.docker.RunCommand(ctx, task.InstanceID, cmd)
-	if err != nil {
-		data, err = o.docker.GetLogs(ctx, task.InstanceID, task.ContainerID, 0)
-	}
+	data, err := o.docker.GetAgentOutput(ctx, task.InstanceID, task.ContainerID)
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to extract agent output log")
 		return

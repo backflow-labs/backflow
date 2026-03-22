@@ -15,8 +15,8 @@ import (
 	"github.com/backflow-labs/backflow/internal/config"
 )
 
-// RunCommand routes to either local or SSM execution based on config mode.
-func (m *Manager) RunCommand(ctx context.Context, instanceID, command string) (string, error) {
+// runCommand routes to either local or SSM execution based on config mode.
+func (m *Manager) runCommand(ctx context.Context, instanceID, command string) (string, error) {
 	if m.config.Mode == config.ModeLocal {
 		return m.runLocalCommand(ctx, command)
 	}

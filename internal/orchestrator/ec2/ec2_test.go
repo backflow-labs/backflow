@@ -7,3 +7,6 @@ import (
 
 // Compile-time check: *Scaler must satisfy orchestrator.Scaler.
 var _ orchestrator.Scaler = (*ec2pkg.Scaler)(nil)
+
+// Compile-time check: *SpotHandler must satisfy orchestrator.SpotChecker.
+var _ orchestrator.SpotChecker = (*ec2pkg.SpotHandler)(nil)

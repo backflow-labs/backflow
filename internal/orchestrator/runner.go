@@ -16,7 +16,7 @@ type Runner interface {
 	InspectContainer(ctx context.Context, instanceID, containerID string) (ContainerStatus, error)
 	StopContainer(ctx context.Context, instanceID, containerID string) error
 	GetLogs(ctx context.Context, instanceID, containerID string, tail int) (string, error)
-	RunCommand(ctx context.Context, instanceID, command string) (string, error)
+	GetAgentOutput(ctx context.Context, instanceID, containerID string) (string, error)
 }
 
 // ContainerStatus represents the current state of an agent container.
@@ -43,6 +43,11 @@ type AgentStatus struct {
 	PRURL          string  `json:"pr_url"`
 	CostUSD        float64 `json:"cost_usd,omitempty"`
 	ElapsedTimeSec int     `json:"elapsed_time_sec,omitempty"`
+}
+
+// SpotChecker detects spot/preemption interruptions and re-queues affected tasks.
+type SpotChecker interface {
+	CheckInterruptions(ctx context.Context)
 }
 
 // ErrSpotInterruption is returned when an ECS task is stopped due to Fargate
