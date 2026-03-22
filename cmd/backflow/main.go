@@ -124,7 +124,7 @@ func main() {
 		if err != nil {
 			log.Fatal().Err(err).Msg("invalid BACKFLOW_DISCORD_PUBLIC_KEY")
 		}
-		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey))
+		router.Post("/webhooks/discord", discord.InteractionHandler(pubKey, db))
 
 		now := time.Now().UTC()
 		install := &models.DiscordInstall{

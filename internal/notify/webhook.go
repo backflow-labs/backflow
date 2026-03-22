@@ -21,6 +21,7 @@ const (
 	EventTaskNeedsInput  EventType = "task.needs_input"
 	EventTaskInterrupted EventType = "task.interrupted"
 	EventTaskRecovering  EventType = "task.recovering"
+	EventTaskCancelled   EventType = "task.cancelled"
 )
 
 type Event struct {
