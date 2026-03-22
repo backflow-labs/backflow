@@ -1,3 +1,5 @@
+//go:build !nocontainers
+
 package store
 
 import (

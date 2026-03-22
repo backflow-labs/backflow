@@ -20,6 +20,7 @@ RUN GOARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && curl -fsSL "https://go.dev/dl/go1.24.1.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz \
     && /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOFLAGS="-tags=nocontainers"
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
