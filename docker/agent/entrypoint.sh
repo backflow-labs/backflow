@@ -37,6 +37,7 @@ fetch_s3_var "TASK_CONTEXT_S3_URL" "TASK_CONTEXT"
 fetch_s3_var "PR_BODY_S3_URL" "PR_BODY"
 
 WORKSPACE="/home/agent/workspace"
+mkdir -p "$WORKSPACE"
 STATUS_FILE="${WORKSPACE}/status.json"
 START_TIME=$(date +%s)
 
