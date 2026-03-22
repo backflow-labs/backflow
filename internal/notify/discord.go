@@ -1,15 +1,43 @@
 package notify
 
-import "github.com/rs/zerolog/log"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
 
-// DiscordNotifier is a placeholder that will be replaced with real Discord
-// message delivery in a future issue. It logs events but does not send them.
-type DiscordNotifier struct {
-	events map[EventType]bool
+	"github.com/rs/zerolog/log"
+
+	"github.com/backflow-labs/backflow/internal/discord"
+	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/store"
+)
+
+const (
+	discordThreadNamePrefix  = "backflow-"
+	defaultThreadArchiveMins = 10080
+	maxEmbedTextLength       = 1024
+)
+
+type discordThreadStore interface {
+	GetDiscordTaskThread(ctx context.Context, taskID string) (*models.DiscordTaskThread, error)
+	UpsertDiscordTaskThread(ctx context.Context, thread *models.DiscordTaskThread) error
 }
 
-func NewDiscordNotifier(filterEvents []string) *DiscordNotifier {
-	d := &DiscordNotifier{}
+// DiscordNotifier delivers lifecycle notifications into Discord channels and threads.
+type DiscordNotifier struct {
+	client    discord.Client
+	store     discordThreadStore
+	channelID string
+	events    map[EventType]bool
+}
+
+func NewDiscordNotifier(client discord.Client, store discordThreadStore, channelID string, filterEvents []string) *DiscordNotifier {
+	d := &DiscordNotifier{
+		client:    client,
+		store:     store,
+		channelID: channelID,
+	}
 	if len(filterEvents) > 0 {
 		d.events = make(map[EventType]bool, len(filterEvents))
 		for _, e := range filterEvents {
@@ -23,8 +51,198 @@ func (d *DiscordNotifier) Notify(event Event) error {
 	if d.events != nil && !d.events[event.Type] {
 		return nil
 	}
-	log.Debug().Str("event", string(event.Type)).Str("task_id", event.TaskID).Msg("discord: notification stub (not yet delivered)")
-	return nil
+	if d.client == nil || d.store == nil || d.channelID == "" {
+		log.Warn().Str("event", string(event.Type)).Str("task_id", event.TaskID).Msg("discord: notifier is not configured")
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	thread, err := d.store.GetDiscordTaskThread(ctx, event.TaskID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Warn().Err(err).Str("event", string(event.Type)).Str("task_id", event.TaskID).Msg("discord: failed to load task thread mapping")
+		return nil
+	}
+
+	if thread != nil && thread.ThreadID != "" {
+		return d.postThreadEvent(ctx, thread.ThreadID, event)
+	}
+
+	return d.bootstrapThread(ctx, event)
 }
 
 func (d *DiscordNotifier) Name() string { return "discord" }
+
+func (d *DiscordNotifier) bootstrapThread(ctx context.Context, event Event) error {
+	payload := discordMessagePayload(event)
+	msg, err := d.client.CreateMessage(ctx, d.channelID, payload)
+	if err != nil {
+		log.Warn().Err(err).Str("event", string(event.Type)).Str("task_id", event.TaskID).Msg("discord: failed to create channel message")
+		return nil
+	}
+
+	threadName := threadNameForTask(event.TaskID)
+	thread, err := d.client.StartThreadFromMessage(ctx, d.channelID, msg.ID, discord.StartThreadPayload{
+		Name:                threadName,
+		AutoArchiveDuration: defaultThreadArchiveMins,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("event", string(event.Type)).Str("task_id", event.TaskID).Str("message_id", msg.ID).Msg("discord: failed to start task thread")
+		return nil
+	}
+
+	now := event.Timestamp.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	mapping := &models.DiscordTaskThread{
+		TaskID:        event.TaskID,
+		RootMessageID: msg.ID,
+		ThreadID:      thread.ID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := d.store.UpsertDiscordTaskThread(ctx, mapping); err != nil {
+		log.Warn().Err(err).Str("event", string(event.Type)).Str("task_id", event.TaskID).Str("message_id", msg.ID).Str("thread_id", thread.ID).Msg("discord: failed to persist task thread mapping")
+		return nil
+	}
+
+	log.Debug().Str("event", string(event.Type)).Str("task_id", event.TaskID).Str("message_id", msg.ID).Str("thread_id", thread.ID).Msg("discord: bootstrapped task thread")
+	return nil
+}
+
+func (d *DiscordNotifier) postThreadEvent(ctx context.Context, threadID string, event Event) error {
+	payload := discordMessagePayload(event)
+	msg, err := d.client.CreateMessage(ctx, threadID, payload)
+	if err != nil {
+		log.Warn().Err(err).Str("event", string(event.Type)).Str("task_id", event.TaskID).Str("thread_id", threadID).Msg("discord: failed to post task thread message")
+		return nil
+	}
+
+	log.Debug().Str("event", string(event.Type)).Str("task_id", event.TaskID).Str("thread_id", threadID).Str("message_id", msg.ID).Msg("discord: posted task update")
+	return nil
+}
+
+func discordMessagePayload(event Event) discord.MessagePayload {
+	embed := discordEmbedForEvent(event)
+	return discord.MessagePayload{
+		Embeds: []discord.Embed{embed},
+		AllowedMentions: &discord.AllowedMentions{
+			Parse: []string{},
+		},
+	}
+}
+
+func discordEmbedForEvent(event Event) discord.Embed {
+	title := discordTitleForEvent(event.Type)
+	description, fields, color := discordEmbedContent(event)
+
+	embed := discord.Embed{
+		Title:       title,
+		Description: description,
+		Color:       color,
+		Timestamp:   event.Timestamp.UTC().Format(time.RFC3339),
+		Fields:      fields,
+	}
+
+	if event.Type == EventTaskCompleted && event.PRURL != "" {
+		embed.URL = event.PRURL
+	}
+
+	return embed
+}
+
+func discordTitleForEvent(eventType EventType) string {
+	switch eventType {
+	case EventTaskCreated:
+		return "Task created"
+	case EventTaskRunning:
+		return "Task running"
+	case EventTaskCompleted:
+		return "Task completed"
+	case EventTaskFailed:
+		return "Task failed"
+	case EventTaskInterrupted:
+		return "Task interrupted"
+	case EventTaskRecovering:
+		return "Task recovering"
+	case EventTaskNeedsInput:
+		return "Task needs input"
+	default:
+		return "Task update"
+	}
+}
+
+func discordEmbedContent(event Event) (string, []discord.EmbedField, int) {
+	switch event.Type {
+	case EventTaskCreated:
+		fields := []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}
+		if event.RepoURL != "" {
+			fields = append(fields, discord.EmbedField{Name: "Repository", Value: event.RepoURL, Inline: false})
+		}
+		if event.Prompt != "" {
+			fields = append(fields, discord.EmbedField{Name: "Prompt", Value: truncate(event.Prompt, maxEmbedTextLength), Inline: false})
+		}
+		return fmt.Sprintf("Task %s was created.", event.TaskID), fields, 0x5865F2
+	case EventTaskRunning:
+		return fmt.Sprintf("Task %s is now running.", event.TaskID), []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}, 0x57F287
+	case EventTaskCompleted:
+		fields := []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}
+		if event.PRURL != "" {
+			fields = append(fields, discord.EmbedField{Name: "Pull Request", Value: event.PRURL, Inline: false})
+		}
+		if event.Message != "" {
+			fields = append(fields, discord.EmbedField{Name: "Summary", Value: truncate(event.Message, maxEmbedTextLength), Inline: false})
+		}
+		return fmt.Sprintf("Task %s completed.", event.TaskID), fields, 0x57F287
+	case EventTaskFailed:
+		fields := []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}
+		if event.Message != "" {
+			fields = append(fields, discord.EmbedField{Name: "Failure", Value: truncate(event.Message, maxEmbedTextLength), Inline: false})
+		}
+		if event.AgentLogTail != "" {
+			fields = append(fields, discord.EmbedField{Name: "Log Tail", Value: truncate(event.AgentLogTail, maxEmbedTextLength), Inline: false})
+		}
+		return fmt.Sprintf("Task %s failed.", event.TaskID), fields, 0xED4245
+	case EventTaskInterrupted:
+		return fmt.Sprintf("Task %s was interrupted and will be retried.", event.TaskID), []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}, 0xFAA61A
+	case EventTaskRecovering:
+		return fmt.Sprintf("Task %s is recovering.", event.TaskID), []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}, 0x5865F2
+	case EventTaskNeedsInput:
+		fields := []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}
+		if event.Message != "" {
+			fields = append(fields, discord.EmbedField{Name: "Question", Value: truncate(event.Message, maxEmbedTextLength), Inline: false})
+		}
+		if event.AgentLogTail != "" {
+			fields = append(fields, discord.EmbedField{Name: "Log Tail", Value: truncate(event.AgentLogTail, maxEmbedTextLength), Inline: false})
+		}
+		return fmt.Sprintf("Task %s needs input.", event.TaskID), fields, 0xFAA61A
+	default:
+		return fmt.Sprintf("Task %s: %s", event.TaskID, event.Type), []discord.EmbedField{
+			{Name: "Task", Value: event.TaskID, Inline: true},
+		}, 0x95A5A6
+	}
+}
+
+func threadNameForTask(taskID string) string {
+	name := discordThreadNamePrefix + taskID
+	if len(name) <= 100 {
+		return name
+	}
+	return name[:100]
+}

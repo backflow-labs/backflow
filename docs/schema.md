@@ -123,6 +123,18 @@ Stores Discord bot installation state per guild. Seeded from config at startup; 
 | `installed_at` | `TIMESTAMPTZ` | `now()` | When the install record was first created. |
 | `updated_at` | `TIMESTAMPTZ` | `now()` | Last config update. |
 
+### `discord_task_threads`
+
+Stores the Discord root message and thread IDs for each task so lifecycle updates can continue in the same thread after restarts.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `task_id` | `TEXT` | — | **Primary key.** Backflow task ID. |
+| `root_message_id` | `TEXT` | — | Discord message ID of the root lifecycle post in the channel. |
+| `thread_id` | `TEXT` | — | Discord thread ID used for subsequent lifecycle updates. |
+| `created_at` | `TIMESTAMPTZ` | `now()` | When the mapping was first created. |
+| `updated_at` | `TIMESTAMPTZ` | `now()` | Last update time. |
+
 ## Notes
 
 - All timestamps use `TIMESTAMPTZ` and default to `now()`. Nullable timestamps (`started_at`, `completed_at`) are NULL until set.

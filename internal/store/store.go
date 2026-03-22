@@ -65,6 +65,10 @@ type Store interface {
 	GetDiscordInstall(ctx context.Context, guildID string) (*models.DiscordInstall, error)
 	DeleteDiscordInstall(ctx context.Context, guildID string) error
 
+	// Discord task threads
+	UpsertDiscordTaskThread(ctx context.Context, thread *models.DiscordTaskThread) error
+	GetDiscordTaskThread(ctx context.Context, taskID string) (*models.DiscordTaskThread, error)
+
 	// Transactions
 	WithTx(ctx context.Context, fn func(Store) error) error
 

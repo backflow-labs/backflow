@@ -5,10 +5,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
-func NewServer(s store.Store, cfg *config.Config, logs LogFetcher) chi.Router {
+func NewServer(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Emitter) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -17,7 +18,7 @@ func NewServer(s store.Store, cfg *config.Config, logs LogFetcher) chi.Router {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
-	h := NewHandlers(s, cfg, logs)
+	h := NewHandlers(s, cfg, logs, bus)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", h.HealthCheck)

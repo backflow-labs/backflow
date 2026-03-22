@@ -78,14 +78,14 @@ The endpoint must be publicly reachable over HTTPS. For local development, use `
 
 **Slash command registration:** At startup, Backflow registers a `/backflow` slash command via the Discord bulk-overwrite endpoint. This happens automatically when `BACKFLOW_DISCORD_APP_ID` is set — no manual command creation is needed in the Developer Portal.
 
-**Event notifications:** Backflow subscribes a Discord notifier to the event bus. When task lifecycle events fire (`task.created`, `task.running`, `task.completed`, etc.), the notifier receives them. Event filtering via `BACKFLOW_DISCORD_EVENTS` works the same as webhook and SMS filters — `nil` means all events, a CSV list restricts delivery.
+**Event notifications:** Backflow subscribes a Discord notifier to the event bus. When task lifecycle events fire (`task.created`, `task.running`, `task.completed`, `task.failed`, `task.interrupted`, `task.recovering`), Backflow posts an embed into the configured channel and continues the conversation in a per-task thread. Event filtering via `BACKFLOW_DISCORD_EVENTS` works the same as webhook and SMS filters — `nil` means all events, a CSV list restricts delivery.
 
-**Current limitations:** The Discord integration is in its foundation phase. Interaction routing currently returns a deferred acknowledgment for all commands — full slash command responses, modals, buttons, and thread-based notifications will be added in future releases.
+**Current limitations:** The Discord integration still returns a deferred acknowledgment for most commands. Full slash command responses, modals, and buttons will be added in future releases.
 
 ## 7. Deployment Notes
 
 - The bot token is a secret — treat it like an API key. It is stored in environment variables only, never persisted to the database.
 - The integration runs inside the Backflow service process — there is no separate bot worker to deploy.
-- The launch version supports a single Discord server and a single notification channel.
+- The launch version supports a single Discord server, a single notification channel, and one thread per task.
 - Notification delivery failures are logged but never block task processing or the orchestration loop.
 - `BACKFLOW_DISCORD_PUBLIC_KEY` must be a valid 64-character hex string (32 bytes decoded). Backflow validates this at startup and exits with a fatal error if the key is malformed.
