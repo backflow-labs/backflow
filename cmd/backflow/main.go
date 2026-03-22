@@ -105,12 +105,12 @@ func main() {
 		runner = orchdocker.NewManager(cfg)
 		ec2mgr := orchec2.NewManager(cfg)
 		scaler = orchec2.NewScaler(db, ec2mgr, cfg)
-		spot = orchec2.NewSpotHandler(db, ec2mgr)
+		spot = orchec2.NewSpotHandler(db, ec2mgr, bus)
 	}
 
 	orch := orchestrator.New(db, cfg, bus, runner, scaler, spot, s3Uploader)
 
-	router := api.NewServer(db, cfg, orch.Docker())
+	router := api.NewServer(db, cfg, orch.Docker(), bus)
 
 	// Mount SMS inbound webhook if provider is configured
 	if cfg.SMSProvider != "" {
@@ -143,7 +143,7 @@ func main() {
 			log.Error().Err(err).Msg("failed to register discord slash commands")
 		}
 
-		bus.Subscribe(notify.NewDiscordNotifier(cfg.DiscordEvents))
+		bus.Subscribe(notify.NewDiscordNotifier(discord.NewClient(cfg.DiscordBotToken), db, cfg.DiscordChannelID, cfg.DiscordEvents))
 		log.Info().Str("guild_id", cfg.DiscordGuildID).Msg("discord integration enabled")
 	}
 

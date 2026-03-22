@@ -35,6 +35,11 @@ type Event struct {
 	Timestamp    time.Time `json:"timestamp"`
 }
 
+// Emitter emits task lifecycle events.
+type Emitter interface {
+	Emit(event Event)
+}
+
 // MarshalJSON redacts sensitive reply channel details before serialization.
 func (e Event) MarshalJSON() ([]byte, error) {
 	type eventJSON struct {
