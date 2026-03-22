@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -161,7 +162,47 @@ func ParsePullRequestURL(prURL string) (repoURL string, prNumber int, err error)
 	return repoURL, prNumber, nil
 }
 
+var urlPattern = regexp.MustCompile(`https?://\S+`)
+
+// FindFirstURL extracts the first URL from text, stripping trailing punctuation.
+func FindFirstURL(text string) string {
+	match := urlPattern.FindString(text)
+	if match == "" {
+		return ""
+	}
+	// Strip trailing punctuation that is likely not part of the URL.
+	match = strings.TrimRight(match, ")>,.'\"")
+	return match
+}
+
+// InferReviewMode checks whether a prompt's first URL is a GitHub PR URL.
+// If so, it returns review mode with the parsed fields. Otherwise it returns code mode.
+func InferReviewMode(prompt string) (taskMode, prURL, repoURL string, prNumber int) {
+	firstURL := FindFirstURL(prompt)
+	if firstURL == "" {
+		return TaskModeCode, "", "", 0
+	}
+	repo, num, err := ParsePullRequestURL(firstURL)
+	if err != nil {
+		return TaskModeCode, "", "", 0
+	}
+	return TaskModeReview, firstURL, repo, num
+}
+
 func (r *CreateTaskRequest) Validate() error {
+	// Auto-detect review mode when task_mode is not explicitly set
+	// and the first URL in the prompt is a GitHub PR URL.
+	if r.TaskMode == "" {
+		mode, prURL, _, _ := InferReviewMode(r.Prompt)
+		if mode == TaskModeReview {
+			r.TaskMode = TaskModeReview
+			r.ReviewPRURL = prURL
+			// Clear fields that would conflict with ReviewPRURL in validation.
+			r.RepoURL = ""
+			r.ReviewPRNumber = 0
+		}
+	}
+
 	// Validate task_mode
 	switch r.TaskMode {
 	case "", TaskModeCode:

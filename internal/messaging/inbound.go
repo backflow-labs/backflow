@@ -137,12 +137,27 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			return
 		}
 
+		// Auto-detect review mode from the raw SMS body before URL extraction.
+		taskMode := models.TaskModeCode
+		reviewPRURL := ""
+		reviewPRNumber := 0
+		mode, prURL, inferredRepo, prNumber := models.InferReviewMode(body)
+		if mode == models.TaskModeReview {
+			taskMode = models.TaskModeReview
+			reviewPRURL = prURL
+			reviewPRNumber = prNumber
+		}
+
 		// Parse SMS into repo + prompt
 		repoURL, prompt, err := ParseTaskFromSMS(body, sender.DefaultRepo)
 		if err != nil {
 			log.Warn().Err(err).Str("from", from).Msg("sms: failed to parse task")
 			writeTwiML(w, fmt.Sprintf("Error: %s", err.Error()))
 			return
+		}
+
+		if taskMode == models.TaskModeReview {
+			repoURL = inferredRepo
 		}
 
 		now := time.Now().UTC()
@@ -154,16 +169,18 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 		task := &models.Task{
 			ID:              "bf_" + ulid.Make().String(),
 			Status:          models.TaskStatusPending,
-			TaskMode:        models.TaskModeCode,
+			TaskMode:        taskMode,
 			Harness:         harness,
 			RepoURL:         repoURL,
+			ReviewPRURL:     reviewPRURL,
+			ReviewPRNumber:  reviewPRNumber,
 			Prompt:          prompt,
 			Model:           defaultModel,
 			Effort:          cfg.DefaultEffort,
 			MaxBudgetUSD:    cfg.DefaultMaxBudget,
 			MaxRuntimeMin:   int(cfg.DefaultMaxRuntime.Minutes()),
 			MaxTurns:        cfg.DefaultMaxTurns,
-			CreatePR:        true,
+			CreatePR:        taskMode != models.TaskModeReview,
 			SelfReview:      false,
 			SaveAgentOutput: true,
 			ReplyChannel:    fmt.Sprintf("%s:%s", ChannelSMS, from),
