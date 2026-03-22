@@ -42,9 +42,14 @@ func RegisterCommands(baseURL, appID, botToken string) error {
 	commands := []slashCommand{
 		{
 			Name:        "backflow",
-			Description: "Inspect Backflow tasks",
+			Description: "Create and inspect Backflow tasks",
 			Type:        1, // CHAT_INPUT
 			Options: []slashCommandOption{
+				{
+					Name:        "create",
+					Description: "Create a code task",
+					Type:        1, // SUB_COMMAND
+				},
 				{
 					Name:        "status",
 					Description: "Look up a task by ID",

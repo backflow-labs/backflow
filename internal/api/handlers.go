@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oklog/ulid/v2"
 
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/backflow-labs/backflow/internal/taskbuilder"
 )
 
 // LogFetcher retrieves container logs for a running task.
@@ -44,44 +44,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UTC()
-	taskMode := withDefault(req.TaskMode, models.TaskModeCode)
-	harness := models.Harness(withDefault(req.Harness, h.config.DefaultHarness))
-
-	// Pick harness-specific default model
-	defaultModel := h.config.DefaultClaudeModel
-	if harness == models.HarnessCodex {
-		defaultModel = h.config.DefaultCodexModel
-	}
-
-	task := &models.Task{
-		ID:              "bf_" + ulid.Make().String(),
-		Status:          models.TaskStatusPending,
-		TaskMode:        taskMode,
-		Harness:         harness,
-		RepoURL:         req.RepoURL,
-		Branch:          req.Branch,
-		TargetBranch:    req.TargetBranch,
-		ReviewPRURL:     req.ReviewPRURL,
-		ReviewPRNumber:  req.ReviewPRNumber,
-		Prompt:          req.Prompt,
-		Context:         req.Context,
-		Model:           withDefault(req.Model, defaultModel),
-		Effort:          withDefault(req.Effort, h.config.DefaultEffort),
-		MaxBudgetUSD:    withDefaultFloat(req.MaxBudgetUSD, h.config.DefaultMaxBudget),
-		MaxRuntimeMin:   withDefaultInt(req.MaxRuntimeMin, int(h.config.DefaultMaxRuntime.Minutes())),
-		MaxTurns:        withDefaultInt(req.MaxTurns, h.config.DefaultMaxTurns),
-		CreatePR:        req.CreatePR,
-		SelfReview:      req.SelfReview,
-		SaveAgentOutput: req.SaveAgentOutput == nil || *req.SaveAgentOutput,
-		PRTitle:         req.PRTitle,
-		PRBody:          req.PRBody,
-		AllowedTools:    req.AllowedTools,
-		ClaudeMD:        req.ClaudeMD,
-		EnvVars:         req.EnvVars,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
+	task := taskbuilder.Build(h.config, req, time.Now().UTC())
 
 	if err := h.store.CreateTask(r.Context(), task); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
@@ -220,25 +183,4 @@ func (h *Handlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		"status":    "ok",
 		"auth_mode": string(h.config.AuthMode),
 	})
-}
-
-func withDefault(val, fallback string) string {
-	if val == "" {
-		return fallback
-	}
-	return val
-}
-
-func withDefaultFloat(val, fallback float64) float64 {
-	if val == 0 {
-		return fallback
-	}
-	return val
-}
-
-func withDefaultInt(val, fallback int) int {
-	if val == 0 {
-		return fallback
-	}
-	return val
 }

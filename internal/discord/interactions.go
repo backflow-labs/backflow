@@ -9,13 +9,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/backflow-labs/backflow/internal/taskbuilder"
 )
 
 // Discord interaction types.
@@ -31,7 +34,10 @@ const (
 	ResponseTypePong                   = 1
 	ResponseTypeChannelMessage         = 4
 	ResponseTypeDeferredChannelMessage = 5
+	ResponseTypeModal                  = 9
 )
+
+const discordFlagEphemeral = 1 << 6
 
 // Interaction is the minimal Discord interaction payload needed for routing.
 type Interaction struct {
@@ -67,16 +73,63 @@ type ChannelMessageResponse struct {
 // MessageData is the content payload inside a channel message response.
 type MessageData struct {
 	Content string `json:"content"`
+	Flags   int    `json:"flags,omitempty"`
+}
+
+// ModalResponse opens a Discord modal.
+type ModalResponse struct {
+	Type int       `json:"type"`
+	Data ModalData `json:"data"`
+}
+
+// ModalData is the modal payload returned to Discord.
+type ModalData struct {
+	CustomID   string           `json:"custom_id"`
+	Title      string           `json:"title"`
+	Components []ModalActionRow `json:"components"`
+}
+
+// ModalActionRow contains a single text input for Discord modals.
+type ModalActionRow struct {
+	Type       int              `json:"type"`
+	Components []ModalTextInput `json:"components"`
+}
+
+// ModalTextInput is the subset of Discord text input configuration used here.
+type ModalTextInput struct {
+	Type        int    `json:"type"`
+	CustomID    string `json:"custom_id"`
+	Label       string `json:"label"`
+	Style       int    `json:"style"`
+	Required    bool   `json:"required,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
+	Value       string `json:"value,omitempty"`
+	MaxLength   int    `json:"max_length,omitempty"`
+}
+
+type modalSubmitData struct {
+	CustomID   string                 `json:"custom_id"`
+	Components []modalSubmitComponent `json:"components"`
+}
+
+type modalSubmitComponent struct {
+	Components []modalSubmitValue `json:"components"`
+}
+
+type modalSubmitValue struct {
+	CustomID string `json:"custom_id"`
+	Value    string `json:"value"`
 }
 
 type discordTaskStore interface {
+	CreateTask(ctx context.Context, task *models.Task) error
 	GetTask(ctx context.Context, id string) (*models.Task, error)
 	ListTasks(ctx context.Context, filter store.TaskFilter) ([]*models.Task, error)
 }
 
 // InteractionHandler returns an http.HandlerFunc that verifies and routes
 // Discord interaction webhook requests.
-func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore) http.HandlerFunc {
+func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore, cfg *config.Config, onTaskCreated func(*models.Task)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
@@ -112,8 +165,10 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore)
 			log.Info().Msg("discord: PING received, responding with PONG")
 			respondJSON(w, InteractionResponse{Type: ResponseTypePong})
 		case InteractionTypeApplicationCommand:
-			handleApplicationCommand(r.Context(), w, interaction, taskStore)
-		case InteractionTypeMessageComponent, InteractionTypeModalSubmit:
+			handleApplicationCommand(r.Context(), w, interaction, taskStore, cfg)
+		case InteractionTypeModalSubmit:
+			handleModalSubmit(r.Context(), w, interaction, taskStore, cfg, onTaskCreated)
+		case InteractionTypeMessageComponent:
 			log.Info().Int("type", interaction.Type).Msg("discord: interaction received (stub)")
 			respondJSON(w, InteractionResponse{Type: ResponseTypeDeferredChannelMessage})
 		default:
@@ -123,7 +178,7 @@ func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore)
 	}
 }
 
-func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore) {
+func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore, cfg *config.Config) {
 	var cmd CommandData
 	if err := json.Unmarshal(interaction.Data, &cmd); err != nil {
 		log.Warn().Err(err).Msg("discord: failed to parse command data")
@@ -145,12 +200,18 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	if !ok {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Use /backflow status or /backflow list."},
+			Data: MessageData{Content: "Use /backflow create, /backflow status, or /backflow list."},
 		})
 		return
 	}
 
 	switch subcommand {
+	case "create":
+		if cfg == nil || taskStore == nil {
+			respondJSON(w, ephemeralMessage("Task creation is unavailable right now."))
+			return
+		}
+		respondJSON(w, newCreateTaskModal())
 	case "status":
 		taskID, err := stringOption(options, "task_id")
 		if err != nil {
@@ -231,6 +292,44 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	}
 }
 
+func handleModalSubmit(ctx context.Context, w http.ResponseWriter, interaction Interaction, taskStore discordTaskStore, cfg *config.Config, onTaskCreated func(*models.Task)) {
+	var data modalSubmitData
+	if err := json.Unmarshal(interaction.Data, &data); err != nil {
+		log.Warn().Err(err).Msg("discord: failed to parse modal submit data")
+		http.Error(w, "invalid modal submit data", http.StatusBadRequest)
+		return
+	}
+
+	switch data.CustomID {
+	case discordCreateTaskModalID:
+		if cfg == nil || taskStore == nil {
+			respondJSON(w, ephemeralMessage("Task creation is unavailable right now."))
+			return
+		}
+		req, err := createTaskRequestFromModal(data)
+		if err != nil {
+			respondJSON(w, ephemeralMessage(err.Error()))
+			return
+		}
+		if err := req.Validate(); err != nil {
+			respondJSON(w, ephemeralMessage(err.Error()))
+			return
+		}
+		task := taskbuilder.Build(cfg, req, time.Now().UTC())
+		if err := taskStore.CreateTask(ctx, task); err != nil {
+			log.Warn().Err(err).Msg("discord: failed to create task from modal")
+			respondJSON(w, ephemeralMessage("Failed to create task."))
+			return
+		}
+		if onTaskCreated != nil {
+			onTaskCreated(task)
+		}
+		respondJSON(w, ephemeralMessage(formatTaskCreated(task)))
+	default:
+		respondJSON(w, ephemeralMessage("Unknown modal submission."))
+	}
+}
+
 func (c CommandData) firstSubcommand() (string, []CommandOption, bool) {
 	for _, opt := range c.Options {
 		if opt.Type == 1 {
@@ -272,7 +371,142 @@ const (
 	defaultDiscordTaskListLimit = 5
 	maxDiscordTaskListLimit     = 10
 	maxDiscordMessageLength     = 1900
+	discordCreateTaskModalID    = "backflow:create:code"
+	discordRepoURLFieldID       = "repo_url"
+	discordPromptFieldID        = "prompt"
+	discordBranchFieldID        = "branch"
+	discordTargetBranchFieldID  = "target_branch"
+	discordAdvancedFieldID      = "advanced"
 )
+
+func newCreateTaskModal() ModalResponse {
+	return ModalResponse{
+		Type: ResponseTypeModal,
+		Data: ModalData{
+			CustomID: discordCreateTaskModalID,
+			Title:    "Create Code Task",
+			Components: []ModalActionRow{
+				newTextInputRow(discordRepoURLFieldID, "Repository URL", 1, true, "https://github.com/owner/repo", 200),
+				newTextInputRow(discordPromptFieldID, "Prompt", 2, true, "Describe the code task", 4000),
+				newTextInputRow(discordBranchFieldID, "Branch (optional)", 1, false, "feature/my-branch", 200),
+				newTextInputRow(discordTargetBranchFieldID, "Target Branch (optional)", 1, false, "main", 200),
+				newTextInputRow(discordAdvancedFieldID, "Advanced (optional)", 2, false, "harness=codex\nbudget=10\nruntime=30", 300),
+			},
+		},
+	}
+}
+
+func newTextInputRow(customID, label string, style int, required bool, placeholder string, maxLength int) ModalActionRow {
+	return ModalActionRow{
+		Type: 1,
+		Components: []ModalTextInput{
+			{
+				Type:        4,
+				CustomID:    customID,
+				Label:       label,
+				Style:       style,
+				Required:    required,
+				Placeholder: placeholder,
+				MaxLength:   maxLength,
+			},
+		},
+	}
+}
+
+func ephemeralMessage(content string) ChannelMessageResponse {
+	return ChannelMessageResponse{
+		Type: ResponseTypeChannelMessage,
+		Data: MessageData{
+			Content: truncate(content, maxDiscordMessageLength),
+			Flags:   discordFlagEphemeral,
+		},
+	}
+}
+
+func createTaskRequestFromModal(data modalSubmitData) (models.CreateTaskRequest, error) {
+	values := modalValues(data)
+	req := models.CreateTaskRequest{
+		TaskMode:     models.TaskModeCode,
+		RepoURL:      strings.TrimSpace(values[discordRepoURLFieldID]),
+		Prompt:       strings.TrimSpace(values[discordPromptFieldID]),
+		Branch:       strings.TrimSpace(values[discordBranchFieldID]),
+		TargetBranch: strings.TrimSpace(values[discordTargetBranchFieldID]),
+		CreatePR:     true,
+	}
+
+	if err := applyAdvancedTaskOptions(&req, values[discordAdvancedFieldID]); err != nil {
+		return models.CreateTaskRequest{}, err
+	}
+	return req, nil
+}
+
+func modalValues(data modalSubmitData) map[string]string {
+	values := make(map[string]string)
+	for _, row := range data.Components {
+		for _, component := range row.Components {
+			values[component.CustomID] = component.Value
+		}
+	}
+	return values
+}
+
+func applyAdvancedTaskOptions(req *models.CreateTaskRequest, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return fmt.Errorf("advanced options must use key=value lines")
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fmt.Errorf("advanced option %s requires a value", key)
+		}
+
+		switch key {
+		case "harness":
+			req.Harness = value
+		case "budget":
+			budget, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return fmt.Errorf("budget must be a number")
+			}
+			req.MaxBudgetUSD = budget
+		case "runtime":
+			runtime, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("runtime must be an integer number of minutes")
+			}
+			req.MaxRuntimeMin = runtime
+		default:
+			return fmt.Errorf("unsupported advanced option: %s", key)
+		}
+	}
+
+	return nil
+}
+
+func formatTaskCreated(task *models.Task) string {
+	parts := []string{
+		fmt.Sprintf("Created task %s.", task.ID),
+		task.RepoURL,
+	}
+	if task.Branch != "" {
+		parts = append(parts, "branch "+task.Branch)
+	}
+	if task.TargetBranch != "" {
+		parts = append(parts, "target "+task.TargetBranch)
+	}
+	parts = append(parts, "Follow updates in the task thread.")
+	return strings.Join(parts, " | ")
+}
 
 func formatTaskStatus(task *models.Task) string {
 	parts := []string{

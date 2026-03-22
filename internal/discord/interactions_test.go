@@ -12,13 +12,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
 type fakeTaskStore struct {
-	tasks map[string]*models.Task
-	list  []*models.Task
+	tasks     map[string]*models.Task
+	list      []*models.Task
+	created   []*models.Task
+	createErr error
+}
+
+func (f *fakeTaskStore) CreateTask(ctx context.Context, task *models.Task) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	if f.tasks == nil {
+		f.tasks = make(map[string]*models.Task)
+	}
+	f.tasks[task.ID] = task
+	f.created = append(f.created, task)
+	return nil
 }
 
 func (f *fakeTaskStore) GetTask(ctx context.Context, id string) (*models.Task, error) {
@@ -45,6 +60,14 @@ func (f *fakeTaskStore) ListTasks(ctx context.Context, filter store.TaskFilter) 
 		end = start + filter.Limit
 	}
 	return out[start:end], nil
+}
+
+type taskCreatedRecorder struct {
+	tasks []*models.Task
+}
+
+func (r *taskCreatedRecorder) record(task *models.Task) {
+	r.tasks = append(r.tasks, task)
 }
 
 func testKeyPair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
@@ -78,7 +101,7 @@ func postInteraction(handler http.HandlerFunc, priv ed25519.PrivateKey, body str
 
 func TestInteractionHandler_Ping(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	rr := postInteraction(handler, priv, `{"type":1}`)
 
@@ -96,7 +119,7 @@ func TestInteractionHandler_Ping(t *testing.T) {
 
 func TestInteractionHandler_InvalidSignature(t *testing.T) {
 	pub, _ := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
 	req.Header.Set("X-Signature-Ed25519", "deadbeef")
@@ -112,7 +135,7 @@ func TestInteractionHandler_InvalidSignature(t *testing.T) {
 
 func TestInteractionHandler_MissingHeaders(t *testing.T) {
 	pub, _ := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/discord", strings.NewReader(`{"type":1}`))
 	// No signature headers
@@ -127,7 +150,7 @@ func TestInteractionHandler_MissingHeaders(t *testing.T) {
 
 func TestInteractionHandler_BackflowRootCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"backflow"}}`)
 
@@ -141,7 +164,7 @@ func TestInteractionHandler_BackflowRootCommand(t *testing.T) {
 	if resp.Type != ResponseTypeChannelMessage {
 		t.Errorf("response type = %d, want %d", resp.Type, ResponseTypeChannelMessage)
 	}
-	if !strings.Contains(resp.Data.Content, "Use /backflow status or /backflow list") {
+	if !strings.Contains(resp.Data.Content, "Use /backflow create, /backflow status, or /backflow list") {
 		t.Errorf("content = %q, want usage guidance", resp.Data.Content)
 	}
 }
@@ -161,7 +184,7 @@ func TestInteractionHandler_BackflowStatusCommand(t *testing.T) {
 			},
 		},
 	}
-	handler := InteractionHandler(pub, store)
+	handler := InteractionHandler(pub, store, nil, nil)
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -191,7 +214,7 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 			{ID: "bf_3", Status: models.TaskStatusCompleted, RepoURL: "https://github.com/test/repo3", CreatedAt: now, UpdatedAt: now},
 		},
 	}
-	handler := InteractionHandler(pub, store)
+	handler := InteractionHandler(pub, store, nil, nil)
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1,"options":[{"name":"status","type":3,"value":"running"},{"name":"limit","type":4,"value":2},{"name":"offset","type":4,"value":0}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -220,7 +243,7 @@ func TestInteractionHandler_BackflowListCommand(t *testing.T) {
 func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
 	pub, priv := testKeyPair(t)
 	s := &fakeTaskStore{tasks: map[string]*models.Task{}}
-	handler := InteractionHandler(pub, s)
+	handler := InteractionHandler(pub, s, nil, nil)
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_missing"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -239,7 +262,7 @@ func TestInteractionHandler_BackflowStatusNotFound(t *testing.T) {
 
 func TestInteractionHandler_NilStoreStatus(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"status","type":1,"options":[{"name":"task_id","type":3,"value":"bf_123"}]}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -258,7 +281,7 @@ func TestInteractionHandler_NilStoreStatus(t *testing.T) {
 
 func TestInteractionHandler_NilStoreList(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"list","type":1}]}}`
 	rr := postInteraction(handler, priv, body)
@@ -277,7 +300,7 @@ func TestInteractionHandler_NilStoreList(t *testing.T) {
 
 func TestInteractionHandler_UnknownCommand(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	rr := postInteraction(handler, priv, `{"type":2,"data":{"name":"unknown"}}`)
 
@@ -336,22 +359,166 @@ func TestRegisterCommands(t *testing.T) {
 	if commands[0].Name != "backflow" {
 		t.Errorf("command name = %q, want %q", commands[0].Name, "backflow")
 	}
-	if len(commands[0].Options) != 2 {
-		t.Fatalf("options = %v, want 2 subcommands", commands[0].Options)
+	if len(commands[0].Options) != 3 {
+		t.Fatalf("options = %v, want 3 subcommands", commands[0].Options)
 	}
-	if commands[0].Options[0].Name != "status" || commands[0].Options[1].Name != "list" {
-		t.Fatalf("subcommands = %v, want status and list", commands[0].Options)
+	if commands[0].Options[0].Name != "create" || commands[0].Options[1].Name != "status" || commands[0].Options[2].Name != "list" {
+		t.Fatalf("subcommands = %v, want create, status, and list", commands[0].Options)
 	}
 }
 
 func TestInteractionHandler_UnknownType(t *testing.T) {
 	pub, priv := testKeyPair(t)
-	handler := InteractionHandler(pub, nil)
+	handler := InteractionHandler(pub, nil, nil, nil)
 
 	rr := postInteraction(handler, priv, `{"type":99}`)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestInteractionHandler_BackflowCreateCommandOpensModal(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	handler := InteractionHandler(pub, &fakeTaskStore{}, &config.Config{}, nil)
+
+	body := `{"type":2,"data":{"name":"backflow","options":[{"name":"create","type":1}]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var resp ModalResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Type != ResponseTypeModal {
+		t.Fatalf("response type = %d, want %d", resp.Type, ResponseTypeModal)
+	}
+	if resp.Data.CustomID != discordCreateTaskModalID {
+		t.Fatalf("custom_id = %q, want %q", resp.Data.CustomID, discordCreateTaskModalID)
+	}
+	if len(resp.Data.Components) != 5 {
+		t.Fatalf("components = %d, want 5", len(resp.Data.Components))
+	}
+}
+
+func TestInteractionHandler_BackflowCreateModalSubmit(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	store := &fakeTaskStore{}
+	recorder := &taskCreatedRecorder{}
+	cfg := &config.Config{
+		DefaultHarness:     "codex",
+		DefaultClaudeModel: "claude-sonnet-4-6",
+		DefaultCodexModel:  "gpt-5.4-mini",
+		DefaultEffort:      "medium",
+		DefaultMaxBudget:   10.0,
+		DefaultMaxRuntime:  30 * time.Minute,
+		DefaultMaxTurns:    200,
+	}
+	handler := InteractionHandler(pub, store, cfg, recorder.record)
+
+	body := `{"type":5,"data":{"custom_id":"backflow:create:code","components":[` +
+		`{"components":[{"custom_id":"repo_url","value":"https://github.com/test/repo"}]},` +
+		`{"components":[{"custom_id":"prompt","value":"Fix the flaky test"}]},` +
+		`{"components":[{"custom_id":"branch","value":"feature/fix-flake"}]},` +
+		`{"components":[{"custom_id":"target_branch","value":"main"}]},` +
+		`{"components":[{"custom_id":"advanced","value":"harness=claude_code\nbudget=25.5\nruntime=45"}]}` +
+		`]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var resp ChannelMessageResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Type != ResponseTypeChannelMessage {
+		t.Fatalf("response type = %d, want %d", resp.Type, ResponseTypeChannelMessage)
+	}
+	if resp.Data.Flags != discordFlagEphemeral {
+		t.Fatalf("flags = %d, want %d", resp.Data.Flags, discordFlagEphemeral)
+	}
+	if !strings.Contains(resp.Data.Content, "Created task bf_") {
+		t.Fatalf("content = %q, want created-task confirmation", resp.Data.Content)
+	}
+	if len(store.created) != 1 {
+		t.Fatalf("created tasks = %d, want 1", len(store.created))
+	}
+
+	task := store.created[0]
+	if task.TaskMode != models.TaskModeCode {
+		t.Fatalf("task_mode = %q, want %q", task.TaskMode, models.TaskModeCode)
+	}
+	if task.RepoURL != "https://github.com/test/repo" {
+		t.Fatalf("repo_url = %q", task.RepoURL)
+	}
+	if task.Prompt != "Fix the flaky test" {
+		t.Fatalf("prompt = %q", task.Prompt)
+	}
+	if task.Branch != "feature/fix-flake" {
+		t.Fatalf("branch = %q", task.Branch)
+	}
+	if task.TargetBranch != "main" {
+		t.Fatalf("target_branch = %q", task.TargetBranch)
+	}
+	if task.Harness != models.HarnessClaudeCode {
+		t.Fatalf("harness = %q, want %q", task.Harness, models.HarnessClaudeCode)
+	}
+	if task.MaxBudgetUSD != 25.5 {
+		t.Fatalf("budget = %v, want 25.5", task.MaxBudgetUSD)
+	}
+	if task.MaxRuntimeMin != 45 {
+		t.Fatalf("runtime = %d, want 45", task.MaxRuntimeMin)
+	}
+	if !task.CreatePR {
+		t.Fatal("expected create_pr = true")
+	}
+	if len(recorder.tasks) != 1 || recorder.tasks[0].ID != task.ID {
+		t.Fatalf("recorded tasks = %+v, want created task callback", recorder.tasks)
+	}
+}
+
+func TestInteractionHandler_BackflowCreateModalSubmitInvalidInput(t *testing.T) {
+	pub, priv := testKeyPair(t)
+	store := &fakeTaskStore{}
+	cfg := &config.Config{
+		DefaultHarness:     "codex",
+		DefaultClaudeModel: "claude-sonnet-4-6",
+		DefaultCodexModel:  "gpt-5.4-mini",
+		DefaultEffort:      "medium",
+		DefaultMaxBudget:   10.0,
+		DefaultMaxRuntime:  30 * time.Minute,
+		DefaultMaxTurns:    200,
+	}
+	handler := InteractionHandler(pub, store, cfg, nil)
+
+	body := `{"type":5,"data":{"custom_id":"backflow:create:code","components":[` +
+		`{"components":[{"custom_id":"repo_url","value":""}]},` +
+		`{"components":[{"custom_id":"prompt","value":"Fix the flaky test"}]},` +
+		`{"components":[{"custom_id":"branch","value":""}]},` +
+		`{"components":[{"custom_id":"target_branch","value":""}]},` +
+		`{"components":[{"custom_id":"advanced","value":"harness=invalid"}]}` +
+		`]}}`
+	rr := postInteraction(handler, priv, body)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var resp ChannelMessageResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Flags != discordFlagEphemeral {
+		t.Fatalf("flags = %d, want %d", resp.Data.Flags, discordFlagEphemeral)
+	}
+	if !strings.Contains(resp.Data.Content, "repo_url is required") {
+		t.Fatalf("content = %q, want validation error", resp.Data.Content)
+	}
+	if len(store.created) != 0 {
+		t.Fatalf("created tasks = %d, want 0", len(store.created))
 	}
 }
 
