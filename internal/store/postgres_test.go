@@ -866,6 +866,22 @@ func TestPG_UpsertAndGetDiscordTaskThread(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
+	// Create a parent task so the FK is satisfied.
+	task := &models.Task{
+		ID:        "bf_thread_1",
+		Status:    models.TaskStatusPending,
+		TaskMode:  models.TaskModeCode,
+		Harness:   models.HarnessClaudeCode,
+		RepoURL:   "https://github.com/test/repo",
+		Prompt:    "test",
+		Model:     "claude-sonnet-4-6",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
 	thread := &models.DiscordTaskThread{
 		TaskID:        "bf_thread_1",
 		RootMessageID: "root-123",
