@@ -269,6 +269,31 @@ func TestInboundHandler_MissingFields(t *testing.T) {
 	}
 }
 
+func TestInboundHandler_WhitespaceOnlyBody(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				Enabled:     true,
+			},
+		},
+	}
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+
+	w := postForm(handler, url.Values{
+		"From": {"+15551234567"},
+		"Body": {"   "},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if len(db.tasks) != 0 {
+		t.Fatal("expected no tasks created for whitespace-only body")
+	}
+}
+
 func TestInboundHandler_AutoDetectsReviewMode(t *testing.T) {
 	db := &mockStore{
 		senders: map[string]*models.AllowedSender{

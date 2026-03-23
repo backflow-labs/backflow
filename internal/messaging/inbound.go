@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -109,7 +110,7 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 		}
 
 		from := r.FormValue("From")
-		body := r.FormValue("Body")
+		body := strings.TrimSpace(r.FormValue("Body"))
 
 		if from == "" || body == "" {
 			log.Warn().Str("from", from).Msg("sms: missing From or Body")
