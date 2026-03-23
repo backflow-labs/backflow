@@ -143,6 +143,7 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			Status:       models.TaskStatusPending,
 			TaskMode:     models.TaskModeAuto,
 			Prompt:       body,
+			RepoURL:      sender.DefaultRepo,
 			ReplyChannel: fmt.Sprintf("%s:%s", ChannelSMS, from),
 			CreatedAt:    now,
 			UpdatedAt:    now,

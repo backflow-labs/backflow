@@ -142,8 +142,8 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 	if task.TaskMode != models.TaskModeAuto {
 		t.Errorf("task_mode = %q, want %q", task.TaskMode, models.TaskModeAuto)
 	}
-	if task.RepoURL != "" {
-		t.Errorf("repo_url = %q, want empty", task.RepoURL)
+	if task.RepoURL != "https://github.com/backflow-labs/backflow" {
+		t.Errorf("repo_url = %q, want %q", task.RepoURL, "https://github.com/backflow-labs/backflow")
 	}
 	if task.ReplyChannel != "sms:+15551234567" {
 		t.Errorf("reply_channel = %q", task.ReplyChannel)
