@@ -230,6 +230,31 @@ Prerequisites: ECS cluster with Fargate capacity providers, task definition with
 
 `max_subscription` auth is not supported in Fargate mode.
 
+## Code Review Agents
+
+This project includes Claude Code agent definitions (`.claude/agents/`) for automated code review.
+
+### Full team review
+
+```bash
+claude --agent review-lead
+```
+
+Spawns a coordinated team of 4 specialized reviewers (structure, errors, style, security) that examine all non-test Go files and produce a prioritized cleanup report.
+
+### Individual reviewers
+
+Run a single reviewer for a focused analysis:
+
+```bash
+claude --agent structure-reviewer   # Architecture, duplication, dead code
+claude --agent error-reviewer       # Error handling, resource management
+claude --agent style-reviewer       # Go idioms, naming, simplification
+claude --agent security-reviewer    # Injection, auth, secrets, input validation
+```
+
+All agents are read-only — they suggest changes but never modify files. Test files are excluded from review.
+
 ## Configuration
 
 All config via environment variables or `.env` file. See `.env.example` for the full list.
