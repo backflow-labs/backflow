@@ -495,12 +495,11 @@ func TestPG_CompleteTask_InferredFields(t *testing.T) {
 	pgTestTask(t, s) // creates with RepoURL="https://github.com/test/repo", TaskMode="code"
 
 	result := TaskResult{
-		Status:         models.TaskStatusCompleted,
-		RepoURL:        "https://github.com/inferred/repo",
-		TargetBranch:   "develop",
-		TaskMode:       "code",
-		ReviewPRURL:    "https://github.com/inferred/repo/pull/42",
-		ReviewPRNumber: 42,
+		Status:       models.TaskStatusCompleted,
+		RepoURL:      "https://github.com/inferred/repo",
+		TargetBranch: "develop",
+		TaskMode:     "code",
+		ReviewPRURL:  "https://github.com/inferred/repo/pull/42",
 	}
 	if err := s.CompleteTask(ctx, "bf_TEST001", result); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
@@ -518,9 +517,6 @@ func TestPG_CompleteTask_InferredFields(t *testing.T) {
 	}
 	if got.ReviewPRURL != "https://github.com/inferred/repo/pull/42" {
 		t.Errorf("ReviewPRURL = %q, want PR URL", got.ReviewPRURL)
-	}
-	if got.ReviewPRNumber != 42 {
-		t.Errorf("ReviewPRNumber = %d, want 42", got.ReviewPRNumber)
 	}
 }
 
@@ -787,18 +783,17 @@ func TestPG_ReviewTaskCRUD(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	task := &models.Task{
-		ID:             "bf_REVIEW01",
-		Status:         models.TaskStatusPending,
-		TaskMode:       models.TaskModeReview,
-		RepoURL:        "https://github.com/test/repo",
-		ReviewPRURL:    "https://github.com/test/repo/pull/42",
-		ReviewPRNumber: 42,
-		Prompt:         "Focus on security",
-		Model:          "claude-sonnet-4-6",
-		MaxBudgetUSD:   5.0,
-		MaxTurns:       50,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:           "bf_REVIEW01",
+		Status:       models.TaskStatusPending,
+		TaskMode:     models.TaskModeReview,
+		RepoURL:      "https://github.com/test/repo",
+		ReviewPRURL:  "https://github.com/test/repo/pull/42",
+		Prompt:       "Focus on security",
+		Model:        "claude-sonnet-4-6",
+		MaxBudgetUSD: 5.0,
+		MaxTurns:     50,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -813,9 +808,6 @@ func TestPG_ReviewTaskCRUD(t *testing.T) {
 	}
 	if got.ReviewPRURL != "https://github.com/test/repo/pull/42" {
 		t.Errorf("ReviewPRURL = %q", got.ReviewPRURL)
-	}
-	if got.ReviewPRNumber != 42 {
-		t.Errorf("ReviewPRNumber = %d, want 42", got.ReviewPRNumber)
 	}
 }
 

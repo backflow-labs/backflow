@@ -19,7 +19,6 @@ write_status() {
     local target_branch="${10:-}"
     local task_type="${11:-}"
     local review_pr_url="${12:-}"
-    local review_pr_number="${13:-0}"
 
     : "${STATUS_FILE:?STATUS_FILE is required}"
 
@@ -36,8 +35,7 @@ write_status() {
   "repo_url": $(json_string "$repo_url"),
   "target_branch": $(json_string "$target_branch"),
   "task_mode": $(json_string "$task_type"),
-  "review_pr_url": $(json_string "$review_pr_url"),
-  "review_pr_number": ${review_pr_number}
+  "review_pr_url": $(json_string "$review_pr_url")
 }
 STATUSEOF
 

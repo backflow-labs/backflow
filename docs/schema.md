@@ -18,7 +18,6 @@ Stores agent tasks submitted via the REST API.
 | `branch` | `TEXT` | `''` | Branch to check out before running the agent. |
 | `target_branch` | `TEXT` | `''` | Base branch for PR creation (e.g. `main`). |
 | `review_pr_url` | `TEXT` | `''` | URL of the PR to review (used when `task_mode` is `review`). |
-| `review_pr_number` | `INTEGER` | `0` | PR number to review (used when `task_mode` is `review`). |
 | `prompt` | `TEXT` | — | The instruction given to the agent (required). |
 | `context` | `TEXT` | `''` | Additional context appended to the prompt. |
 | `model` | `TEXT` | `''` | Model override (e.g. `claude-sonnet-4-6`, `gpt-5.4`). |

@@ -47,7 +47,6 @@ type Task struct {
 	Branch          string            `json:"branch"`
 	TargetBranch    string            `json:"target_branch"`
 	ReviewPRURL     string            `json:"review_pr_url,omitempty"`
-	ReviewPRNumber  int               `json:"review_pr_number,omitempty"`
 	Prompt          string            `json:"prompt"`
 	Context         string            `json:"context,omitempty"`
 	Model           string            `json:"model,omitempty"`

@@ -22,7 +22,6 @@ type TaskResult struct {
 	TargetBranch   string
 	TaskMode       string
 	ReviewPRURL    string
-	ReviewPRNumber int
 }
 
 // TaskFilter controls listing behavior.

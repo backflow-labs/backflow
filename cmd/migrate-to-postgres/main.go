@@ -87,7 +87,7 @@ func parseNullableTimestamp(s *string) (*time.Time, error) {
 func migrateTasks(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) error {
 	rows, err := sqliteDB.QueryContext(ctx, `SELECT
 		id, status, task_mode, harness, repo_url, branch, target_branch,
-		review_pr_url, review_pr_number,
+		review_pr_url,
 		prompt, context, model, effort,
 		max_budget_usd, max_runtime_min, max_turns,
 		create_pr, self_review, save_agent_output,
@@ -107,7 +107,6 @@ func migrateTasks(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) e
 		var (
 			id, status, taskMode, harness, repoURL, branch, targetBranch string
 			reviewPRURL, prompt, taskContext, model, effort              string
-			reviewPRNumber                                               int
 			maxBudgetUSD, costUSD                                        float64
 			maxRuntimeMin, maxTurns                                      int
 			createPR, selfReview, saveAgentOutput                        int
@@ -122,7 +121,7 @@ func migrateTasks(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) e
 
 		if err := rows.Scan(
 			&id, &status, &taskMode, &harness, &repoURL, &branch, &targetBranch,
-			&reviewPRURL, &reviewPRNumber,
+			&reviewPRURL,
 			&prompt, &taskContext, &model, &effort,
 			&maxBudgetUSD, &maxRuntimeMin, &maxTurns,
 			&createPR, &selfReview, &saveAgentOutput,
@@ -154,7 +153,7 @@ func migrateTasks(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) e
 
 		_, err = pgPool.Exec(ctx, `INSERT INTO tasks (
 			id, status, task_mode, harness, repo_url, branch, target_branch,
-			review_pr_url, review_pr_number,
+			review_pr_url,
 			prompt, context, model, effort,
 			max_budget_usd, max_runtime_min, max_turns,
 			create_pr, self_review, save_agent_output,
@@ -165,18 +164,18 @@ func migrateTasks(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) e
 			created_at, updated_at, started_at, completed_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9,
-			$10, $11, $12, $13,
-			$14, $15, $16,
-			$17, $18, $19,
-			$20, $21, $22, $23,
-			$24, $25, $26,
-			$27, $28, $29,
-			$30, $31, $32, $33,
-			$34, $35, $36, $37
+			$8,
+			$9, $10, $11, $12,
+			$13, $14, $15,
+			$16, $17, $18,
+			$19, $20, $21, $22,
+			$23, $24, $25,
+			$26, $27, $28,
+			$29, $30, $31, $32,
+			$33, $34, $35, $36
 		) ON CONFLICT DO NOTHING`,
 			id, status, taskMode, harness, repoURL, branch, targetBranch,
-			reviewPRURL, reviewPRNumber,
+			reviewPRURL,
 			prompt, taskContext, model, effort,
 			maxBudgetUSD, maxRuntimeMin, maxTurns,
 			createPR == 1, selfReview == 1, saveAgentOutput == 1,

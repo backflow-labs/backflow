@@ -88,7 +88,6 @@ Output ONLY a JSON object with these fields:
 - target_branch: the base branch to work from (default: \"main\")
 - task_type: either \"code\" (implement changes, fix bugs, add features) or \"review\" (review an existing PR)
 - review_pr_url: the full PR URL (only if task_type is \"review\")
-- review_pr_number: the PR number as an integer (only if task_type is \"review\", otherwise 0)
 
 Rules for determining task_type:
 - If the prompt contains a PR URL (github.com/owner/repo/pull/NUMBER), it's a review task
@@ -125,7 +124,7 @@ set -e
 
 if [ $PREP_EXIT -ne 0 ]; then
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-    write_status "$PREP_EXIT" false false "" "Prep stage failed (exit code: ${PREP_EXIT})" "" "0" "$ELAPSED_SEC" "" "" "" "" "0"
+    write_status "$PREP_EXIT" false false "" "Prep stage failed (exit code: ${PREP_EXIT})" "" "0" "$ELAPSED_SEC" "" "" "" ""
     exit 1
 fi
 
@@ -137,7 +136,7 @@ else
 fi
 if [ -z "$PREP_RESULT" ]; then
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-    write_status "1" false false "" "Prep stage produced no result" "" "0" "$ELAPSED_SEC" "" "" "" "" "0"
+    write_status "1" false false "" "Prep stage produced no result" "" "0" "$ELAPSED_SEC" "" "" "" ""
     exit 1
 fi
 
@@ -147,7 +146,7 @@ PREP_RESULT=$(echo "$PREP_RESULT" | sed '/^```/d')
 # The result text should be JSON — write it to prep.json
 echo "$PREP_RESULT" | jq . > /tmp/prep.json 2>/dev/null || {
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-    write_status "1" false false "" "Prep stage output is not valid JSON: ${PREP_RESULT:0:200}" "" "0" "$ELAPSED_SEC" "" "" "" "" "0"
+    write_status "1" false false "" "Prep stage output is not valid JSON: ${PREP_RESULT:0:200}" "" "0" "$ELAPSED_SEC" "" "" "" ""
     exit 1
 }
 
@@ -155,18 +154,17 @@ REPO_URL=$(jq -r '.repo_url // empty' /tmp/prep.json)
 TARGET_BRANCH=$(jq -r '.target_branch // "main"' /tmp/prep.json)
 TASK_TYPE=$(jq -r '.task_type // "code"' /tmp/prep.json)
 REVIEW_PR_URL=$(jq -r '.review_pr_url // empty' /tmp/prep.json)
-REVIEW_PR_NUMBER=$(jq -r '.review_pr_number // 0' /tmp/prep.json)
 
 echo "==> Prep result: repo=${REPO_URL} branch=${TARGET_BRANCH} type=${TASK_TYPE}"
 
 if [ -z "$REPO_URL" ]; then
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-    write_status "1" false false "" "Could not determine repository URL from the prompt. Include a GitHub URL in your message." "" "0" "$ELAPSED_SEC" "" "" "$TASK_TYPE" "" "0"
+    write_status "1" false false "" "Could not determine repository URL from the prompt. Include a GitHub URL in your message." "" "0" "$ELAPSED_SEC" "" "" "$TASK_TYPE" ""
     exit 1
 fi
 
 if [ -n "$REVIEW_PR_URL" ]; then
-    echo "==> Review PR: ${REVIEW_PR_URL} (#${REVIEW_PR_NUMBER})"
+    echo "==> Review PR: ${REVIEW_PR_URL}"
 fi
 
 # =============================================================================
@@ -201,7 +199,7 @@ fi
 # REVIEW MODE
 # =============================================================================
 if [ "$TASK_TYPE" = "review" ]; then
-    echo "==> Review mode: reviewing ${REVIEW_PR_URL:-PR #${REVIEW_PR_NUMBER}}"
+    echo "==> Review mode: reviewing ${REVIEW_PR_URL}"
 
     REVIEW_PROMPT="${PROMPT}"
     if [ -z "$REVIEW_PROMPT" ]; then
@@ -214,9 +212,9 @@ if [ "$TASK_TYPE" = "review" ]; then
 ${REVIEW_PROMPT}"
     fi
 
-    PR_REF="${REVIEW_PR_URL:-${REVIEW_PR_NUMBER}}"
+    PR_REF="${REVIEW_PR_URL}"
 
-    FULL_REVIEW_PROMPT="You are reviewing pull request ${REVIEW_PR_URL:-#${REVIEW_PR_NUMBER}} in this repository.
+    FULL_REVIEW_PROMPT="You are reviewing pull request ${REVIEW_PR_URL} in this repository.
 
 ${REVIEW_PROMPT}
 
@@ -281,13 +279,10 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
     fi
 
     PR_URL="${REVIEW_PR_URL:-}"
-    if [ -z "$PR_URL" ]; then
-        PR_URL=$(gh pr view "$REVIEW_PR_NUMBER" --json url --jq '.url' 2>/dev/null || true)
-    fi
 
     REVIEW_COST=$(grep '"type":"result"' "$CLAUDE_LOG" 2>/dev/null | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL" "$REVIEW_COST" "$ELAPSED_SEC" "$REPO_URL" "$TARGET_BRANCH" "$TASK_TYPE" "$REVIEW_PR_URL" "$REVIEW_PR_NUMBER"
+    write_status "$CLAUDE_EXIT" "$COMPLETE" false "" "$ERROR_MSG" "$PR_URL" "$REVIEW_COST" "$ELAPSED_SEC" "$REPO_URL" "$TARGET_BRANCH" "$TASK_TYPE" "$REVIEW_PR_URL"
     echo "==> Done (exit code: ${CLAUDE_EXIT})"
     exit $CLAUDE_EXIT
 fi
@@ -590,7 +585,7 @@ fi
 
 # --- Write status ---
 ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL" "$ACTUAL_COST" "$ELAPSED_SEC" "$REPO_URL" "$TARGET_BRANCH" "$TASK_TYPE" "$REVIEW_PR_URL" "$REVIEW_PR_NUMBER"
+write_status "$CLAUDE_EXIT" "$COMPLETE" "$NEEDS_INPUT" "$QUESTION" "$ERROR_MSG" "$PR_URL" "$ACTUAL_COST" "$ELAPSED_SEC" "$REPO_URL" "$TARGET_BRANCH" "$TASK_TYPE" "$REVIEW_PR_URL"
 
 echo "==> Done (exit code: ${CLAUDE_EXIT})"
 exit $CLAUDE_EXIT

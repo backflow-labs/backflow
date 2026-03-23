@@ -344,14 +344,13 @@ func TestHandleCompletion_PropagatesInferredFields(t *testing.T) {
 
 	task, _ := s.GetTask(context.Background(), "bf_inferred")
 	o.handleCompletion(context.Background(), task, ContainerStatus{
-		Done:           true,
-		Complete:       true,
-		PRURL:          "https://github.com/test/repo/pull/99",
-		RepoURL:        "https://github.com/test/repo",
-		TargetBranch:   "main",
-		TaskMode:       "code",
-		ReviewPRURL:    "",
-		ReviewPRNumber: 0,
+		Done:         true,
+		Complete:     true,
+		PRURL:        "https://github.com/test/repo/pull/99",
+		RepoURL:      "https://github.com/test/repo",
+		TargetBranch: "main",
+		TaskMode:     "code",
+		ReviewPRURL:  "",
 	})
 	bus.Close()
 

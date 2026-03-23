@@ -164,9 +164,6 @@ func (s *mockStore) CompleteTask(_ context.Context, id string, result store.Task
 		if result.ReviewPRURL != "" {
 			t.ReviewPRURL = result.ReviewPRURL
 		}
-		if result.ReviewPRNumber != 0 {
-			t.ReviewPRNumber = result.ReviewPRNumber
-		}
 		now := time.Now().UTC()
 		t.CompletedAt = &now
 	}
