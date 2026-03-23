@@ -108,11 +108,18 @@ ${PROMPT}"
 
 PREP_LOG="/tmp/prep_output.log"
 set +e
-claude -p "$PREP_PROMPT" \
-    --model claude-haiku-4-5-20251001 \
-    --max-turns 1 \
-    --output-format stream-json \
-    --verbose 2>&1 | tee "$PREP_LOG"
+if [ "$HARNESS" = "codex" ]; then
+    codex exec \
+        --model "$MODEL" \
+        --dangerously-bypass-approvals-and-sandbox \
+        "$PREP_PROMPT" 2>&1 | tee "$PREP_LOG"
+else
+    claude -p "$PREP_PROMPT" \
+        --model claude-haiku-4-5-20251001 \
+        --max-turns 1 \
+        --output-format stream-json \
+        --verbose 2>&1 | tee "$PREP_LOG"
+fi
 PREP_EXIT=${PIPESTATUS[0]}
 set -e
 
@@ -122,8 +129,12 @@ if [ $PREP_EXIT -ne 0 ]; then
     exit 1
 fi
 
-# Extract the result text from stream-json output and parse as JSON
-PREP_RESULT=$(grep '"type":"result"' "$PREP_LOG" | tail -1 | jq -r '.result // empty' 2>/dev/null || true)
+# Extract the result text — stream-json for claude, plain text for codex
+if [ "$HARNESS" = "codex" ]; then
+    PREP_RESULT=$(cat "$PREP_LOG")
+else
+    PREP_RESULT=$(grep '"type":"result"' "$PREP_LOG" | tail -1 | jq -r '.result // empty' 2>/dev/null || true)
+fi
 if [ -z "$PREP_RESULT" ]; then
     ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
     write_status "1" false false "" "Prep stage produced no result" "" "0" "$ELAPSED_SEC" "" "" "" "" "0"
