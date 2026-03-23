@@ -464,6 +464,18 @@ if [ -f /tmp/code_result.json ]; then
     PR_URL=$(jq -r '.pr_url // empty' /tmp/code_result.json 2>/dev/null || true)
     CODE_BRANCH=$(jq -r '.branch // empty' /tmp/code_result.json 2>/dev/null || true)
     echo "==> code_result.json: branch=${CODE_BRANCH} pr_url=${PR_URL}"
+elif [ "$COMPLETE" = "true" ]; then
+    echo "==> WARNING: code_result.json not found, falling back to git"
+fi
+
+# Fallback: detect branch from git if code_result.json was missing or incomplete
+if [ -z "$CODE_BRANCH" ] && [ "$COMPLETE" = "true" ]; then
+    CODE_BRANCH=$(git -C "$WORKSPACE" branch --show-current 2>/dev/null || true)
+    if [ -n "$CODE_BRANCH" ] && [ "$CODE_BRANCH" != "$TARGET_BRANCH" ]; then
+        echo "==> Detected branch from git: ${CODE_BRANCH}"
+    else
+        CODE_BRANCH=""
+    fi
 fi
 
 # Fallback: look up PR via gh CLI if agent created one
@@ -475,7 +487,7 @@ if [ -z "$PR_URL" ] && [ "$CREATE_PR" = "true" ] && [ "$COMPLETE" = "true" ]; th
     if [ -n "$PR_URL" ]; then
         echo "==> PR found: ${PR_URL}"
     else
-        echo "==> No PR found"
+        echo "==> WARNING: task completed with create_pr=true but no PR found"
     fi
 fi
 
