@@ -49,11 +49,18 @@ Look for packages that import many other internal packages, or cases where a dep
 Report each finding as:
 
 ```
-- file/path.go:LINE — [Category]
+- [severity] file/path.go:LINE — [Category]
   Description of the issue.
   Suggested fix: concrete recommendation.
 ```
 
-Group findings by category. Within each category, order by severity (most impactful first).
+## Severity Levels
+
+For each finding, assign a severity:
+- **high**: Actively harms maintainability, causes confusion, or hides bugs
+- **medium**: Improvement that would meaningfully reduce complexity or coupling
+- **low**: Minor cleanup or consistency improvement
+
+Group findings by category. Within each category, order by severity (high first).
 
 After completing your review, send your full findings to the team lead via SendMessage and mark your task as completed via TaskUpdate.

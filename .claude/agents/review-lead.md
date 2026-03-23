@@ -26,7 +26,9 @@ You are the lead of a Go code review team. Your job is to coordinate specialized
    - `name: "style-reviewer"`, `subagent_type: "style-reviewer"`
    - `name: "security-reviewer"`, `subagent_type: "security-reviewer"`
 
-   In each agent's prompt, include the full list of non-test Go files to review.
+   In each agent's prompt, include:
+   - The full list of non-test Go files to review
+   - The task ID for their task (e.g., "Your task ID is <id>. Mark it completed via TaskUpdate when done.")
 
 5. **Collect findings**: Wait for all 4 reviewers to report back. Each will send their findings via SendMessage.
 
