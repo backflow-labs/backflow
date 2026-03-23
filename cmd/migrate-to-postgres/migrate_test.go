@@ -75,7 +75,6 @@ func newTestSQLiteDB(t *testing.T) *sql.DB {
 			repo_url         TEXT NOT NULL,
 			branch           TEXT NOT NULL DEFAULT '',
 			target_branch    TEXT NOT NULL DEFAULT '',
-			review_pr_url    TEXT NOT NULL DEFAULT '',
 			prompt           TEXT NOT NULL,
 			context          TEXT NOT NULL DEFAULT '',
 			model            TEXT NOT NULL DEFAULT '',

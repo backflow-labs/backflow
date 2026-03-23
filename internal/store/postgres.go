@@ -66,7 +66,6 @@ func (s *PostgresStore) Close() error {
 // --- Tasks ---
 
 const taskColumns = `id, status, task_mode, harness, repo_url, branch, target_branch,
-	review_pr_url,
 	prompt, context,
 	model, effort, max_budget_usd, max_runtime_min, max_turns,
 	create_pr, self_review, save_agent_output, pr_title, pr_body, pr_url, output_url,
@@ -88,7 +87,6 @@ func (s *PostgresStore) CreateTask(ctx context.Context, task *models.Task) error
 	_, err := s.q.Exec(ctx, `
 		INSERT INTO tasks (
 			id, status, task_mode, harness, repo_url, branch, target_branch,
-			review_pr_url,
 			prompt, context,
 			model, effort, max_budget_usd, max_runtime_min, max_turns,
 			create_pr, self_review, save_agent_output, pr_title, pr_body, pr_url, output_url,
@@ -98,17 +96,15 @@ func (s *PostgresStore) CreateTask(ctx context.Context, task *models.Task) error
 			created_at, updated_at, started_at, completed_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
-			$8,
-			$9, $10,
-			$11, $12, $13, $14, $15,
-			$16, $17, $18, $19, $20, $21, $22,
-			$23, $24, $25,
-			$26, $27, $28, $29, $30, $31,
-			$32,
-			$33, $34, $35, $36
+			$8, $9,
+			$10, $11, $12, $13, $14,
+			$15, $16, $17, $18, $19, $20, $21,
+			$22, $23, $24,
+			$25, $26, $27, $28, $29, $30,
+			$31,
+			$32, $33, $34, $35
 		)`,
 		task.ID, task.Status, task.TaskMode, task.Harness, task.RepoURL, task.Branch, task.TargetBranch,
-		task.ReviewPRURL,
 		task.Prompt, task.Context, task.Model, task.Effort,
 		task.MaxBudgetUSD, task.MaxRuntimeMin, task.MaxTurns,
 		task.CreatePR, task.SelfReview, task.SaveAgentOutput,
@@ -202,10 +198,9 @@ func (s *PostgresStore) CompleteTask(ctx context.Context, id string, result Task
 		 repo_url=COALESCE(NULLIF($7, ''), repo_url),
 		 target_branch=COALESCE(NULLIF($8, ''), target_branch),
 		 task_mode=COALESCE(NULLIF($9, ''), task_mode),
-		 review_pr_url=COALESCE(NULLIF($10, ''), review_pr_url),
-		 completed_at=$11, updated_at=$12 WHERE id=$13`,
+		 completed_at=$10, updated_at=$11 WHERE id=$12`,
 		result.Status, result.Error, result.PRURL, result.OutputURL, result.CostUSD, result.ElapsedTimeSec,
-		result.RepoURL, result.TargetBranch, result.TaskMode, result.ReviewPRURL,
+		result.RepoURL, result.TargetBranch, result.TaskMode,
 		now, now, id,
 	)
 	return err
@@ -464,7 +459,6 @@ func scanPGTask(row pgScanner) (*models.Task, error) {
 
 	err := row.Scan(
 		&t.ID, &t.Status, &t.TaskMode, &t.Harness, &t.RepoURL, &t.Branch, &t.TargetBranch,
-		&t.ReviewPRURL,
 		&t.Prompt, &t.Context, &t.Model, &t.Effort,
 		&t.MaxBudgetUSD, &t.MaxRuntimeMin, &t.MaxTurns,
 		&t.CreatePR, &t.SelfReview, &t.SaveAgentOutput,

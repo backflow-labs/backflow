@@ -350,7 +350,6 @@ func TestHandleCompletion_PropagatesInferredFields(t *testing.T) {
 		RepoURL:      "https://github.com/test/repo",
 		TargetBranch: "main",
 		TaskMode:     "code",
-		ReviewPRURL:  "",
 	})
 	bus.Close()
 

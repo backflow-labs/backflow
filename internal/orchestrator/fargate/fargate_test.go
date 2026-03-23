@@ -31,7 +31,7 @@ func TestFargateBuildECSEnvVars(t *testing.T) {
 		RepoURL:      "https://github.com/test/repo",
 		Branch:       "feature/test",
 		TargetBranch: "main",
-		ReviewPRURL:  "https://github.com/test/repo/pull/42",
+		PRURL:        "https://github.com/test/repo/pull/42",
 		Prompt:       "Review this PR",
 		Context:      "Focus on auth changes",
 		Model:        "gpt-5.4",
@@ -62,7 +62,6 @@ func TestFargateBuildECSEnvVars(t *testing.T) {
 		"REPO_URL":          "https://github.com/test/repo",
 		"BRANCH":            "feature/test",
 		"TARGET_BRANCH":     "main",
-		"REVIEW_PR_URL":     "https://github.com/test/repo/pull/42",
 		"PROMPT":            "Review this PR",
 		"MODEL":             "gpt-5.4",
 		"EFFORT":            "high",
@@ -221,7 +220,7 @@ func TestFargateParseStatusFromLogEvents_EscapedMultilineError(t *testing.T) {
 
 func TestFargateParseStatusFromLogEvents_InferredFields(t *testing.T) {
 	events := []cloudwatchlogstypes.OutputLogEvent{
-		{Message: aws.String(`BACKFLOW_STATUS_JSON:{"needs_input":false,"question":"","complete":true,"error":"","pr_url":"https://github.com/test/repo/pull/5","repo_url":"https://github.com/test/repo","target_branch":"develop","task_mode":"code","review_pr_url":""}`)},
+		{Message: aws.String(`BACKFLOW_STATUS_JSON:{"needs_input":false,"question":"","complete":true,"error":"","pr_url":"https://github.com/test/repo/pull/5","repo_url":"https://github.com/test/repo","target_branch":"develop","task_mode":"code"}`)},
 	}
 
 	status, ok := parseStatusFromLogEvents(events)
@@ -236,12 +235,6 @@ func TestFargateParseStatusFromLogEvents_InferredFields(t *testing.T) {
 	}
 	if status.TaskMode != "code" {
 		t.Errorf("TaskMode = %q, want %q", status.TaskMode, "code")
-	}
-	if status.ReviewPRURL != "" {
-		t.Errorf("ReviewPRURL = %q, want empty", status.ReviewPRURL)
-	}
-	if status.ReviewPRURL != "" {
-		t.Errorf("ReviewPRURL = %q, want empty", status.ReviewPRURL)
 	}
 }
 

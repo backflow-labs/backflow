@@ -21,7 +21,6 @@ type TaskResult struct {
 	RepoURL        string
 	TargetBranch   string
 	TaskMode       string
-	ReviewPRURL    string
 }
 
 // TaskFilter controls listing behavior.

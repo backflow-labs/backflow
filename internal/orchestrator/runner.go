@@ -34,7 +34,6 @@ type ContainerStatus struct {
 	RepoURL        string
 	TargetBranch   string
 	TaskMode       string
-	ReviewPRURL    string
 }
 
 // AgentStatus is the JSON structure written by the agent entrypoint to
@@ -50,7 +49,6 @@ type AgentStatus struct {
 	RepoURL        string  `json:"repo_url,omitempty"`
 	TargetBranch   string  `json:"target_branch,omitempty"`
 	TaskMode       string  `json:"task_mode,omitempty"`
-	ReviewPRURL    string  `json:"review_pr_url,omitempty"`
 }
 
 // SpotChecker detects spot/preemption interruptions and re-queues affected tasks.

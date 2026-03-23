@@ -499,7 +499,6 @@ func TestPG_CompleteTask_InferredFields(t *testing.T) {
 		RepoURL:      "https://github.com/inferred/repo",
 		TargetBranch: "develop",
 		TaskMode:     "code",
-		ReviewPRURL:  "https://github.com/inferred/repo/pull/42",
 	}
 	if err := s.CompleteTask(ctx, "bf_TEST001", result); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
@@ -514,9 +513,6 @@ func TestPG_CompleteTask_InferredFields(t *testing.T) {
 	}
 	if got.TaskMode != "code" {
 		t.Errorf("TaskMode = %q, want %q", got.TaskMode, "code")
-	}
-	if got.ReviewPRURL != "https://github.com/inferred/repo/pull/42" {
-		t.Errorf("ReviewPRURL = %q, want PR URL", got.ReviewPRURL)
 	}
 }
 
@@ -787,7 +783,7 @@ func TestPG_ReviewTaskCRUD(t *testing.T) {
 		Status:       models.TaskStatusPending,
 		TaskMode:     models.TaskModeReview,
 		RepoURL:      "https://github.com/test/repo",
-		ReviewPRURL:  "https://github.com/test/repo/pull/42",
+		PRURL:        "https://github.com/test/repo/pull/42",
 		Prompt:       "Focus on security",
 		Model:        "claude-sonnet-4-6",
 		MaxBudgetUSD: 5.0,
@@ -806,8 +802,8 @@ func TestPG_ReviewTaskCRUD(t *testing.T) {
 	if got.TaskMode != models.TaskModeReview {
 		t.Errorf("TaskMode = %q, want %q", got.TaskMode, models.TaskModeReview)
 	}
-	if got.ReviewPRURL != "https://github.com/test/repo/pull/42" {
-		t.Errorf("ReviewPRURL = %q", got.ReviewPRURL)
+	if got.PRURL != "https://github.com/test/repo/pull/42" {
+		t.Errorf("PRURL = %q", got.PRURL)
 	}
 }
 

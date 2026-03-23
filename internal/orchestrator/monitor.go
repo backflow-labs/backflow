@@ -122,7 +122,6 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 		RepoURL:        status.RepoURL,
 		TargetBranch:   status.TargetBranch,
 		TaskMode:       status.TaskMode,
-		ReviewPRURL:    status.ReviewPRURL,
 	}
 
 	switch {

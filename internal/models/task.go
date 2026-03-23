@@ -46,7 +46,6 @@ type Task struct {
 	RepoURL         string            `json:"repo_url"`
 	Branch          string            `json:"branch"`
 	TargetBranch    string            `json:"target_branch"`
-	ReviewPRURL     string            `json:"review_pr_url,omitempty"`
 	Prompt          string            `json:"prompt"`
 	Context         string            `json:"context,omitempty"`
 	Model           string            `json:"model,omitempty"`

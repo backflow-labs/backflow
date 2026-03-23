@@ -298,9 +298,6 @@ func TestInboundHandler_AutoDetectsReviewMode(t *testing.T) {
 	if task.TaskMode != models.TaskModeAuto {
 		t.Errorf("task_mode = %q, want %q", task.TaskMode, models.TaskModeAuto)
 	}
-	if task.ReviewPRURL != "" {
-		t.Errorf("review_pr_url = %q, want empty", task.ReviewPRURL)
-	}
 	if task.Prompt != "Review https://github.com/backflow-labs/backflow/pull/115" {
 		t.Errorf("prompt = %q, want raw body", task.Prompt)
 	}
