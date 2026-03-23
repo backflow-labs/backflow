@@ -37,7 +37,13 @@ Check for:
 - Exported vs unexported: functions/types only used within their package should be unexported
 - Abbreviations: should be consistent (e.g., always `URL` not sometimes `Url`)
 
-### 5. Simplification Opportunities
+### 5. Function Signature Conventions
+Check for:
+- `context.Context` should be the first parameter of functions that accept one (Go convention)
+- Variadic options or config structs should be the last parameter
+- Consistent parameter ordering across similar functions in the same package
+
+### 6. Simplification Opportunities
 Look for:
 - Nested `if` blocks that could be early `return` statements
 - `if err != nil { return err } else { ... }` — the `else` is unnecessary
@@ -45,7 +51,7 @@ Look for:
 - Boolean parameters that make call sites unclear — could use options or separate functions
 - `fmt.Errorf("static message")` that should be `errors.New("static message")`
 
-### 6. Comment Quality
+### 7. Comment Quality
 Check for:
 - TODO/FIXME/HACK comments that should be tracked as issues
 - Comments that restate the code instead of explaining "why"

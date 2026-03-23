@@ -30,8 +30,10 @@ Check that errors are wrapped with context using `fmt.Errorf("...: %w", err)`, n
 - `fmt.Errorf("...: %v", err)` which loses the error chain (use `%w` instead)
 - Inconsistent wrapping styles within the same package
 
-### 3. Sentinel Error Comparison
+### 3. Sentinel and Type-Based Error Handling
 Look for direct error comparison (`err == someErr`) that should use `errors.Is(err, someErr)` for robustness against wrapped errors. Common sentinels to check: `pgx.ErrNoRows`, `io.EOF`, `context.Canceled`, `context.DeadlineExceeded`.
+
+Also look for type assertions on errors (e.g., `err.(*SomeError)`) that should use `errors.As(&target)` instead, to correctly unwrap error chains.
 
 ### 4. Context Propagation
 Check for:
