@@ -334,20 +334,20 @@ func (s *PostgresStore) ResetRunningContainers(ctx context.Context, id string) e
 
 func (s *PostgresStore) CreateAllowedSender(ctx context.Context, sender *models.AllowedSender) error {
 	_, err := s.q.Exec(ctx,
-		"INSERT INTO allowed_senders (channel_type, address, default_repo, enabled, created_at) VALUES ($1, $2, $3, $4, $5)",
-		sender.ChannelType, sender.Address, sender.DefaultRepo, sender.Enabled, sender.CreatedAt,
+		"INSERT INTO allowed_senders (channel_type, address, enabled, created_at) VALUES ($1, $2, $3, $4)",
+		sender.ChannelType, sender.Address, sender.Enabled, sender.CreatedAt,
 	)
 	return err
 }
 
 func (s *PostgresStore) GetAllowedSender(ctx context.Context, channelType, address string) (*models.AllowedSender, error) {
 	row := s.q.QueryRow(ctx,
-		"SELECT channel_type, address, default_repo, enabled, created_at FROM allowed_senders WHERE channel_type = $1 AND address = $2",
+		"SELECT channel_type, address, enabled, created_at FROM allowed_senders WHERE channel_type = $1 AND address = $2",
 		channelType, address,
 	)
 
 	var sender models.AllowedSender
-	err := row.Scan(&sender.ChannelType, &sender.Address, &sender.DefaultRepo, &sender.Enabled, &sender.CreatedAt)
+	err := row.Scan(&sender.ChannelType, &sender.Address, &sender.Enabled, &sender.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, ErrNotFound

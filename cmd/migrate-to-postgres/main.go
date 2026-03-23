@@ -260,7 +260,7 @@ func migrateInstances(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Poo
 
 func migrateAllowedSenders(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpool.Pool) error {
 	rows, err := sqliteDB.QueryContext(ctx, `SELECT
-		channel_type, address, default_repo, enabled, created_at
+		channel_type, address, enabled, created_at
 	FROM allowed_senders`)
 	if err != nil {
 		return fmt.Errorf("query sqlite: %w", err)
@@ -270,12 +270,12 @@ func migrateAllowedSenders(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpoo
 	var count int
 	for rows.Next() {
 		var (
-			channelType, address, defaultRepo string
-			enabled                           int
-			createdAtStr                      string
+			channelType, address string
+			enabled              int
+			createdAtStr         string
 		)
 
-		if err := rows.Scan(&channelType, &address, &defaultRepo, &enabled, &createdAtStr); err != nil {
+		if err := rows.Scan(&channelType, &address, &enabled, &createdAtStr); err != nil {
 			return fmt.Errorf("scan row: %w", err)
 		}
 
@@ -285,10 +285,10 @@ func migrateAllowedSenders(ctx context.Context, sqliteDB *sql.DB, pgPool *pgxpoo
 		}
 
 		_, err = pgPool.Exec(ctx, `INSERT INTO allowed_senders (
-			channel_type, address, default_repo, enabled, created_at
-		) VALUES ($1, $2, $3, $4, $5)
+			channel_type, address, enabled, created_at
+		) VALUES ($1, $2, $3, $4)
 		ON CONFLICT DO NOTHING`,
-			channelType, address, defaultRepo, enabled == 1, createdAt,
+			channelType, address, enabled == 1, createdAt,
 		)
 		if err != nil {
 			return fmt.Errorf("insert allowed_sender %s/%s: %w", channelType, address, err)

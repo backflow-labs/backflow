@@ -79,7 +79,6 @@ Pre-registered senders authorized to create tasks via messaging (e.g. SMS).
 |--------|------|---------|-------------|
 | `channel_type` | `TEXT` | — | **Composite PK.** Messaging channel type (e.g. `sms`). |
 | `address` | `TEXT` | — | **Composite PK.** Sender address (e.g. `+15551234567`). |
-| `default_repo` | `TEXT` | `''` | Default repo URL when sender omits it from the message. |
 | `enabled` | `BOOLEAN` | `true` | Whether this sender is allowed to create tasks. |
 | `created_at` | `TIMESTAMPTZ` | `now()` | When the sender was registered. |
 

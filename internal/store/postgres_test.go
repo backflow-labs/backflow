@@ -757,7 +757,6 @@ func TestPG_CreateAllowedSender(t *testing.T) {
 	sender := &models.AllowedSender{
 		ChannelType: "sms",
 		Address:     "+15551234567",
-		DefaultRepo: "https://github.com/test/repo",
 		Enabled:     true,
 		CreatedAt:   time.Now().UTC().Truncate(time.Microsecond),
 	}
@@ -774,9 +773,6 @@ func TestPG_CreateAllowedSender(t *testing.T) {
 	}
 	if got.Address != "+15551234567" {
 		t.Errorf("Address = %q", got.Address)
-	}
-	if got.DefaultRepo != "https://github.com/test/repo" {
-		t.Errorf("DefaultRepo = %q", got.DefaultRepo)
 	}
 	if !got.Enabled {
 		t.Error("Enabled should be true")
