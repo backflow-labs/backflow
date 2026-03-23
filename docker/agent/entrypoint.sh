@@ -79,13 +79,6 @@ fi
 # PREP STAGE — infer repo_url, target_branch, task_type from the prompt
 # =============================================================================
 
-# Fail fast if the prompt has no GitHub URL — no point calling Haiku
-if ! echo "$PROMPT" | grep -qiE 'github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'; then
-    ELAPSED_SEC=$(( $(date +%s) - START_TIME ))
-    write_status "1" false false "" "No GitHub URL found in prompt. Include a GitHub repo, PR, or issue URL." "" "0" "$ELAPSED_SEC" "" "" "" "" "0"
-    exit 1
-fi
-
 echo "==> Running prep stage..."
 
 PREP_PROMPT="Analyze this task prompt and extract structured information.
