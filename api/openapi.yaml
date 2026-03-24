@@ -315,8 +315,8 @@ components:
           $ref: "#/components/schemas/TaskStatus"
         task_mode:
           type: string
-          enum: [code, review]
-          example: code
+          enum: [auto, code, review]
+          example: auto
         harness:
           type: string
           enum: [claude_code, codex]
@@ -438,44 +438,20 @@ components:
     CreateTaskRequest:
       type: object
       description: >
-        Request body for creating a task. For code mode (default), repo_url and
-        prompt are required. For review mode, review_pr_url is required.
+        Request body for creating a task. Prompt is the only required field —
+        the agent container's Prep stage infers repo_url, target_branch, and
+        task_mode from the prompt.
+      required: [prompt]
       properties:
-        task_mode:
+        prompt:
           type: string
-          enum: [code, review]
-          description: "Defaults to 'code'. Auto-detected as 'review' when prompt starts with a GitHub PR URL."
-          example: code
+          description: Task instructions for the agent.
+          example: "Fix the authentication bug in https://github.com/owner/repo"
         harness:
           type: string
           enum: [claude_code, codex]
           description: Agent harness to use. Defaults to server configuration.
           example: claude_code
-        repo_url:
-          type: string
-          description: GitHub repository URL. Required for code mode.
-          example: "https://github.com/owner/repo"
-        branch:
-          type: string
-          description: Branch to check out. Defaults to the repo default branch.
-          example: "main"
-        target_branch:
-          type: string
-          description: Target branch for pull requests.
-          example: "main"
-        review_pr_url:
-          type: string
-          description: Full GitHub PR URL for review mode (e.g. https://github.com/owner/repo/pull/42).
-          example: "https://github.com/owner/repo/pull/42"
-        review_pr_number:
-          type: integer
-          minimum: 1
-          description: PR number for review mode (used with repo_url for backward compatibility).
-          example: 42
-        prompt:
-          type: string
-          description: Task instructions for the agent. Required for code mode.
-          example: "Fix the authentication bug in the login handler"
         context:
           type: string
           description: Additional context provided to the agent.

@@ -110,7 +110,7 @@ func extractID(t *testing.T, body []byte) string {
 // createTestTask creates a minimal task via the API and returns its ID.
 func createTestTask(t *testing.T, srv http.Handler) string {
 	t.Helper()
-	body := `{"repo_url":"https://github.com/test/repo","prompt":"Fix the bug"}`
+	body := `{"prompt":"Fix the bug in https://github.com/test/repo"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -157,7 +157,7 @@ func TestOpenAPI_HealthAPI(t *testing.T) {
 
 func TestOpenAPI_CreateTask_201(t *testing.T) {
 	srv := testServer(t)
-	body := `{"repo_url":"https://github.com/test/repo","prompt":"Fix the bug"}`
+	body := `{"prompt":"Fix the bug in https://github.com/test/repo"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestOpenAPI_CreateTask_201(t *testing.T) {
 
 func TestOpenAPI_CreateTask_400_MissingFields(t *testing.T) {
 	srv := testServer(t)
-	body := `{"repo_url":"","prompt":""}`
+	body := `{"prompt":""}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -183,7 +183,7 @@ func TestOpenAPI_CreateTask_400_MissingFields(t *testing.T) {
 
 func TestOpenAPI_CreateTask_400_InvalidHarness(t *testing.T) {
 	srv := testServer(t)
-	body := `{"repo_url":"https://github.com/test/repo","prompt":"Fix it","harness":"invalid"}`
+	body := `{"prompt":"Fix it","harness":"invalid"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -196,7 +196,7 @@ func TestOpenAPI_CreateTask_400_InvalidHarness(t *testing.T) {
 
 func TestOpenAPI_CreateTask_ReviewMode_201(t *testing.T) {
 	srv := testServer(t)
-	body := `{"task_mode":"review","review_pr_url":"https://github.com/test/repo/pull/7","prompt":"Review for security issues"}`
+	body := `{"prompt":"Review https://github.com/test/repo/pull/7 for security issues"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
