@@ -129,6 +129,7 @@ paths:
           description: Task ID (bf_-prefixed ULID)
           schema:
             type: string
+            pattern: "^bf_[0-9A-Z]{26}$"
       responses:
         "200":
           description: Task details
@@ -163,6 +164,7 @@ paths:
           description: Task ID (bf_-prefixed ULID)
           schema:
             type: string
+            pattern: "^bf_[0-9A-Z]{26}$"
       responses:
         "204":
           description: Task cancelled or deleted (no body)
@@ -193,6 +195,7 @@ paths:
           description: Task ID (bf_-prefixed ULID)
           schema:
             type: string
+            pattern: "^bf_[0-9A-Z]{26}$"
         - name: tail
           in: query
           description: Number of log lines to return from the end

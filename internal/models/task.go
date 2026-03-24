@@ -128,9 +128,20 @@ type CreateTaskRequest struct {
 	EnvVars         map[string]string `json:"env_vars,omitempty"`
 }
 
+// containsNullByte returns true if s contains a null byte, which PostgreSQL
+// text columns reject.
+func containsNullByte(s string) bool {
+	return strings.ContainsRune(s, 0)
+}
+
 func (r *CreateTaskRequest) Validate() error {
 	if r.Prompt == "" {
 		return fmt.Errorf("prompt is required")
+	}
+	for _, s := range []string{r.Prompt, r.Context, r.ClaudeMD, r.PRTitle, r.PRBody} {
+		if containsNullByte(s) {
+			return fmt.Errorf("request contains invalid null bytes")
+		}
 	}
 	if r.MaxBudgetUSD < 0 {
 		return fmt.Errorf("max_budget_usd must be non-negative")
