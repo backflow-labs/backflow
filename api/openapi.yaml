@@ -66,6 +66,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TaskEnvelope"
+          links:
+            GetTask:
+              operationId: getTask
+              parameters:
+                id: $response.body#/data/id
+            CancelTask:
+              operationId: cancelTask
+              parameters:
+                id: $response.body#/data/id
+            GetTaskLogs:
+              operationId: getTaskLogs
+              parameters:
+                id: $response.body#/data/id
         "400":
           description: Invalid request body or validation error
           content:
