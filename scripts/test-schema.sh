@@ -85,5 +85,6 @@ $SCHEMATHESIS run "$ROOT_DIR/api/openapi.yaml" \
     --url http://localhost:8080 \
     --checks not_a_server_error \
     --phases examples,coverage,fuzzing,stateful \
+    --suppress-health-check filter_too_much \
     --max-examples "${MAX_EXAMPLES:-20}" \
     --seed "${SEED:-42}"
