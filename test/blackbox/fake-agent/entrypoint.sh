@@ -14,6 +14,10 @@ write_status() {
     error_msg="$5"
 
     mkdir -p "$STATUS_DIR"
+    # NOTE: String values are interpolated directly without JSON escaping (no jq
+    # in this image). Keep test values free of quotes, backslashes, and newlines.
+    # exit_code is included for parity with the real status_writer.sh but is not
+    # consumed by orchestrator.AgentStatus — the Go struct ignores unknown keys.
     json="{\"exit_code\":${exit_code},\"complete\":${complete},\"needs_input\":${needs_input},\"question\":\"${question}\",\"error\":\"${error_msg}\",\"pr_url\":\"\",\"cost_usd\":0,\"elapsed_time_sec\":1,\"repo_url\":\"\",\"target_branch\":\"\",\"task_mode\":\"\"}"
     echo "$json" > "$STATUS_FILE"
     echo "BACKFLOW_STATUS_JSON:${json}"
