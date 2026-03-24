@@ -310,7 +310,7 @@ func TestRegisterCommands(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := RegisterCommands(server.URL, "app-123", "token-abc")
+	err := RegisterCommands(server.URL, "app-123", "token-abc", "backflow")
 	if err != nil {
 		t.Fatalf("RegisterCommands: %v", err)
 	}

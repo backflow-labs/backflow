@@ -483,7 +483,7 @@ func TestRegisterCommands_IncludesCancelAndRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := RegisterCommands(server.URL, "app-123", "token-abc"); err != nil {
+	if err := RegisterCommands(server.URL, "app-123", "token-abc", "backflow"); err != nil {
 		t.Fatalf("RegisterCommands: %v", err)
 	}
 

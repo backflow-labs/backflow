@@ -166,6 +166,7 @@ func main() {
 				return api.RetryTask(context.Background(), taskID, db)
 			}),
 			AllowedRoles: cfg.DiscordAllowedRoles,
+			CommandName:  cfg.DiscordCommandName,
 		}))
 
 		now := time.Now().UTC()
@@ -181,7 +182,7 @@ func main() {
 			log.Fatal().Err(err).Msg("failed to persist discord install state")
 		}
 
-		if err := discord.RegisterCommands("", cfg.DiscordAppID, cfg.DiscordBotToken); err != nil {
+		if err := discord.RegisterCommands("", cfg.DiscordAppID, cfg.DiscordBotToken, cfg.DiscordCommandName); err != nil {
 			log.Error().Err(err).Msg("failed to register discord slash commands")
 		}
 
