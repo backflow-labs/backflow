@@ -113,11 +113,15 @@ type HandlerActions struct {
 	CancelTask   CancelTaskFunc
 	RetryTask    RetryTaskFunc
 	AllowedRoles []string
+	CommandName  string
 }
 
 // InteractionHandler returns an http.HandlerFunc that verifies and routes
 // Discord interaction webhook requests.
 func InteractionHandler(publicKey ed25519.PublicKey, taskStore discordTaskStore, actions HandlerActions) http.HandlerFunc {
+	if actions.CommandName == "" {
+		actions.CommandName = "backflow"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Signature-Ed25519")
 		timestamp := r.Header.Get("X-Signature-Timestamp")
@@ -175,7 +179,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 
 	log.Info().Str("command", cmd.Name).Msg("discord: application command received")
 
-	if cmd.Name != "backflow" {
+	if cmd.Name != actions.CommandName {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
 			Data: MessageData{Content: fmt.Sprintf("Unknown command: %s", cmd.Name)},
@@ -187,7 +191,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	if !ok {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: "Use /backflow create, /backflow status, /backflow list, /backflow cancel, or /backflow retry."},
+			Data: MessageData{Content: fmt.Sprintf("Use /%s create, /%s status, /%s list, /%s cancel, or /%s retry.", actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName)},
 		})
 		return
 	}
@@ -340,7 +344,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	default:
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /backflow create, /backflow status, /backflow list, /backflow cancel, or /backflow retry.", subcommand)},
+			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /%s create, /%s status, /%s list, /%s cancel, or /%s retry.", subcommand, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName)},
 		})
 	}
 }

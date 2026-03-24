@@ -73,6 +73,31 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			req:     CreateTaskRequest{Prompt: "Fix bug", ClaudeMD: "\x00"},
 			wantErr: true,
 		},
+		{
+			name:    "null byte in allowed_tools element",
+			req:     CreateTaskRequest{Prompt: "Fix bug", AllowedTools: []string{"Bash", "Read\x00Write"}},
+			wantErr: true,
+		},
+		{
+			name:    "null byte in env_vars key",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO\x00BAR": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "null byte in env_vars value",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO": "val\x00ue"}},
+			wantErr: true,
+		},
+		{
+			name:    "valid allowed_tools",
+			req:     CreateTaskRequest{Prompt: "Fix bug", AllowedTools: []string{"Bash", "Read"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid env_vars",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO": "bar"}},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
