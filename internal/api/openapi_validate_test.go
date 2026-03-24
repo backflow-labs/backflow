@@ -19,33 +19,27 @@ import (
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 )
 
-var (
-	specOnce sync.Once
-	specDoc  *openapi3.T
-	specErr  error
-)
+var loadSpecOnce = sync.OnceValues(func() (*openapi3.T, error) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "api", "openapi.yaml")
+	loader := openapi3.NewLoader()
+	doc, err := loader.LoadFromFile(specPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := doc.Validate(context.Background()); err != nil {
+		return nil, err
+	}
+	return doc, nil
+})
 
 func loadSpec(t *testing.T) *openapi3.T {
 	t.Helper()
-	specOnce.Do(func() {
-		_, thisFile, _, _ := runtime.Caller(0)
-		specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "api", "openapi.yaml")
-		loader := openapi3.NewLoader()
-		doc, err := loader.LoadFromFile(specPath)
-		if err != nil {
-			specErr = err
-			return
-		}
-		if err := doc.Validate(context.Background()); err != nil {
-			specErr = err
-			return
-		}
-		specDoc = doc
-	})
-	if specErr != nil {
-		t.Fatalf("load OpenAPI spec: %v", specErr)
+	doc, err := loadSpecOnce()
+	if err != nil {
+		t.Fatalf("load OpenAPI spec: %v", err)
 	}
-	return specDoc
+	return doc
 }
 
 // checkResponse validates rec against the OpenAPI spec for the given request.
@@ -68,6 +62,7 @@ func checkResponse(t *testing.T, req *http.Request, rec *httptest.ResponseRecord
 	route, pathParams, err := router.FindRoute(reqCopy)
 	if err != nil {
 		// Path not in spec – skip validation (e.g. webhook endpoints).
+		t.Logf("skipping OpenAPI validation for %s %s (not in spec)", req.Method, req.URL.Path)
 		return
 	}
 

@@ -79,15 +79,21 @@ jobs:
         run: go build -trimpath -o bin/backflow ./cmd/backflow
 
       - name: Start server
-        run: ./bin/backflow &
+        run: |
+          ./bin/backflow &
+          echo $! > /tmp/backflow.pid
         env:
           BACKFLOW_DATABASE_URL: "postgres://backflow:backflow@localhost:5432/backflow?sslmode=disable"
           BACKFLOW_MODE: local
           ANTHROPIC_API_KEY: sk-ant-fuzz-placeholder-not-real
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Wait for server
         run: |
           for i in $(seq 1 15); do
+            if ! kill -0 "$(cat /tmp/backflow.pid)" 2>/dev/null; then
+              echo "server process died" && exit 1
+            fi
             curl -sf http://localhost:8080/health && break || sleep 1
           done
           curl -sf http://localhost:8080/health || (echo "server did not start" && exit 1)

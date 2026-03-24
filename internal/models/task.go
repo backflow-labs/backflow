@@ -43,10 +43,10 @@ type Task struct {
 	Status          TaskStatus        `json:"status"`
 	TaskMode        string            `json:"task_mode"`
 	Harness         Harness           `json:"harness"`
-	RepoURL         string            `json:"repo_url"`
-	Branch          string            `json:"branch"`
-	TargetBranch    string            `json:"target_branch"`
-	Prompt          string            `json:"prompt"`
+	RepoURL         string            `json:"repo_url,omitempty"`
+	Branch          string            `json:"branch,omitempty"`
+	TargetBranch    string            `json:"target_branch,omitempty"`
+	Prompt          string            `json:"prompt,omitempty"`
 	Context         string            `json:"context,omitempty"`
 	Model           string            `json:"model,omitempty"`
 	Effort          string            `json:"effort,omitempty"`
