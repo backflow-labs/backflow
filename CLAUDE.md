@@ -23,6 +23,7 @@ make docker-agent-deploy      # Full agent ECR pipeline: login, buildx, push
 make docker-server-build       # Buildx multi-platform server image (amd64+arm64)
 make docker-server-build-local # Single-architecture server build
 make docker-server-deploy      # Full server ECR pipeline: login, buildx, push
+make deploy-dev         # Deploy current branch to backflow-dev on Fly.io
 make setup-aws          # Create AWS infrastructure
 make copy-env           # Copy .env from ~/dev/etc/.env to local .env
 make overwrite-env      # Copy local .env to ~/dev/etc/.env
@@ -149,9 +150,11 @@ ECS prerequisites:
 
 ## Fly.io deployment
 
-The server runs on Fly.io in fargate mode. Configuration is in `fly.toml` (iad region, shared-cpu-1x/256MB). CI auto-deploys on push to main via `.github/workflows/ci.yml`.
+Two Fly apps: production (`backflow`, `fly.toml`) and dev (`backflow-dev`, `fly.dev.toml`).
 
-`BACKFLOW_RESTRICT_API=true` is set in `fly.toml`'s `[env]`, which activates middleware that returns 403 on all `/api/v1/*` endpoints. Webhook paths (`/webhooks/discord`, `/webhooks/sms/inbound`) and the root `/health` endpoint are unaffected.
+**Production** auto-deploys on push to main via `.github/workflows/ci.yml`. `BACKFLOW_RESTRICT_API=true` blocks all `/api/v1/*` endpoints; webhook paths and `/health` are unaffected.
+
+**Dev** is deployed on demand via `make deploy-dev` (local) or the `Deploy Dev` workflow dispatch (GitHub Actions, takes a `ref` input). The dev machine auto-stops when idle (`auto_stop_machines = "stop"`, `min_machines_running = 0`).
 
 AWS credentials for ECS/S3/CloudWatch are provided via the `backflow-fly` IAM user (created by `make setup-aws`). See `docs/fly-setup.md` for deployment steps.
 
