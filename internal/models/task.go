@@ -143,6 +143,16 @@ func (r *CreateTaskRequest) Validate() error {
 			return fmt.Errorf("request contains invalid null bytes")
 		}
 	}
+	for _, s := range r.AllowedTools {
+		if containsNullByte(s) {
+			return fmt.Errorf("request contains invalid null bytes")
+		}
+	}
+	for k, v := range r.EnvVars {
+		if containsNullByte(k) || containsNullByte(v) {
+			return fmt.Errorf("request contains invalid null bytes")
+		}
+	}
 	if r.MaxBudgetUSD < 0 {
 		return fmt.Errorf("max_budget_usd must be non-negative")
 	}

@@ -104,6 +104,7 @@ type Config struct {
 	DiscordBotToken     string
 	DiscordGuildID      string
 	DiscordChannelID    string
+	DiscordCommandName  string
 	DiscordAllowedRoles []string
 	DiscordEvents       []string
 
@@ -182,6 +183,7 @@ func Load() (*Config, error) {
 		DiscordBotToken:       os.Getenv("BACKFLOW_DISCORD_BOT_TOKEN"),
 		DiscordGuildID:        os.Getenv("BACKFLOW_DISCORD_GUILD_ID"),
 		DiscordChannelID:      os.Getenv("BACKFLOW_DISCORD_CHANNEL_ID"),
+		DiscordCommandName:    envOr("BACKFLOW_DISCORD_COMMAND_NAME", "backflow"),
 		DiscordAllowedRoles:   envCSV("BACKFLOW_DISCORD_ALLOWED_ROLES"),
 		DiscordEvents:         envCSV("BACKFLOW_DISCORD_EVENTS"),
 		LogFile:               os.Getenv("BACKFLOW_LOG_FILE"),

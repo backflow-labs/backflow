@@ -34,14 +34,14 @@ type slashCommandChoice struct {
 // RegisterCommands registers the Backflow slash commands with Discord using
 // the bulk overwrite endpoint. baseURL is overridable for testing; pass "" to
 // use the default Discord API.
-func RegisterCommands(baseURL, appID, botToken string) error {
+func RegisterCommands(baseURL, appID, botToken, commandName string) error {
 	if baseURL == "" {
 		baseURL = discordAPIBase
 	}
 
 	commands := []slashCommand{
 		{
-			Name:        "backflow",
+			Name:        commandName,
 			Description: "Manage Backflow tasks",
 			Type:        1, // CHAT_INPUT
 			Options: []slashCommandOption{

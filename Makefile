@@ -1,6 +1,8 @@
 .PHONY: build run test clean lint \
        docker-agent-build docker-agent-build-local docker-agent-push docker-agent-deploy \
        docker-server-build docker-server-build-local docker-server-deploy \
+       docker-fake-agent-build test-fake-agent \
+       deploy-dev \
        db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
        setup-aws deps tunnel cloudflared-setup test-docker-status-writer copy-env overwrite-env
 
@@ -31,6 +33,12 @@ test:
 
 test-docker-status-writer:
 	bash scripts/test-docker-status-writer.sh
+
+docker-fake-agent-build:
+	$(DOCKER) build -t backflow-fake-agent test/blackbox/fake-agent/
+
+test-fake-agent: docker-fake-agent-build
+	go test ./test/blackbox/fake-agent/ -v -count=1
 
 lint:
 	go vet ./...
@@ -73,6 +81,9 @@ docker-server-build:
 
 docker-server-build-local:
 	$(DOCKER) build -t backflow-server -f docker/server/Dockerfile .
+
+deploy-dev:
+	flyctl deploy --config fly.dev.toml --remote-only
 
 docker-server-deploy:
 	@$(ENV); \
