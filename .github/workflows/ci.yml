@@ -111,8 +111,8 @@ jobs:
           schemathesis run api/openapi.yaml \
             --url http://localhost:8080 \
             --checks not_a_server_error \
-            --hypothesis-max-examples 20 \
-            --hypothesis-seed 42
+            --max-examples 20 \
+            --seed 42
 
   deploy:
     runs-on: ubuntu-latest
