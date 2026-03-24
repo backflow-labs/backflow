@@ -109,7 +109,7 @@ jobs:
       - name: Run schemathesis
         run: |
           schemathesis run api/openapi.yaml \
-            --base-url http://localhost:8080 \
+            --url http://localhost:8080 \
             --checks not_a_server_error \
             --hypothesis-max-examples 20 \
             --hypothesis-seed 42
