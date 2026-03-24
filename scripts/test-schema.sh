@@ -19,17 +19,22 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Check prerequisites ---
-for cmd in docker goose schemathesis; do
-    if ! command -v "$cmd" &>/dev/null; then
-        echo "error: $cmd not found. Install it first." >&2
-        if [ "$cmd" = "goose" ]; then
-            echo "  go install github.com/pressly/goose/v3/cmd/goose@latest" >&2
-        elif [ "$cmd" = "schemathesis" ]; then
-            echo "  pip install schemathesis" >&2
-        fi
-        exit 1
+if ! command -v docker &>/dev/null; then
+    echo "error: docker not found" >&2
+    exit 1
+fi
+
+GOOSE="go run github.com/pressly/goose/v3/cmd/goose@latest"
+
+VENV_DIR="$ROOT_DIR/.cache/schemathesis-venv"
+if ! command -v schemathesis &>/dev/null; then
+    if [ ! -x "$VENV_DIR/bin/schemathesis" ]; then
+        echo "Installing schemathesis into $VENV_DIR..."
+        python3 -m venv "$VENV_DIR"
+        "$VENV_DIR/bin/pip" install --quiet schemathesis
     fi
-done
+fi
+SCHEMATHESIS="${SCHEMATHESIS:-$(command -v schemathesis 2>/dev/null || echo "$VENV_DIR/bin/schemathesis")}"
 
 # --- Start Postgres ---
 echo "Starting temporary Postgres on port ${PG_PORT}..."
@@ -52,7 +57,7 @@ docker exec "$PG_CONTAINER" pg_isready -U backflow -q || { echo "Postgres did no
 
 # --- Migrate ---
 echo "Running migrations..."
-goose -dir "$ROOT_DIR/migrations" postgres "$DB_URL" up
+$GOOSE -dir "$ROOT_DIR/migrations" postgres "$DB_URL" up
 
 # --- Build & start server ---
 echo "Building..."
@@ -76,7 +81,7 @@ curl -sf http://localhost:8080/health >/dev/null || { echo "Server did not start
 
 # --- Fuzz ---
 echo "Running schemathesis..."
-schemathesis run "$ROOT_DIR/api/openapi.yaml" \
+$SCHEMATHESIS run "$ROOT_DIR/api/openapi.yaml" \
     --url http://localhost:8080 \
     --checks not_a_server_error \
     --phases examples,coverage,fuzzing,stateful \
