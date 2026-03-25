@@ -123,21 +123,35 @@ func (c *BackflowClient) GetLogs(t *testing.T, id string) string {
 	return string(body)
 }
 
+// stuckStateTimeout is how long a task can remain in the same non-terminal
+// status before WaitForStatus fails. This catches states like "interrupted"
+// that should transition (via recovery) but won't in local mode.
+const stuckStateTimeout = 15 * time.Second
+
 // WaitForStatus polls GetTask until the task reaches the desired status or the
 // timeout expires. Returns the final task state.
 func (c *BackflowClient) WaitForStatus(t *testing.T, id, status string, timeout time.Duration) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	var lastStatus string
+	lastChange := time.Now()
 	for time.Now().Before(deadline) {
 		task := c.GetTask(t, id)
-		lastStatus, _ = task["status"].(string)
-		if lastStatus == status {
+		current, _ := task["status"].(string)
+		if current == status {
 			return task
 		}
 		// If the task reached a terminal state that isn't the desired one, fail early.
-		if isTerminal(lastStatus) && lastStatus != status {
-			t.Fatalf("task %s reached terminal status %q while waiting for %q", id, lastStatus, status)
+		if isTerminal(current) && current != status {
+			t.Fatalf("task %s reached terminal status %q while waiting for %q", id, current, status)
+		}
+		// Track how long the task has been stuck in the same status.
+		if current != lastStatus {
+			lastStatus = current
+			lastChange = time.Now()
+		} else if time.Since(lastChange) > stuckStateTimeout {
+			t.Fatalf("task %s stuck in status %q for %s while waiting for %q",
+				id, current, stuckStateTimeout, status)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -203,6 +217,7 @@ func (c *BackflowClient) unwrapDataList(t *testing.T, resp *http.Response) []map
 }
 
 // isTerminal returns true for task statuses that will not change further.
+// Note: "interrupted" is NOT terminal — recovery re-queues it as pending.
 func isTerminal(status string) bool {
-	return status == "completed" || status == "failed" || status == "cancelled" || status == "interrupted"
+	return status == "completed" || status == "failed" || status == "cancelled"
 }
