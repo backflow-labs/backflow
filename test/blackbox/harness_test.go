@@ -250,6 +250,9 @@ func waitForHealth(baseURL string, timeout time.Duration) error {
 // instance, and resets the webhook listener. Call at the start of each test.
 func resetBetweenTests(t *testing.T) {
 	t.Helper()
+
+	waitForOrchestratorIdle(t, 30*time.Second)
+
 	ctx := context.Background()
 
 	// Truncate all tables. This removes any state from previous tests.
@@ -273,6 +276,61 @@ func resetBetweenTests(t *testing.T) {
 	}
 
 	listener.Reset()
+}
+
+// waitForOrchestratorIdle waits until there are no non-terminal tasks left and
+// the synthetic local instance has no running containers.
+func waitForOrchestratorIdle(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ctx := context.Background()
+
+	for {
+		activeTasks, runningContainers, err := orchestratorState(ctx)
+		if err != nil {
+			t.Fatalf("check orchestrator idle state: %v", err)
+		}
+		if activeTasks == 0 && runningContainers == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("orchestrator did not go idle within %s: %d active tasks, local running_containers=%d",
+				timeout, activeTasks, runningContainers)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// orchestratorState returns the number of non-terminal tasks and the synthetic
+// local instance's running container count.
+func orchestratorState(ctx context.Context) (int, int, error) {
+	rows, err := dbPool.Query(ctx, "SELECT id, status FROM tasks ORDER BY created_at ASC")
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+
+	activeTasks := 0
+	for rows.Next() {
+		var id, status string
+		if err := rows.Scan(&id, &status); err != nil {
+			return 0, 0, err
+		}
+		if !isTerminal(status) {
+			activeTasks++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+
+	var runningContainers int
+	if err := dbPool.QueryRow(ctx, "SELECT running_containers FROM instances WHERE instance_id = 'local'").Scan(&runningContainers); err != nil {
+		return 0, 0, err
+	}
+
+	return activeTasks, runningContainers, nil
 }
 
 // dumpLogsOnFailure returns a cleanup function that dumps the Backflow
