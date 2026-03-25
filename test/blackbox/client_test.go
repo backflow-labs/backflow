@@ -204,5 +204,5 @@ func (c *BackflowClient) unwrapDataList(t *testing.T, resp *http.Response) []map
 
 // isTerminal returns true for task statuses that will not change further.
 func isTerminal(status string) bool {
-	return status == "completed" || status == "failed" || status == "cancelled"
+	return status == "completed" || status == "failed" || status == "cancelled" || status == "interrupted"
 }

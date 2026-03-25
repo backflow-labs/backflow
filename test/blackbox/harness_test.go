@@ -214,6 +214,9 @@ func buildSubprocessEnv(port int, connStr, webhookURL string) []string {
 }
 
 // freePort asks the OS for an available TCP port.
+// Note: there is a small TOCTOU window between Close() and the subprocess
+// binding to the port, where another process could claim it. In practice
+// this is extremely unlikely in CI/test environments.
 func freePort() (int, error) {
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -250,6 +253,8 @@ func resetBetweenTests(t *testing.T) {
 	ctx := context.Background()
 
 	// Truncate all tables. This removes any state from previous tests.
+	// NOTE: Keep this list in sync with migrations — add new tables here when
+	// new migrations introduce them.
 	_, err := dbPool.Exec(ctx,
 		"TRUNCATE tasks, instances, allowed_senders, discord_installs, discord_task_threads CASCADE")
 	if err != nil {
