@@ -37,6 +37,13 @@ type WebhookListener struct {
 	events     []WebhookEvent
 	statusCode int
 	latency    time.Duration
+	behaviors  map[string]*webhookBehavior
+}
+
+type webhookBehavior struct {
+	statusCodes []int
+	latency     time.Duration
+	calls       int
 }
 
 // newWebhookListener creates and starts a new WebhookListener. The caller must
@@ -47,15 +54,6 @@ func newWebhookListener() *WebhookListener {
 	}
 
 	wl.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wl.mu.Lock()
-		latency := wl.latency
-		code := wl.statusCode
-		wl.mu.Unlock()
-
-		if latency > 0 {
-			time.Sleep(latency)
-		}
-
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "read error", http.StatusInternalServerError)
@@ -68,9 +66,15 @@ func newWebhookListener() *WebhookListener {
 			return
 		}
 
+		code, latency := wl.responseFor(event.Event)
+
 		wl.mu.Lock()
 		wl.events = append(wl.events, event)
 		wl.mu.Unlock()
+
+		if latency > 0 {
+			time.Sleep(latency)
+		}
 
 		w.WriteHeader(code)
 	}))
@@ -90,6 +94,23 @@ func (wl *WebhookListener) SetBehavior(statusCode int, latency time.Duration) {
 	defer wl.mu.Unlock()
 	wl.statusCode = statusCode
 	wl.latency = latency
+}
+
+// SetBehaviorForEvent configures a response script for a specific webhook
+// event type. Each received event consumes one entry from statusCodes; once the
+// script is exhausted, the last status code is reused.
+func (wl *WebhookListener) SetBehaviorForEvent(eventType string, statusCodes []int, latency time.Duration) {
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+
+	if wl.behaviors == nil {
+		wl.behaviors = make(map[string]*webhookBehavior)
+	}
+	codes := append([]int(nil), statusCodes...)
+	wl.behaviors[eventType] = &webhookBehavior{
+		statusCodes: codes,
+		latency:     latency,
+	}
 }
 
 // EventsForTask returns a copy of all events received for the given task ID.
@@ -140,9 +161,30 @@ func (wl *WebhookListener) Reset() {
 	wl.events = nil
 	wl.statusCode = http.StatusOK
 	wl.latency = 0
+	wl.behaviors = nil
 }
 
 // Close shuts down the underlying httptest.Server.
 func (wl *WebhookListener) Close() {
 	wl.server.Close()
+}
+
+func (wl *WebhookListener) responseFor(eventType string) (int, time.Duration) {
+	wl.mu.Lock()
+	defer wl.mu.Unlock()
+
+	if behavior, ok := wl.behaviors[eventType]; ok {
+		code := wl.statusCode
+		if len(behavior.statusCodes) > 0 {
+			idx := behavior.calls
+			if idx >= len(behavior.statusCodes) {
+				idx = len(behavior.statusCodes) - 1
+			}
+			code = behavior.statusCodes[idx]
+		}
+		behavior.calls++
+		return code, behavior.latency
+	}
+
+	return wl.statusCode, wl.latency
 }
