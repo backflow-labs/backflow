@@ -59,6 +59,8 @@ func setupLogger(logFile string) (zerolog.Logger, io.Closer, error) {
 }
 
 func main() {
+	processStartedAt := time.Now().UTC()
+
 	// Set up initial stderr-only logger; reconfigured after config load if LogFile is set.
 	logger, _, err := setupLogger("")
 	if err != nil {
@@ -145,8 +147,9 @@ func main() {
 	}
 
 	orch := orchestrator.New(db, cfg, bus, runner, scaler, spot, s3Uploader)
+	debugStats := api.NewDebugStatsSource(processStartedAt, orch, db)
 
-	router := api.NewServer(db, cfg, orch.Docker(), bus)
+	router := api.NewServer(db, cfg, orch.Docker(), bus, debugStats)
 
 	// Mount SMS inbound webhook if provider is configured
 	if cfg.SMSProvider != "" {

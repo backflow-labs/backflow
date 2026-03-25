@@ -2,6 +2,7 @@
        docker-agent-build docker-agent-build-local docker-agent-push docker-agent-deploy \
        docker-server-build docker-server-build-local docker-server-deploy \
        docker-fake-agent-build test-fake-agent test-blackbox test-schema \
+       test-soak \
        deploy-dev \
        db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
        setup-aws deps tunnel cloudflared-setup test-docker-status-writer copy-env overwrite-env
@@ -42,6 +43,9 @@ test-fake-agent: docker-fake-agent-build
 
 test-blackbox:
 	go test ./test/blackbox/ -v -count=1 -timeout 120s
+
+test-soak:
+	go run ./test/soak --api-url $${SOAK_API_URL:-http://localhost:8080} --short
 
 test-schema:
 	bash scripts/test-schema.sh

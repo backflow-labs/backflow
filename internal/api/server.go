@@ -11,7 +11,7 @@ import (
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
-func NewServer(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Emitter) chi.Router {
+func NewServer(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Emitter, debugStats DebugStatsProvider) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -20,9 +20,10 @@ func NewServer(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Em
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
-	h := NewHandlers(s, cfg, logs, bus)
+	h := NewHandlers(s, cfg, logs, bus, debugStats)
 
 	r.Get("/health", h.HealthCheck)
+	r.Get("/debug/stats", h.DebugStats)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.RestrictAPI {

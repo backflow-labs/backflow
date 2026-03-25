@@ -23,6 +23,7 @@ make build          # Compile to bin/backflow
 make run            # Build + run (auto-sources .env, refreshes AWS creds if needed)
 make test           # Run all tests (no cache)
 make lint           # go vet
+make test-soak      # Run the standalone soak binary against a local Backflow API
 make tunnel         # Start cloudflared tunnel → $BACKFLOW_DOMAIN → localhost:8080
 make deps           # go mod tidy
 make clean          # Remove bin/
@@ -125,6 +126,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `DELETE` | `/api/v1/tasks/{id}` | Cancel a task |
 | `GET` | `/api/v1/tasks/{id}/logs` | Container logs (`?tail=100`) |
 | `GET` | `/api/v1/health` | Health check |
+| `GET` | `/debug/stats` | Operational stats for orchestrator, pgxpool, uptime, and runtime memory |
 | `POST` | `/webhooks/discord` | Discord interaction endpoint (signature-verified) |
 | `POST` | `/webhooks/sms/inbound` | Twilio inbound SMS webhook |
 
@@ -170,6 +172,9 @@ curl -s 'http://localhost:8080/api/v1/tasks/{id}/logs?tail=100'
 
 # Health check
 curl -s http://localhost:8080/api/v1/health
+
+# Operational stats
+curl -s http://localhost:8080/debug/stats
 
 # Shell into an agent EC2 instance
 aws ssm start-session --target i-0abc...

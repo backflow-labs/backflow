@@ -11,7 +11,7 @@ import (
 
 func TestRestrictAPI_BlocksAllAPIEndpoints(t *testing.T) {
 	cfg := &config.Config{RestrictAPI: true}
-	router := NewServer(&mockStore{}, cfg, noopLogFetcher{}, noopEmitter{})
+	router := NewServer(&mockStore{}, cfg, noopLogFetcher{}, noopEmitter{}, noopDebugStatsProvider{})
 
 	paths := []struct {
 		method string
@@ -44,7 +44,7 @@ func TestRestrictAPI_BlocksAllAPIEndpoints(t *testing.T) {
 
 func TestRestrictAPI_RootHealthStillAccessible(t *testing.T) {
 	cfg := &config.Config{RestrictAPI: true}
-	router := NewServer(&mockStore{}, cfg, noopLogFetcher{}, noopEmitter{})
+	router := NewServer(&mockStore{}, cfg, noopLogFetcher{}, noopEmitter{}, noopDebugStatsProvider{})
 
 	req := httptest.NewRequest("GET", "/health", nil)
 	rr := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestRestrictAPI_RootHealthStillAccessible(t *testing.T) {
 
 func TestRestrictAPI_Disabled_AllowsAPIHealth(t *testing.T) {
 	cfg := &config.Config{RestrictAPI: false}
-	router := NewServer(&mockStore{}, cfg, noopLogFetcher{}, noopEmitter{})
+	router := NewServer(&mockStore{}, cfg, noopLogFetcher{}, noopEmitter{}, noopDebugStatsProvider{})
 
 	req := httptest.NewRequest("GET", "/api/v1/health", nil)
 	rr := httptest.NewRecorder()
@@ -65,5 +65,24 @@ func TestRestrictAPI_Disabled_AllowsAPIHealth(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("GET /api/v1/health: got status %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+func TestRestrictAPI_DoesNotBlockDebugStats(t *testing.T) {
+	cfg := &config.Config{RestrictAPI: true}
+	router := NewServer(
+		&mockStore{},
+		cfg,
+		noopLogFetcher{},
+		noopEmitter{},
+		staticDebugStatsProvider{stats: DebugStats{}},
+	)
+
+	req := httptest.NewRequest("GET", "/debug/stats", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("GET /debug/stats: got status %d, want %d", rr.Code, http.StatusOK)
 	}
 }

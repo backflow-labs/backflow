@@ -63,6 +63,17 @@ func (s *PostgresStore) Close() error {
 	return nil
 }
 
+// DebugPoolStats returns a snapshot of pgxpool counters for operational monitoring.
+func (s *PostgresStore) DebugPoolStats() PoolStats {
+	stat := s.pool.Stat()
+	return PoolStats{
+		Acquired:       stat.AcquiredConns(),
+		Idle:           stat.IdleConns(),
+		Total:          stat.TotalConns(),
+		MaxConnections: stat.MaxConns(),
+	}
+}
+
 // --- Tasks ---
 
 const taskColumns = `id, status, task_mode, harness, repo_url, branch, target_branch,

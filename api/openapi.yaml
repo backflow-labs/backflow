@@ -44,6 +44,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /debug/stats:
+    get:
+      operationId: debugStats
+      summary: Operational debug stats
+      description: Returns live orchestration, database pool, uptime, and runtime memory metrics for operators and soak testing.
+      responses:
+        "200":
+          description: Debug stats snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugStatsEnvelope"
+
   /api/v1/tasks:
     post:
       operationId: createTask
@@ -266,6 +279,64 @@ components:
           type: string
           enum: [api_key, max_subscription]
           example: api_key
+
+    DebugStatsEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/DebugStats"
+
+    DebugStats:
+      type: object
+      required: [orchestrator_running, pgxpool, process_uptime_sec, memory]
+      properties:
+        orchestrator_running:
+          type: integer
+          minimum: 0
+          example: 3
+        pgxpool:
+          $ref: "#/components/schemas/DebugPoolStats"
+        process_uptime_sec:
+          type: integer
+          minimum: 0
+          example: 120
+        memory:
+          $ref: "#/components/schemas/DebugMemoryStats"
+
+    DebugPoolStats:
+      type: object
+      required: [acquired, idle, total, max_connections]
+      properties:
+        acquired:
+          type: integer
+          minimum: 0
+          example: 1
+        idle:
+          type: integer
+          minimum: 0
+          example: 2
+        total:
+          type: integer
+          minimum: 0
+          example: 3
+        max_connections:
+          type: integer
+          minimum: 0
+          example: 5
+
+    DebugMemoryStats:
+      type: object
+      required: [heap_alloc, sys]
+      properties:
+        heap_alloc:
+          type: integer
+          minimum: 0
+          example: 123456
+        sys:
+          type: integer
+          minimum: 0
+          example: 654321
 
     ErrorEnvelope:
       type: object

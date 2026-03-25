@@ -229,6 +229,13 @@ func (o *Orchestrator) decrementRunning() {
 	o.mu.Unlock()
 }
 
+// RunningCount returns the current in-memory count of running tasks.
+func (o *Orchestrator) RunningCount() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.running
+}
+
 // releaseInstanceSlot decrements the running container count for an instance.
 func (o *Orchestrator) releaseInstanceSlot(ctx context.Context, instanceID string) {
 	if instanceID == "" {

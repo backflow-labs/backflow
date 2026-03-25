@@ -23,6 +23,14 @@ type TaskResult struct {
 	TaskMode       string
 }
 
+// PoolStats is a snapshot of pgxpool counters used for operational monitoring.
+type PoolStats struct {
+	Acquired       int32
+	Idle           int32
+	Total          int32
+	MaxConnections int32
+}
+
 // TaskFilter controls listing behavior.
 type TaskFilter struct {
 	Status *models.TaskStatus

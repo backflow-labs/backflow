@@ -109,7 +109,7 @@ func testServer(t *testing.T) http.Handler {
 		DefaultMaxTurns:    200,
 	}
 
-	return NewServer(s, cfg, noopLogFetcher{}, noopEmitter{})
+	return NewServer(s, cfg, noopLogFetcher{}, noopEmitter{}, noopDebugStatsProvider{})
 }
 
 func testServerWithEmitter(t *testing.T) (http.Handler, store.Store, *capturingEmitter) {
@@ -142,7 +142,7 @@ func testServerWithEmitter(t *testing.T) (http.Handler, store.Store, *capturingE
 	}
 
 	emitter := &capturingEmitter{}
-	return NewServer(s, cfg, noopLogFetcher{}, emitter), s, emitter
+	return NewServer(s, cfg, noopLogFetcher{}, emitter, noopDebugStatsProvider{}), s, emitter
 }
 
 func TestHealthCheck(t *testing.T) {

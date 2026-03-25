@@ -21,14 +21,15 @@ type LogFetcher interface {
 }
 
 type Handlers struct {
-	store  store.Store
-	config *config.Config
-	logs   LogFetcher
-	bus    notify.Emitter
+	store      store.Store
+	config     *config.Config
+	logs       LogFetcher
+	bus        notify.Emitter
+	debugStats DebugStatsProvider
 }
 
-func NewHandlers(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Emitter) *Handlers {
-	return &Handlers{store: s, config: cfg, logs: logs, bus: bus}
+func NewHandlers(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Emitter, debugStats DebugStatsProvider) *Handlers {
+	return &Handlers{store: s, config: cfg, logs: logs, bus: bus, debugStats: debugStats}
 }
 
 func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -174,4 +175,12 @@ func (h *Handlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		"status":    "ok",
 		"auth_mode": string(h.config.AuthMode),
 	})
+}
+
+func (h *Handlers) DebugStats(w http.ResponseWriter, r *http.Request) {
+	if h.debugStats == nil {
+		writeError(w, http.StatusServiceUnavailable, "debug stats unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.debugStats.Snapshot())
 }

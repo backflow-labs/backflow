@@ -15,3 +15,13 @@ func (noopLogFetcher) GetLogs(_ context.Context, _, _ string, _ int) (string, er
 type noopEmitter struct{}
 
 func (noopEmitter) Emit(_ notify.Event) {}
+
+type noopDebugStatsProvider struct{}
+
+func (noopDebugStatsProvider) Snapshot() DebugStats { return DebugStats{} }
+
+type staticDebugStatsProvider struct {
+	stats DebugStats
+}
+
+func (s staticDebugStatsProvider) Snapshot() DebugStats { return s.stats }
