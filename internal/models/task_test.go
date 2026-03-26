@@ -98,6 +98,51 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO": "bar"}},
 			wantErr: false,
 		},
+		{
+			name:    "env var key with underscore prefix",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"_FOO": "val"}},
+			wantErr: false,
+		},
+		{
+			name:    "env var key with digits",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO_123": "val"}},
+			wantErr: false,
+		},
+		{
+			name:    "env var key with spaces",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO BAR": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "env var key with dash",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO-BAR": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "env var key with equals",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO=BAR": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "env var key starting with digit",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"1FOO": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "env var key with docker flag injection",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"FOO --privileged -v /:/mnt -e BAR": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "env var key with command substitution",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"$(whoami)": "val"}},
+			wantErr: true,
+		},
+		{
+			name:    "env var key empty",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"": "val"}},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -128,6 +129,10 @@ type CreateTaskRequest struct {
 	EnvVars         map[string]string `json:"env_vars,omitempty"`
 }
 
+// validEnvVarKey matches POSIX environment variable names: must start with a
+// letter or underscore, followed by letters, digits, or underscores.
+var validEnvVarKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // containsNullByte returns true if s contains a null byte, which PostgreSQL
 // text columns reject.
 func containsNullByte(s string) bool {
@@ -149,7 +154,10 @@ func (r *CreateTaskRequest) Validate() error {
 		}
 	}
 	for k, v := range r.EnvVars {
-		if containsNullByte(k) || containsNullByte(v) {
+		if !validEnvVarKey.MatchString(k) {
+			return fmt.Errorf("invalid env var key %q: must match [A-Za-z_][A-Za-z0-9_]*", k)
+		}
+		if containsNullByte(v) {
 			return fmt.Errorf("request contains invalid null bytes")
 		}
 	}
