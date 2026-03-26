@@ -143,6 +143,41 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"": "val"}},
 			wantErr: true,
 		},
+		{
+			name:    "reserved env var key ANTHROPIC_API_KEY",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"ANTHROPIC_API_KEY": "sk-attacker"}},
+			wantErr: true,
+		},
+		{
+			name:    "reserved env var key GITHUB_TOKEN",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"GITHUB_TOKEN": "ghp-attacker"}},
+			wantErr: true,
+		},
+		{
+			name:    "reserved env var key OPENAI_API_KEY",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"OPENAI_API_KEY": "sk-attacker"}},
+			wantErr: true,
+		},
+		{
+			name:    "reserved env var key TASK_ID",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"TASK_ID": "bf_fake"}},
+			wantErr: true,
+		},
+		{
+			name:    "reserved env var key AUTH_MODE",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"AUTH_MODE": "none"}},
+			wantErr: true,
+		},
+		{
+			name:    "reserved env var key REPO_URL",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"REPO_URL": "https://evil.com/repo"}},
+			wantErr: true,
+		},
+		{
+			name:    "non-reserved env var key allowed",
+			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"MY_CUSTOM_VAR": "val"}},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
