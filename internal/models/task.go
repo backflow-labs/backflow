@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -197,6 +198,15 @@ func (r *CreateTaskRequest) Validate() error {
 	}
 	if r.MaxRuntimeSec < 0 {
 		return fmt.Errorf("max_runtime_sec must be non-negative")
+	}
+	if r.MaxRuntimeSec > math.MaxInt32 {
+		return fmt.Errorf("max_runtime_sec exceeds maximum allowed value")
+	}
+	if r.MaxTurns < 0 {
+		return fmt.Errorf("max_turns must be non-negative")
+	}
+	if r.MaxTurns > math.MaxInt32 {
+		return fmt.Errorf("max_turns exceeds maximum allowed value")
 	}
 	if r.Harness != "" {
 		switch Harness(r.Harness) {
