@@ -67,6 +67,8 @@ type Task struct {
 	InstanceID      string            `json:"instance_id,omitempty"`
 	ContainerID     string            `json:"container_id,omitempty"`
 	RetryCount      int               `json:"retry_count"`
+	UserRetryCount  int               `json:"user_retry_count"`
+	ReadyForRetry   bool              `json:"ready_for_retry"`
 	CostUSD         float64           `json:"cost_usd,omitempty"`
 	ElapsedTimeSec  int               `json:"elapsed_time_sec,omitempty"`
 	ReplyChannel    string            `json:"reply_channel,omitempty"`

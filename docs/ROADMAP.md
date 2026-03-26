@@ -33,12 +33,9 @@ The test harness (1.0) is the prerequisite for everything else. Once it exists, 
 
 ---
 
-### 1.1 Fix Discord Retry Race Condition
-- **Problem:** Known bug — clicking Retry after Cancel requeues the task before the old container stops
-- **Proposal:** Add `ready_for_retry` boolean column to `tasks` table. `RetryTask` checks this flag instead of relying on `ContainerID` being cleared. `monitorCancelled` sets the flag after container cleanup succeeds, then re-emits the cancelled event with `WithReadyForRetry()`
-- **Files:** `internal/api/task_actions.go`, `internal/orchestrator/monitor.go`, `internal/store/postgres.go`, new migration
-- **Metric:** Zero stale containers after retry; retry button appears only after cleanup
-- **Harness validation:** Add black-box test: cancel task → wait for cleanup → retry → verify new container starts cleanly
+### 1.1 Fix Discord Retry Race Condition ✅
+- **Status:** Implemented (see #161)
+- **What shipped:** `ready_for_retry` + `user_retry_count` columns, atomic `store.RetryTask`, `POST /tasks/{id}/retry` endpoint, `task.retry` event, configurable retry cap (`BACKFLOW_MAX_USER_RETRIES`, default 2), `TestCancelAndRetry` black-box test
 
 ### 1.2 API Authentication
 - **Problem:** REST API has zero auth — anyone can create tasks and spend real money
