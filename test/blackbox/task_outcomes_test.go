@@ -188,9 +188,10 @@ func TestCancelAndRetry(t *testing.T) {
 	// Cancel it
 	client.DeleteTask(t, taskID)
 
-	// Wait for cancelled status and cleanup (ready_for_retry becomes true)
+	// Wait for cancelled status and cleanup (ready_for_retry becomes true).
+	// Docker stop uses a 30s timeout before SIGKILL, so allow 60s for cleanup.
 	client.WaitForStatus(t, taskID, "cancelled", 30*time.Second)
-	client.WaitForReadyForRetry(t, taskID, 30*time.Second)
+	client.WaitForReadyForRetry(t, taskID, 60*time.Second)
 
 	// Retry via REST API
 	retried := client.RetryTask(t, taskID)
