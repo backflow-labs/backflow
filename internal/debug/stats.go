@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
@@ -74,7 +76,13 @@ func StatsHandler(runningFn func() int, ps PoolStatter, startedAt time.Time) htt
 			PID: os.Getpid(),
 		}
 
+		data, err := json.Marshal(envelope{Data: resp})
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal debug stats")
+			http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(envelope{Data: resp})
+		w.Write(data)
 	})
 }

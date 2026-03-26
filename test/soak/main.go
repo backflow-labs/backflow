@@ -226,7 +226,7 @@ func collectMetrics(client *http.Client, apiURL, agentImage string, knownPID int
 	}
 
 	// 3. Count exited containers
-	sample.ExitedContainers = countExitedContainers(agentImage)
+	sample.ExitedContainers = countContainers(agentImage)
 
 	// 4. Count completed and failed tasks
 	sample.TasksCompleted = countTasksByStatus(client, apiURL, "completed")
@@ -283,8 +283,8 @@ func pruneStaleContainers(agentImage string) {
 	exec.Command("docker", args...).Run()
 }
 
-// countExitedContainers counts containers (running or exited) for the given image.
-func countExitedContainers(agentImage string) int {
+// countContainers counts all containers (running and exited) for the given image.
+func countContainers(agentImage string) int {
 	out, err := exec.Command("docker", "ps", "-a",
 		"--filter", "ancestor="+agentImage,
 		"--format", "{{.ID}}",
