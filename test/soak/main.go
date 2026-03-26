@@ -149,6 +149,13 @@ func main() {
 		fmt.Printf("Exited containers: %d\n", last.ExitedContainers)
 	}
 
+	// --- Post-test cleanup ---
+	fmt.Println("\n==> Cleaning up...")
+	pruneStaleContainers(*agentImage)
+	if *databaseURL != "" {
+		truncateTasks(*databaseURL)
+	}
+
 	if report.Pass {
 		fmt.Println("\nResult: PASS")
 	} else {
