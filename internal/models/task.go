@@ -169,7 +169,7 @@ func (r *CreateTaskRequest) Validate() error {
 	if r.Prompt == "" {
 		return fmt.Errorf("prompt is required")
 	}
-	for _, s := range []string{r.Prompt, r.Context, r.ClaudeMD, r.PRTitle, r.PRBody} {
+	for _, s := range []string{r.Prompt, r.Context, r.ClaudeMD, r.PRTitle, r.PRBody, r.Model, r.Harness, r.Effort} {
 		if containsNullByte(s) {
 			return fmt.Errorf("request contains invalid null bytes")
 		}

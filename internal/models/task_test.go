@@ -74,6 +74,21 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "null byte in model",
+			req:     CreateTaskRequest{Prompt: "Fix bug", Model: "claude\x00evil"},
+			wantErr: true,
+		},
+		{
+			name:    "null byte in harness",
+			req:     CreateTaskRequest{Prompt: "Fix bug", Harness: "claude\x00code"},
+			wantErr: true,
+		},
+		{
+			name:    "null byte in effort",
+			req:     CreateTaskRequest{Prompt: "Fix bug", Effort: "high\x00"},
+			wantErr: true,
+		},
+		{
 			name:    "null byte in allowed_tools element",
 			req:     CreateTaskRequest{Prompt: "Fix bug", AllowedTools: []string{"Bash", "Read\x00Write"}},
 			wantErr: true,
