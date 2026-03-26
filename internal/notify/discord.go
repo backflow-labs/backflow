@@ -200,7 +200,7 @@ func discordTitleForEvent(event Event) string {
 	case EventTaskNeedsInput:
 		return "Task needs input"
 	case EventTaskCancelled:
-		if event.ReadyForRetry {
+		if event.ReadyForRetry || event.RetryLimitReached {
 			return "Task cancelled"
 		}
 		return "Cancellation requested"
