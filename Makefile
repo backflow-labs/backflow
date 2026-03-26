@@ -44,7 +44,7 @@ test-blackbox:
 	go test ./test/blackbox/ -v -count=1 -timeout 120s
 
 test-soak:
-	go run ./test/soak/ --short
+	$(ENV); go run ./test/soak/ --short
 
 test-schema:
 	bash scripts/test-schema.sh

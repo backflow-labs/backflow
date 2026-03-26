@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -22,6 +25,7 @@ func main() {
 		taskInterval = flag.Duration("task-interval", 30*time.Second, "interval between task submissions")
 		apiURL       = flag.String("api-url", "http://localhost:8080", "Backflow API base URL")
 		agentImage   = flag.String("agent-image", "backflow-fake-agent:test", "agent image name for container counting")
+		databaseURL  = flag.String("database-url", os.Getenv("BACKFLOW_DATABASE_URL"), "PostgreSQL connection string (default: $BACKFLOW_DATABASE_URL)")
 	)
 	flag.Parse()
 
@@ -30,6 +34,16 @@ func main() {
 	}
 
 	fmt.Printf("==> Soak test starting: duration=%s task-interval=%s api-url=%s\n", *duration, *taskInterval, *apiURL)
+
+	// Prune stale containers from previous runs so the baseline starts at 0.
+	pruneStaleContainers(*agentImage)
+
+	// Truncate the tasks table so counts from previous runs don't pollute metrics.
+	if *databaseURL != "" {
+		truncateTasks(*databaseURL)
+	} else {
+		fmt.Println("  [warn] no --database-url or BACKFLOW_DATABASE_URL; skipping task table truncation")
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	deadline := time.Now().Add(*duration)
@@ -148,7 +162,7 @@ func main() {
 
 // submitTask POSTs a new task with FAKE_OUTCOME=success.
 func submitTask(client *http.Client, apiURL string) error {
-	body := `{"prompt":"soak test task","env_vars":{"FAKE_OUTCOME":"success"}}`
+	body := `{"prompt":"soak test task","save_agent_output":false,"env_vars":{"FAKE_OUTCOME":"success"}}`
 	resp, err := client.Post(apiURL+"/api/v1/tasks", "application/json", bytes.NewBufferString(body))
 	if err != nil {
 		return err
@@ -225,6 +239,41 @@ func measureRSS(pid int) int64 {
 		return 0
 	}
 	return val
+}
+
+// truncateTasks connects to PostgreSQL and truncates the tasks table.
+func truncateTasks(databaseURL string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		fmt.Printf("  [warn] failed to connect to database: %v\n", err)
+		return
+	}
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, "TRUNCATE tasks CASCADE"); err != nil {
+		fmt.Printf("  [warn] failed to truncate tasks: %v\n", err)
+		return
+	}
+	fmt.Println("  [cleanup] truncated tasks table")
+}
+
+// pruneStaleContainers removes stopped containers from previous runs so the
+// baseline container count starts at zero.
+func pruneStaleContainers(agentImage string) {
+	out, err := exec.Command("docker", "ps", "-a", "-q",
+		"--filter", "ancestor="+agentImage,
+		"--filter", "status=exited",
+	).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		return
+	}
+	ids := strings.Fields(strings.TrimSpace(string(out)))
+	fmt.Printf("  [cleanup] removing %d stale containers\n", len(ids))
+	args := append([]string{"rm"}, ids...)
+	exec.Command("docker", args...).Run()
 }
 
 // countExitedContainers counts containers (running or exited) for the given image.
