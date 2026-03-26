@@ -149,7 +149,7 @@ func deleteTask(client *http.Client, apiURL, taskID string) error {
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("delete task: status %d", resp.StatusCode)
 	}
 	return nil
