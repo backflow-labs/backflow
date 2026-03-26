@@ -159,7 +159,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `context` | string | Additional context appended to prompt |
 | `claude_md` | string | Extra CLAUDE.md content injected into the repo |
 | `allowed_tools` | []string | Restrict agent tool access |
-| `env_vars` | map | Extra env vars passed to the container |
+| `env_vars` | map | Extra env vars passed to the container (keys must be POSIX-valid; system keys like `ANTHROPIC_API_KEY` are reserved) |
 | `save_agent_output` | bool | Save agent output to S3 (omit to use server default) |
 
 ## Monitoring and Operations

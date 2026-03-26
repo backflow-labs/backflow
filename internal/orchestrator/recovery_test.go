@@ -471,3 +471,68 @@ func TestRequeueRecoveringTask_WasProvisioning(t *testing.T) {
 		t.Errorf("running = %d, want 0", o.running)
 	}
 }
+
+// --- Error resilience tests (P0 #7) ---
+
+func TestRecoverOnStartup_UpdateStatusError(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_recov_err",
+		Status:      models.TaskStatusRunning,
+		RepoURL:     "https://github.com/test/repo",
+		Prompt:      "orphaned task",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	s.updateTaskStatusErr = fmt.Errorf("db connection lost")
+
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
+
+	// Should not panic despite UpdateTaskStatus failing
+	o.recoverOnStartup(context.Background())
+	bus.Close()
+
+	// o.running should still be set correctly (independent of UpdateTaskStatus)
+	if o.running != 1 {
+		t.Errorf("running = %d, want 1 (should be set regardless of UpdateTaskStatus error)", o.running)
+	}
+
+	// Event should still be emitted
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskRecovering {
+		t.Errorf("expected [task.recovering], got %v", types)
+	}
+}
+
+func TestRecoverOnStartup_ClearAssignmentError(t *testing.T) {
+	s := newMockStore()
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:         "bf_clear_err",
+		Status:     models.TaskStatusProvisioning,
+		RepoURL:    "https://github.com/test/repo",
+		Prompt:     "orphaned provisioning",
+		InstanceID: "i-12345",
+	})
+
+	s.clearTaskAssignmentErr = fmt.Errorf("db connection lost")
+
+	bus, n := newTestBus()
+	o := newTestOrchestrator(s, bus)
+
+	// Should not panic despite ClearTaskAssignment failing
+	o.recoverOnStartup(context.Background())
+	bus.Close()
+
+	// Event should still be emitted
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskRecovering {
+		t.Errorf("expected [task.recovering], got %v", types)
+	}
+}

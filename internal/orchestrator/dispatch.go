@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/rs/zerolog/log"
 
@@ -34,7 +36,9 @@ func (o *Orchestrator) dispatchPending(ctx context.Context) {
 	for _, task := range tasks {
 		if err := o.dispatch(ctx, task); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("failed to dispatch task")
-			o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusFailed, err.Error())
+			if err := o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusFailed, err.Error()); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID).Msg("dispatchPending: failed to mark task as failed")
+			}
 			o.bus.Emit(notify.NewEvent(notify.EventTaskFailed, task, notify.WithContainerStatus("", "Failed to dispatch: "+err.Error(), "")))
 			continue
 		}
@@ -45,9 +49,12 @@ func (o *Orchestrator) dispatchPending(ctx context.Context) {
 // and transitions the task from pending → provisioning → running.
 func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
 	instance, err := o.findAvailableInstance(ctx)
-	if err != nil {
+	if errors.Is(err, errNoCapacity) {
 		o.scaler.RequestScaleUp(ctx)
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find available instance: %w", err)
 	}
 
 	if err := o.store.AssignTask(ctx, task.ID, instance.InstanceID); err != nil {

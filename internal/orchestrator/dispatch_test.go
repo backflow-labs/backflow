@@ -373,6 +373,30 @@ func TestDispatch_Success(t *testing.T) {
 	}
 }
 
+func TestDispatch_FindInstanceDBError(t *testing.T) {
+	s := newMockStore()
+	s.listInstancesErr = fmt.Errorf("db connection pool exhausted")
+
+	task := &models.Task{
+		ID:      "bf_dberr",
+		Status:  models.TaskStatusPending,
+		RepoURL: "https://github.com/test/repo",
+		Prompt:  "should fail with DB error",
+	}
+	s.CreateTask(context.Background(), task)
+
+	bus, _ := newTestBus()
+	defer bus.Close()
+	o := newTestOrchestrator(s, bus)
+
+	task, _ = s.GetTask(context.Background(), "bf_dberr")
+	err := o.dispatch(context.Background(), task)
+	// A real DB error should propagate, not be silently treated as no-capacity
+	if err == nil {
+		t.Fatal("expected error from dispatch when ListInstances fails, got nil")
+	}
+}
+
 func TestDispatch_RunAgentError(t *testing.T) {
 	s := newMockStore()
 	s.CreateInstance(context.Background(), newLocalInstance())

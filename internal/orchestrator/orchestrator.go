@@ -241,7 +241,9 @@ func (o *Orchestrator) releaseInstanceSlot(ctx context.Context, instanceID strin
 	if instanceID == "" {
 		return
 	}
-	o.store.DecrementRunningContainers(ctx, instanceID)
+	if err := o.store.DecrementRunningContainers(ctx, instanceID); err != nil {
+		log.Warn().Err(err).Str("instance_id", instanceID).Msg("releaseInstanceSlot: failed to decrement running containers")
+	}
 }
 
 // releaseSlot decrements both the running counter and the instance container count.
@@ -255,5 +257,7 @@ func (o *Orchestrator) markInstanceTerminated(ctx context.Context, instanceID st
 	if instanceID == "" {
 		return
 	}
-	o.store.UpdateInstanceStatus(ctx, instanceID, models.InstanceStatusTerminated)
+	if err := o.store.UpdateInstanceStatus(ctx, instanceID, models.InstanceStatusTerminated); err != nil {
+		log.Warn().Err(err).Str("instance_id", instanceID).Msg("markInstanceTerminated: failed to update instance status")
+	}
 }
