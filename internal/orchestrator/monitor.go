@@ -255,12 +255,14 @@ func (o *Orchestrator) saveTaskMetadata(ctx context.Context, task *models.Task) 
 	log.Debug().Str("task_id", task.ID).Msg("saved task metadata to S3")
 }
 
-// markRetryReady sets the task ready for retry if under the cap, and emits
-// the appropriate event with ReadyForRetry or RetryLimitReached. Additional
-// event options (e.g. WithContainerStatus) are appended to the emission.
+// markRetryReady marks the task as cleanup-complete and emits the appropriate
+// event. Always sets ready_for_retry=true so the monitor won't re-process
+// this task on subsequent ticks. The retry cap is enforced by the atomic
+// store.RetryTask WHERE clause, not by this flag.
 func (o *Orchestrator) markRetryReady(ctx context.Context, task *models.Task, eventType notify.EventType, extraOpts ...notify.EventOption) {
+	o.store.MarkReadyForRetry(ctx, task.ID)
+
 	if task.UserRetryCount < o.config.MaxUserRetries {
-		o.store.MarkReadyForRetry(ctx, task.ID)
 		opts := append([]notify.EventOption{notify.WithReadyForRetry()}, extraOpts...)
 		o.bus.Emit(notify.NewEvent(eventType, task, opts...))
 	} else {

@@ -102,6 +102,44 @@ func TestMonitorCancelled_NoContainer_SetsReadyForRetry(t *testing.T) {
 	notifier.mu.Unlock()
 }
 
+func TestMonitorCancelled_AtCapStillSetsReadyForRetry(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:             "bf_cancel_cap",
+		Status:         models.TaskStatusCancelled,
+		UserRetryCount: 2, // at cap (MaxUserRetries=2)
+		CompletedAt:    &now,
+	})
+
+	bus, notifier := newTestBus()
+	o := newTestOrchestrator(s, bus)
+
+	// Run monitor twice — should NOT emit twice
+	o.monitorCancelled(context.Background())
+	o.monitorCancelled(context.Background())
+	bus.Close()
+
+	task, _ := s.GetTask(context.Background(), "bf_cancel_cap")
+	if !task.ReadyForRetry {
+		t.Error("expected ReadyForRetry=true even at cap (signals cleanup done)")
+	}
+
+	events := notifier.eventTypes()
+	if len(events) != 1 {
+		t.Errorf("expected exactly 1 event (not re-emitted on second tick), got %d", len(events))
+	}
+	notifier.mu.Lock()
+	if !notifier.events[0].RetryLimitReached {
+		t.Error("expected RetryLimitReached=true on event")
+	}
+	if notifier.events[0].ReadyForRetry {
+		t.Error("expected ReadyForRetry=false on event when at cap")
+	}
+	notifier.mu.Unlock()
+}
+
 func TestMonitorCancelled_RecoveringTaskCancelled(t *testing.T) {
 	s := newMockStore()
 	now := time.Now().UTC()
