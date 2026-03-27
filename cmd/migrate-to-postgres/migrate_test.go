@@ -141,7 +141,7 @@ func newTestPgPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	if _, err := pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders, api_keys CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return pool

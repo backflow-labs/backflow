@@ -48,8 +48,8 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 ### API endpoints
 
 - `GET /health` — Health check (root-level, always accessible; used by Fly.io)
-- `GET /debug/stats` — Operational stats: PID, uptime, running tasks, pool metrics (outside `/api/v1/`, not blocked by `RestrictAPI`)
-- `GET /api/v1/health` — Health check (under API prefix; blocked when `BACKFLOW_RESTRICT_API=true`)
+- `GET /debug/stats` — Operational stats: PID, uptime, running tasks, pool metrics (outside `/api/v1/`, bearer-auth protected when API keys are configured)
+- `GET /api/v1/health` — Health check (under API prefix; bearer-auth protected when API keys are configured; blocked when `BACKFLOW_RESTRICT_API=true`)
 - `POST /tasks` — Create task
 - `GET /tasks` — List tasks (query params: `status`, `limit`, `offset`)
 - `GET /tasks/{id}` — Get task
@@ -66,7 +66,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
 - **models/** — `Task`, `Instance`, `AllowedSender`, and `DiscordInstall` structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
-- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
+- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `BACKFLOW_API_KEY` enables single-token API auth; otherwise `api_keys` in Postgres can back authenticated API/debug requests. `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 - **debug/** — `/debug/stats` handler: PID, uptime, running task count, pgxpool metrics
@@ -133,6 +133,13 @@ PR comments include actual cost for `claude_code` (extracted from `total_cost_us
 - **`max_subscription`** — Claude Max credentials via `CLAUDE_CREDENTIALS_PATH` volume mount, serial (one agent at a time)
 
 `max_subscription` is not supported in `fargate` mode. Initial Fargate support assumes API-key auth only.
+
+## API auth
+
+- `BACKFLOW_API_KEY` — Optional single bearer token for API and debug access in small deployments
+- `api_keys` — Postgres-backed bearer tokens with named scopes (`tasks:read`, `tasks:write`, `health:read`, `stats:read`) and optional expiration
+
+When API keys are configured, bearer auth applies to `/api/v1/*` and `/debug/stats`. Root `/health` and webhook endpoints remain public.
 
 ## Fargate mode
 

@@ -84,6 +84,22 @@ Pre-registered senders authorized to create tasks via messaging (e.g. SMS).
 
 **Primary key:** `(channel_type, address)`
 
+### `api_keys`
+
+Stores bearer tokens used to authenticate API and debug requests.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `key_hash` | `TEXT` | — | **Primary key.** SHA-256 hash of the bearer token. The raw token is never stored. |
+| `name` | `TEXT` | `''` | Human-readable label for the key. |
+| `permissions` | `JSONB` | `'[]'` | Array of scope strings such as `tasks:read`, `tasks:write`, `health:read`, and `stats:read`. |
+| `expires_at` | `TIMESTAMPTZ` | `NULL` | Optional expiration timestamp. Expired keys are rejected. |
+| `created_at` | `TIMESTAMPTZ` | `now()` | When the key record was created. |
+| `updated_at` | `TIMESTAMPTZ` | `now()` | Last modification time. |
+
+**Indexes:**
+- `idx_api_keys_expires_at` on `expires_at` — used to support expiration checks and cleanup.
+
 ## Status Lifecycles
 
 ### Task statuses
@@ -139,6 +155,7 @@ Stores the Discord root message and thread IDs for each task so lifecycle update
 - All timestamps use `TIMESTAMPTZ` and default to `now()`. Nullable timestamps (`started_at`, `completed_at`) are NULL until set.
 - Booleans use native PostgreSQL `BOOLEAN` type.
 - JSON fields (`allowed_tools`, `env_vars`) use `JSONB` for indexed/queryable storage.
+- API key secrets are stored as SHA-256 hashes in `api_keys.key_hash`; scope membership is stored in `permissions`.
 - Schema migrations are managed by goose in `migrations/`.
 
 ## Migration Workflow

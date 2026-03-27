@@ -63,9 +63,14 @@ func (s *interruptionStore) CreateTask(context.Context, *models.Task) error { re
 func (s *interruptionStore) GetTask(context.Context, string) (*models.Task, error) {
 	return nil, store.ErrNotFound
 }
-func (s *interruptionStore) DeleteTask(context.Context, string) error         { return nil }
-func (s *interruptionStore) AssignTask(context.Context, string, string) error { return nil }
-func (s *interruptionStore) StartTask(context.Context, string, string) error  { return nil }
+func (s *interruptionStore) HasAPIKeys(context.Context) (bool, error) { return false, nil }
+func (s *interruptionStore) GetAPIKeyByHash(context.Context, string) (*models.APIKey, error) {
+	return nil, store.ErrNotFound
+}
+func (s *interruptionStore) CreateAPIKey(context.Context, *models.APIKey) error { return nil }
+func (s *interruptionStore) DeleteTask(context.Context, string) error           { return nil }
+func (s *interruptionStore) AssignTask(context.Context, string, string) error   { return nil }
+func (s *interruptionStore) StartTask(context.Context, string, string) error    { return nil }
 func (s *interruptionStore) CompleteTask(context.Context, string, store.TaskResult) error {
 	return nil
 }
