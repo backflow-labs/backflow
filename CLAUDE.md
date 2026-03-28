@@ -183,6 +183,12 @@ AWS credentials for ECS/S3/CloudWatch are provided via the `backflow-fly` IAM us
 
 Do not record default values for config or env vars in documentation. Defaults change frequently and docs drift silently. Instead, point to the source (`internal/config/config.go`) or say "see config for current defaults."
 
+## Input validation
+
+Environment variable keys passed via the `env_vars` field must match POSIX naming rules (`^[A-Za-z_][A-Za-z0-9_]*$`) and must not override reserved system keys (e.g. `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `TASK_ID`). See `reservedEnvVarKeys` in `internal/models/task.go` for the full list. All user-supplied text fields are validated to reject null bytes (PostgreSQL text columns reject them).
+
+In Docker mode, secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`) are passed via `--env-file` rather than inline in the command string. In Fargate mode, reserved keys are blocked at validation time.
+
 ## Design patterns
 
 - Interface abstractions (`Store`, `Notifier`, `LogFetcher`) for testability

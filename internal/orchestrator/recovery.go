@@ -38,15 +38,21 @@ func (o *Orchestrator) recoverOnStartup(ctx context.Context) {
 	// Provisioning tasks: mark recovering, clear instance/container
 	// (dispatch never incremented o.running for these)
 	for _, task := range provTasks {
-		o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, "")
-		o.store.ClearTaskAssignment(ctx, task.ID)
+		if err := o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, ""); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("recovery: failed to mark provisioning task as recovering")
+		}
+		if err := o.store.ClearTaskAssignment(ctx, task.ID); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("recovery: failed to clear task assignment during recovery")
+		}
 		o.bus.Emit(notify.NewEvent(notify.EventTaskRecovering, task, notify.WithContainerStatus("", "recovering after server restart (was provisioning)", "")))
 	}
 
 	// Running tasks: mark recovering, preserve instance/container for inspection
 	instanceContainers := make(map[string]int)
 	for _, task := range runningTasks {
-		o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, "")
+		if err := o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusRecovering, ""); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("recovery: failed to mark running task as recovering")
+		}
 		o.bus.Emit(notify.NewEvent(notify.EventTaskRecovering, task, notify.WithContainerStatus("", "recovering after server restart (was running)", "")))
 		if task.InstanceID != "" {
 			instanceContainers[task.InstanceID]++

@@ -1281,3 +1281,188 @@ func TestIsTimedOut(t *testing.T) {
 		t.Error("task past deadline should be timed out")
 	}
 }
+
+// --- Error resilience tests (P0 #7) ---
+
+func TestMonitorCancelled_StopContainerError(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_stop_err",
+		Status:      models.TaskStatusCancelled,
+		InstanceID:  "local",
+		ContainerID: "abc123",
+		StartedAt:   &now,
+		CompletedAt: &now,
+	})
+
+	bus, notifier := newTestBus()
+	mock := &mockDockerManager{
+		stopContainerErr: fmt.Errorf("connection refused"),
+		inspectResults:   map[string]ContainerStatus{},
+	}
+	o := newTestOrchestrator(s, bus, withDocker(mock))
+	o.running = 1
+
+	o.monitorCancelled(context.Background())
+	bus.Close()
+
+	// ClearTaskAssignment should still run despite StopContainer error
+	task, _ := s.GetTask(context.Background(), "bf_stop_err")
+	if task.InstanceID != "" {
+		t.Errorf("instanceID = %q, want empty (ClearTaskAssignment should still run)", task.InstanceID)
+	}
+
+	// markRetryReady should still run
+	if !task.ReadyForRetry {
+		t.Error("ReadyForRetry should be true (markRetryReady should still run)")
+	}
+
+	// Event should still be emitted
+	types := notifier.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskCancelled {
+		t.Errorf("expected [task.cancelled], got %v", types)
+	}
+
+	// Running should be decremented
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+}
+
+func TestMonitorCancelled_ClearAssignmentError(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_clear_err",
+		Status:      models.TaskStatusCancelled,
+		InstanceID:  "local",
+		ContainerID: "abc123",
+		StartedAt:   &now,
+		CompletedAt: &now,
+	})
+
+	s.clearTaskAssignmentErr = fmt.Errorf("db connection lost")
+
+	bus, notifier := newTestBus()
+	o := newTestOrchestrator(s, bus)
+	o.running = 1
+
+	o.monitorCancelled(context.Background())
+	bus.Close()
+
+	// markRetryReady should still run despite ClearTaskAssignment error
+	task, _ := s.GetTask(context.Background(), "bf_clear_err")
+	if !task.ReadyForRetry {
+		t.Error("ReadyForRetry should be true (markRetryReady should still run)")
+	}
+
+	// Event should still be emitted
+	types := notifier.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskCancelled {
+		t.Errorf("expected [task.cancelled], got %v", types)
+	}
+}
+
+func TestHandleCompletion_CompleteTaskError(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_comp_err",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	s.completeTaskErr = fmt.Errorf("db write failed")
+
+	bus, notifier := newTestBus()
+	o := newTestOrchestrator(s, bus)
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_comp_err")
+	status := ContainerStatus{Done: true, ExitCode: 0, Complete: true}
+	o.handleCompletion(context.Background(), task, status)
+	bus.Close()
+
+	// releaseSlot should still run despite CompleteTask error
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0 (releaseSlot should still run)", o.running)
+	}
+
+	// Event should still be emitted
+	types := notifier.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskCompleted {
+		t.Errorf("expected [task.completed], got %v", types)
+	}
+}
+
+func TestKillTask_StopContainerError(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), &models.Instance{
+		InstanceID:        "local",
+		Status:            models.InstanceStatusRunning,
+		MaxContainers:     4,
+		RunningContainers: 1,
+	})
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_kill_err",
+		Status:      models.TaskStatusRunning,
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, notifier := newTestBus()
+	mock := &mockDockerManager{
+		stopContainerErr: fmt.Errorf("timeout stopping container"),
+		inspectResults:   map[string]ContainerStatus{},
+	}
+	o := newTestOrchestrator(s, bus, withDocker(mock))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_kill_err")
+	o.killTask(context.Background(), task, "test kill")
+	bus.Close()
+
+	// CompleteTask should still run
+	task, _ = s.GetTask(context.Background(), "bf_kill_err")
+	if task.Status != models.TaskStatusFailed {
+		t.Errorf("status = %q, want failed (CompleteTask should still run)", task.Status)
+	}
+
+	// releaseSlot should still run
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0 (releaseSlot should still run)", o.running)
+	}
+
+	// Event should still be emitted
+	types := notifier.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskFailed {
+		t.Errorf("expected [task.failed], got %v", types)
+	}
+}
