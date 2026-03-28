@@ -1,25 +1,44 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/store"
 )
 
-func bearerAuthMiddleware(s store.Store, expectedToken string) func(http.Handler) http.Handler {
+const hasKeysCacheTTL = 30 * time.Second
+
+// AuthMiddleware returns chi-compatible middleware that enforces bearer-token
+// authentication. When expectedToken is set (BACKFLOW_API_KEY), it acts as a
+// simple all-or-nothing gate. Otherwise it falls through to DB-backed api_keys
+// lookup with scoped permissions.
+func AuthMiddleware(s store.Store, expectedToken string) func(http.Handler) http.Handler {
 	if expectedToken == "" && s == nil {
 		return func(next http.Handler) http.Handler { return next }
+	}
+
+	var (
+		cacheMu     sync.Mutex
+		cachedHas   bool
+		cachedAt    time.Time
+		expectedBuf []byte
+	)
+	if expectedToken != "" {
+		expectedBuf = []byte(expectedToken)
 	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, ok := parseBearerToken(r.Header.Get("Authorization"))
 			if expectedToken != "" {
-				if !ok || token != expectedToken {
+				if !ok || subtle.ConstantTimeCompare([]byte(token), expectedBuf) != 1 {
 					writeError(w, http.StatusUnauthorized, "missing or invalid bearer token")
 					return
 				}
@@ -32,7 +51,7 @@ func bearerAuthMiddleware(s store.Store, expectedToken string) func(http.Handler
 				return
 			}
 
-			hasKeys, err := s.HasAPIKeys(r.Context())
+			hasKeys, err := cachedHasAPIKeys(r.Context(), s, &cacheMu, &cachedHas, &cachedAt)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to check API key configuration")
 				return
@@ -73,8 +92,26 @@ func bearerAuthMiddleware(s store.Store, expectedToken string) func(http.Handler
 	}
 }
 
-func AuthMiddleware(s store.Store, expectedToken string) func(http.Handler) http.Handler {
-	return bearerAuthMiddleware(s, expectedToken)
+func cachedHasAPIKeys(ctx context.Context, s store.Store, mu *sync.Mutex, cached *bool, cachedAt *time.Time) (bool, error) {
+	mu.Lock()
+	if !cachedAt.IsZero() && time.Since(*cachedAt) < hasKeysCacheTTL {
+		v := *cached
+		mu.Unlock()
+		return v, nil
+	}
+	mu.Unlock()
+
+	hasKeys, err := s.HasAPIKeys(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	mu.Lock()
+	*cached = hasKeys
+	*cachedAt = time.Now()
+	mu.Unlock()
+
+	return hasKeys, nil
 }
 
 func requiredScopeForRequest(r *http.Request) (string, bool) {
