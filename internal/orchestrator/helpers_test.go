@@ -25,6 +25,13 @@ type mockStore struct {
 
 	// Error injection: if set, CompleteTask returns this error.
 	completeTaskErr error
+
+	// Error injection: if set, the corresponding mock method returns this error.
+	updateTaskStatusErr    error
+	clearTaskAssignmentErr error
+	markReadyForRetryErr   error
+	decrementContainersErr error
+	listInstancesErr       error
 }
 
 func newMockStore() *mockStore {
@@ -102,6 +109,9 @@ func (s *mockStore) GetInstance(_ context.Context, id string) (*models.Instance,
 func (s *mockStore) ListInstances(_ context.Context, status *models.InstanceStatus) ([]*models.Instance, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.listInstancesErr != nil {
+		return nil, s.listInstancesErr
+	}
 	var result []*models.Instance
 	for _, i := range s.instances {
 		if status != nil && i.Status != *status {
@@ -116,6 +126,9 @@ func (s *mockStore) ListInstances(_ context.Context, status *models.InstanceStat
 func (s *mockStore) UpdateTaskStatus(_ context.Context, id string, status models.TaskStatus, taskErr string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.updateTaskStatusErr != nil {
+		return s.updateTaskStatusErr
+	}
 	if t, ok := s.tasks[id]; ok {
 		t.Status = status
 		t.Error = taskErr
@@ -201,6 +214,9 @@ func (s *mockStore) CancelTask(_ context.Context, id string) error {
 func (s *mockStore) ClearTaskAssignment(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.clearTaskAssignmentErr != nil {
+		return s.clearTaskAssignmentErr
+	}
 	if t, ok := s.tasks[id]; ok {
 		t.InstanceID = ""
 		t.ContainerID = ""
@@ -211,6 +227,9 @@ func (s *mockStore) ClearTaskAssignment(_ context.Context, id string) error {
 func (s *mockStore) MarkReadyForRetry(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.markReadyForRetryErr != nil {
+		return s.markReadyForRetryErr
+	}
 	if t, ok := s.tasks[id]; ok {
 		t.ReadyForRetry = true
 	}
@@ -255,6 +274,9 @@ func (s *mockStore) IncrementRunningContainers(_ context.Context, id string) err
 func (s *mockStore) DecrementRunningContainers(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.decrementContainersErr != nil {
+		return s.decrementContainersErr
+	}
 	if i, ok := s.instances[id]; ok {
 		i.RunningContainers--
 		if i.RunningContainers < 0 {
@@ -352,6 +374,9 @@ type mockDockerManager struct {
 	runAgentFn  func(ctx context.Context, instance *models.Instance, task *models.Task) (string, error)
 	runAgentID  string
 	runAgentErr error
+
+	// Error injection for StopContainer.
+	stopContainerErr error
 }
 
 func (m *mockDockerManager) RunAgent(ctx context.Context, instance *models.Instance, task *models.Task) (string, error) {
@@ -379,7 +404,7 @@ func (m *mockDockerManager) InspectContainer(_ context.Context, instanceID, cont
 }
 
 func (m *mockDockerManager) StopContainer(_ context.Context, _, _ string) error {
-	return nil
+	return m.stopContainerErr
 }
 
 func (m *mockDockerManager) GetLogs(_ context.Context, _, _ string, _ int) (string, error) {

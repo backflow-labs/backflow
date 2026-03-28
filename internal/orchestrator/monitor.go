@@ -34,11 +34,15 @@ func (o *Orchestrator) monitorCancelled(ctx context.Context) {
 			continue
 		}
 
-		o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID)
+		if err := o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("instance_id", task.InstanceID).Msg("monitorCancelled: failed to stop container")
+		}
 		o.releaseSlot(ctx, task)
 
 		// Clear assignment so we don't process this task again
-		o.store.ClearTaskAssignment(ctx, task.ID)
+		if err := o.store.ClearTaskAssignment(ctx, task.ID); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("monitorCancelled: failed to clear task assignment")
+		}
 
 		o.markRetryReady(ctx, task, notify.EventTaskCancelled)
 
@@ -138,7 +142,9 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 		result.Error = status.Error
 	}
 
-	o.store.CompleteTask(ctx, task.ID, result)
+	if err := o.store.CompleteTask(ctx, task.ID, result); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("handleCompletion: failed to complete task in store")
+	}
 	o.releaseSlot(ctx, task)
 
 	// Emit exactly one event per completion.
@@ -260,7 +266,9 @@ func (o *Orchestrator) saveTaskMetadata(ctx context.Context, task *models.Task) 
 // this task on subsequent ticks. The retry cap is enforced by the atomic
 // store.RetryTask WHERE clause, not by this flag.
 func (o *Orchestrator) markRetryReady(ctx context.Context, task *models.Task, eventType notify.EventType, extraOpts ...notify.EventOption) {
-	o.store.MarkReadyForRetry(ctx, task.ID)
+	if err := o.store.MarkReadyForRetry(ctx, task.ID); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Msg("markRetryReady: failed to mark task ready for retry")
+	}
 
 	if task.UserRetryCount < o.config.MaxUserRetries {
 		opts := append([]notify.EventOption{notify.WithReadyForRetry()}, extraOpts...)
@@ -274,7 +282,9 @@ func (o *Orchestrator) markRetryReady(ctx context.Context, task *models.Task, ev
 // killTask stops the container, marks the task as failed, and releases the slot.
 func (o *Orchestrator) killTask(ctx context.Context, task *models.Task, reason string) {
 	if task.ContainerID != "" {
-		o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID)
+		if err := o.docker.StopContainer(ctx, task.InstanceID, task.ContainerID); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("instance_id", task.InstanceID).Msg("killTask: failed to stop container")
+		}
 	}
 
 	elapsed := 0
