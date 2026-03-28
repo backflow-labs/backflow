@@ -95,6 +95,12 @@ func (m *mockScalerStore) CreateInstance(_ context.Context, inst *models.Instanc
 	return nil
 }
 
+func (m *mockScalerStore) HasAPIKeys(context.Context) (bool, error) { return false, nil }
+func (m *mockScalerStore) GetAPIKeyByHash(context.Context, string) (*models.APIKey, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockScalerStore) CreateAPIKey(context.Context, *models.APIKey) error { return nil }
+
 func (m *mockScalerStore) UpdateInstanceStatus(_ context.Context, instanceID string, status models.InstanceStatus) error {
 	m.statusUpdates = append(m.statusUpdates, statusUpdate{instanceID, status})
 	// Also update the in-memory instance so subsequent ListInstances reflects changes.

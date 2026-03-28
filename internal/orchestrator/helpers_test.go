@@ -49,6 +49,12 @@ func (s *mockStore) CreateTask(_ context.Context, task *models.Task) error {
 	return nil
 }
 
+func (s *mockStore) HasAPIKeys(context.Context) (bool, error) { return false, nil }
+func (s *mockStore) GetAPIKeyByHash(context.Context, string) (*models.APIKey, error) {
+	return nil, store.ErrNotFound
+}
+func (s *mockStore) CreateAPIKey(context.Context, *models.APIKey) error { return nil }
+
 func (s *mockStore) GetTask(_ context.Context, id string) (*models.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

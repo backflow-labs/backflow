@@ -25,13 +25,15 @@ import (
 
 // Shared state initialized by TestMain and used by all tests.
 var (
-	backflowURL string
-	client      *BackflowClient
-	listener    *WebhookListener
-	dbPool      *pgxpool.Pool
-	backflowCmd *exec.Cmd
-	stderrBuf   *syncBuffer
-	repoRoot    string
+	backflowURL        string
+	backflowBinaryPath string
+	client             *BackflowClient
+	listener           *WebhookListener
+	dbPool             *pgxpool.Pool
+	dbConnStr          string
+	backflowCmd        *exec.Cmd
+	stderrBuf          *syncBuffer
+	repoRoot           string
 )
 
 // syncBuffer is a thread-safe bytes.Buffer for capturing subprocess stderr
@@ -66,6 +68,7 @@ func TestMain(m *testing.M) {
 
 	// --- Step 1: Build the Backflow binary ---
 	binaryPath := filepath.Join(repoRoot, "bin", "backflow-test")
+	backflowBinaryPath = binaryPath
 	fmt.Println("==> Building Backflow binary...")
 	build := exec.Command("go", "build", "-trimpath", "-o", binaryPath, "./cmd/backflow")
 	build.Dir = repoRoot
@@ -109,6 +112,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "get connection string: %v\n", err)
 		os.Exit(1)
 	}
+	dbConnStr = connStr
 
 	dbPool, err = pgxpool.New(ctx, connStr)
 	if err != nil {
@@ -230,11 +234,22 @@ func freePort() (int, error) {
 // waitForHealth polls the /api/v1/health endpoint until it returns 200 or the
 // timeout expires.
 func waitForHealth(baseURL string, timeout time.Duration) error {
+	return waitForHealthWithToken(baseURL, "", timeout)
+}
+
+func waitForHealthWithToken(baseURL, token string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	httpClient := &http.Client{Timeout: 2 * time.Second}
 
 	for time.Now().Before(deadline) {
-		resp, err := httpClient.Get(baseURL + "/api/v1/health")
+		req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/health", nil)
+		if err != nil {
+			return err
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := httpClient.Do(req)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -259,7 +274,7 @@ func resetBetweenTests(t *testing.T) {
 	// NOTE: Keep this list in sync with migrations — add new tables here when
 	// new migrations introduce them.
 	_, err := dbPool.Exec(ctx,
-		"TRUNCATE tasks, instances, allowed_senders, discord_installs, discord_task_threads CASCADE")
+		"TRUNCATE tasks, instances, allowed_senders, api_keys, discord_installs, discord_task_threads CASCADE")
 	if err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}

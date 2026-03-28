@@ -38,6 +38,12 @@ func (m *mockStore) CreateTask(_ context.Context, task *models.Task) error {
 	return nil
 }
 
+func (m *mockStore) HasAPIKeys(context.Context) (bool, error) { return false, nil }
+func (m *mockStore) GetAPIKeyByHash(context.Context, string) (*models.APIKey, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) CreateAPIKey(context.Context, *models.APIKey) error { return nil }
+
 // Unused Store methods — satisfy the interface.
 func (m *mockStore) GetTask(context.Context, string) (*models.Task, error) {
 	return nil, store.ErrNotFound

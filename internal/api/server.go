@@ -25,6 +25,7 @@ func NewServer(s store.Store, cfg *config.Config, logs LogFetcher, bus notify.Em
 	r.Get("/health", h.HealthCheck)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(AuthMiddleware(s, cfg.APIKey))
 		if cfg.RestrictAPI {
 			r.Use(blockPublicAccess)
 		}

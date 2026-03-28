@@ -74,6 +74,11 @@ type Store interface {
 	UpsertDiscordTaskThread(ctx context.Context, thread *models.DiscordTaskThread) error
 	GetDiscordTaskThread(ctx context.Context, taskID string) (*models.DiscordTaskThread, error)
 
+	// API keys
+	HasAPIKeys(ctx context.Context) (bool, error)
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (*models.APIKey, error)
+	CreateAPIKey(ctx context.Context, key *models.APIKey) error
+
 	// Transactions
 	WithTx(ctx context.Context, fn func(Store) error) error
 

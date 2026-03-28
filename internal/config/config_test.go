@@ -223,6 +223,20 @@ func TestLoad_RestrictAPI_DefaultFalse(t *testing.T) {
 	}
 }
 
+func TestLoad_APIKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("BACKFLOW_API_KEY", "api-secret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.APIKey != "api-secret" {
+		t.Fatalf("APIKey = %q, want %q", cfg.APIKey, "api-secret")
+	}
+}
+
 func TestLoad_SMSOutboundEnabled_DefaultTrue(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")

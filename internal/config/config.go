@@ -34,6 +34,7 @@ type Config struct {
 
 	// Auth
 	AuthMode              AuthMode
+	APIKey                string
 	AnthropicAPIKey       string
 	OpenAIAPIKey          string
 	ClaudeCredentialsPath string
@@ -147,6 +148,7 @@ func Load() (*Config, error) {
 		Mode:                  Mode(envOr("BACKFLOW_MODE", string(ModeEC2))),
 		ListenAddr:            envOr("BACKFLOW_LISTEN_ADDR", ":8080"),
 		AuthMode:              AuthMode(envOr("BACKFLOW_AUTH_MODE", string(AuthModeAPIKey))),
+		APIKey:                os.Getenv("BACKFLOW_API_KEY"),
 		AnthropicAPIKey:       os.Getenv("ANTHROPIC_API_KEY"),
 		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
 		ClaudeCredentialsPath: envOr("CLAUDE_CREDENTIALS_PATH", ""),

@@ -118,7 +118,7 @@ func testPostgresStore(t *testing.T) *PostgresStore {
 	s := &PostgresStore{pool: pool, q: pool}
 
 	// Clean slate for test isolation.
-	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders, discord_installs, discord_task_threads CASCADE"); err != nil {
+	if _, err := s.pool.Exec(ctx, "TRUNCATE tasks, instances, allowed_senders, api_keys, discord_installs, discord_task_threads CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return s
@@ -197,6 +197,48 @@ func TestPG_TaskRoundTrip(t *testing.T) {
 	}
 	if !got.CreatedAt.Equal(now) {
 		t.Errorf("CreatedAt = %v, want %v", got.CreatedAt, now)
+	}
+}
+
+func TestPG_APIKeyRoundTrip(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	expiresAt := now.Add(2 * time.Hour)
+
+	key := &models.APIKey{
+		KeyHash:     "hash-1",
+		Name:        "integration-test",
+		Permissions: []string{"tasks:read", "health:read"},
+		ExpiresAt:   &expiresAt,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	if err := s.CreateAPIKey(ctx, key); err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+
+	hasKeys, err := s.HasAPIKeys(ctx)
+	if err != nil {
+		t.Fatalf("HasAPIKeys: %v", err)
+	}
+	if !hasKeys {
+		t.Fatal("HasAPIKeys returned false, want true")
+	}
+
+	got, err := s.GetAPIKeyByHash(ctx, "hash-1")
+	if err != nil {
+		t.Fatalf("GetAPIKeyByHash: %v", err)
+	}
+	if got.Name != key.Name {
+		t.Fatalf("Name = %q, want %q", got.Name, key.Name)
+	}
+	if len(got.Permissions) != 2 || got.Permissions[0] != "tasks:read" || got.Permissions[1] != "health:read" {
+		t.Fatalf("Permissions = %v, want [tasks:read health:read]", got.Permissions)
+	}
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("ExpiresAt = %v, want %v", got.ExpiresAt, expiresAt)
 	}
 }
 

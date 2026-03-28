@@ -151,8 +151,8 @@ func main() {
 
 	router := api.NewServer(db, cfg, orch.Docker(), bus)
 
-	// Debug stats endpoint (outside /api/v1/ so RestrictAPI does not block it)
-	router.Get("/debug/stats", debug.StatsHandler(orch.Running, db, startedAt).ServeHTTP)
+	// Debug stats endpoint (outside /api/v1/; auth is applied explicitly here).
+	router.With(api.AuthMiddleware(db, cfg.APIKey)).Get("/debug/stats", debug.StatsHandler(orch.Running, db, startedAt).ServeHTTP)
 
 	// Mount SMS inbound webhook only when both provider and auth token are configured.
 	// The auth token is required for Twilio signature validation — without it the

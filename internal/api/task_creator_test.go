@@ -22,6 +22,18 @@ func (m *mockStore) CreateTask(_ context.Context, _ *models.Task) error {
 	return m.createErr
 }
 
+func (m *mockStore) HasAPIKeys(_ context.Context) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStore) GetAPIKeyByHash(_ context.Context, _ string) (*models.APIKey, error) {
+	return nil, store.ErrNotFound
+}
+
+func (m *mockStore) CreateAPIKey(_ context.Context, _ *models.APIKey) error {
+	return nil
+}
+
 func TestNewTask_StoreError_ReturnsErrStoreFailure(t *testing.T) {
 	cfg := &config.Config{}
 	s := &mockStore{createErr: fmt.Errorf("connection refused")}

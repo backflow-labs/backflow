@@ -36,10 +36,12 @@ The test harness (1.0) is the prerequisite for everything else. Once it exists, 
 
 ### 1.2 API Authentication
 - **Problem:** REST API has zero auth — anyone can create tasks and spend real money
-- **Proposal:** Bearer-token middleware on `/api/v1/*`. New `api_keys` table (key_hash SHA-256, name, permissions, expires_at). Simple mode: `BACKFLOW_API_KEYS` env var for single-key setups. Webhook endpoints and `/health` remain unauthenticated
+- **Proposal:** Bearer-token middleware on `/api/v1/*`. New `api_keys` table (key_hash SHA-256, name, permissions, expires_at). Simple mode: `BACKFLOW_API_KEY` env var for single-key setups. Webhook endpoints and `/health` remain unauthenticated
 - **Files:** `internal/api/server.go` (middleware), `internal/config/config.go`, `internal/store/` (new table), new migration
 - **Metric:** 100% of API requests require auth when keys are configured; zero change for local-mode single-user
 - **Harness validation:** Black-box test: unauthenticated request → 401; valid key → 200; expired key → 401
+- **Status:** Implemented (see #165)
+- **What shipped:** Bearer-token middleware on `/api/v1/*` and `/debug/stats`, `BACKFLOW_API_KEY` single-token mode, DB-backed `api_keys` table with SHA-256 lookup and scoped permissions, OpenAPI auth responses, black-box auth coverage
 
 ### 1.3 Slack Notification Integration
 - **Problem:** Stubbed in `main.go` ("subscriber not yet implemented"). Many teams live in Slack, not Discord

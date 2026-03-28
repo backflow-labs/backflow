@@ -466,6 +466,54 @@ func (s *PostgresStore) GetDiscordTaskThread(ctx context.Context, taskID string)
 	return &thread, nil
 }
 
+// --- API keys ---
+
+func (s *PostgresStore) HasAPIKeys(ctx context.Context) (bool, error) {
+	var found bool
+	err := s.q.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM api_keys)").Scan(&found)
+	return found, err
+}
+
+func (s *PostgresStore) GetAPIKeyByHash(ctx context.Context, keyHash string) (*models.APIKey, error) {
+	row := s.q.QueryRow(ctx,
+		"SELECT key_hash, name, permissions, expires_at, created_at, updated_at FROM api_keys WHERE key_hash = $1",
+		keyHash,
+	)
+
+	var key models.APIKey
+	var permissions []byte
+	err := row.Scan(&key.KeyHash, &key.Name, &permissions, &key.ExpiresAt, &key.CreatedAt, &key.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if len(permissions) > 0 {
+		if err := json.Unmarshal(permissions, &key.Permissions); err != nil {
+			return nil, fmt.Errorf("unmarshal permissions: %w", err)
+		}
+	}
+	return &key, nil
+}
+
+func (s *PostgresStore) CreateAPIKey(ctx context.Context, key *models.APIKey) error {
+	perms := key.Permissions
+	if perms == nil {
+		perms = []string{}
+	}
+	permissions, err := json.Marshal(perms)
+	if err != nil {
+		return fmt.Errorf("marshal permissions: %w", err)
+	}
+	_, err = s.q.Exec(ctx, `
+		INSERT INTO api_keys (key_hash, name, permissions, expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		key.KeyHash, key.Name, permissions, key.ExpiresAt, key.CreatedAt, key.UpdatedAt,
+	)
+	return err
+}
+
 // --- Transactions ---
 
 func (s *PostgresStore) WithTx(ctx context.Context, fn func(Store) error) error {
