@@ -128,11 +128,17 @@ jobs:
             --suppress-health-check filter_too_much \
             --max-examples 20 \
             --seed 42 \
-            --cassette-path /tmp/schemathesis-cassette.yaml
+            --report-junit-path /tmp/schemathesis-results.xml \
+            --report-vcr /tmp/schemathesis-cassette.yaml
 
-      - name: Print failure cassette
+      - name: Print failure details
         if: failure()
-        run: cat /tmp/schemathesis-cassette.yaml 2>/dev/null || echo "No cassette file"
+        run: |
+          echo "=== JUnit Report ==="
+          cat /tmp/schemathesis-results.xml 2>/dev/null || echo "No JUnit report"
+          echo ""
+          echo "=== VCR Cassette ==="
+          cat /tmp/schemathesis-cassette.yaml 2>/dev/null || echo "No cassette file"
 
   deploy:
     runs-on: ubuntu-latest
