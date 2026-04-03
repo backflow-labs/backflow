@@ -147,8 +147,6 @@ func main() {
 		spot = orchec2.NewSpotHandler(db, ec2mgr, bus)
 	}
 
-	log.Info().Str("mode", string(cfg.Mode)).Str("agent_image", cfg.AgentImage).Msg("orchestrator configured")
-
 	orch := orchestrator.New(db, cfg, bus, runner, scaler, spot, s3Uploader)
 
 	router := api.NewServer(db, cfg, orch.Docker(), bus)
