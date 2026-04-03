@@ -128,7 +128,7 @@ jobs:
             --suppress-health-check filter_too_much \
             --max-examples 20 \
             --seed 42 \
-            --report-vcr /tmp/schemathesis-cassette.yaml
+            --report-vcr-path /tmp/schemathesis-cassette.yaml
 
       - name: Print failure cassette
         if: failure()
