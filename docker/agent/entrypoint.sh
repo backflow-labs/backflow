@@ -130,7 +130,10 @@ fi
 
 # Extract the result text — stream-json for claude, plain text for codex
 if [ "$HARNESS" = "codex" ]; then
-    PREP_RESULT=$(cat "$PREP_LOG")
+    # Codex CLI prints a banner (version, model, workdir, etc.) before the
+    # model response.  Strip markdown fences, then grab from the first '{'
+    # onward so only the JSON object remains.
+    PREP_RESULT=$(sed '/^```/d' "$PREP_LOG" | sed -n '/^\s*{/,$p')
 else
     PREP_RESULT=$(grep '"type":"result"' "$PREP_LOG" | tail -1 | jq -r '.result // empty' 2>/dev/null || true)
 fi
