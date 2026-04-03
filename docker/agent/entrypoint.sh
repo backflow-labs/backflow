@@ -286,6 +286,22 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
     if [ $CLAUDE_EXIT -eq 0 ]; then
         COMPLETE=true
         echo "==> PR review completed successfully"
+
+        # Verify the review was actually posted to the PR
+        echo "==> Verifying review was posted to PR..."
+        START_ISO=$(date -u -d "@$START_TIME" +%Y-%m-%dT%H:%M:%SZ)
+        REVIEWS_AFTER=$(gh pr view "$PR_REF" --json reviews \
+            --jq '[.reviews[] | select(.submittedAt > "'"$START_ISO"'")] | length' 2>/dev/null || echo "0")
+        COMMENTS_AFTER=$(gh pr view "$PR_REF" --json comments \
+            --jq '[.comments[] | select(.createdAt > "'"$START_ISO"'")] | length' 2>/dev/null || echo "0")
+        if [ "$((REVIEWS_AFTER + COMMENTS_AFTER))" -eq 0 ]; then
+            COMPLETE=false
+            CLAUDE_EXIT=1
+            ERROR_MSG="Review completed but was not posted to the PR. Check that the GitHub token has permission to write pull request reviews."
+            echo "==> WARNING: ${ERROR_MSG}"
+        else
+            echo "==> Verified: review posted (${REVIEWS_AFTER} reviews, ${COMMENTS_AFTER} comments since task start)"
+        fi
     else
         ERROR_MSG=$(echo "$CLAUDE_OUTPUT" | tail -5)
         echo "==> PR review failed (exit code: ${CLAUDE_EXIT})"
