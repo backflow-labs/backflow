@@ -106,7 +106,6 @@ func TestParseInspectOutput(t *testing.T) {
 
 func TestBuildEnvFlags(t *testing.T) {
 	cfg := &config.Config{
-		AuthMode:        config.AuthModeAPIKey,
 		AnthropicAPIKey: "sk-test-key",
 		GitHubToken:     "ghp_testtoken",
 	}
@@ -143,7 +142,6 @@ func TestBuildEnvFlags(t *testing.T) {
 		"-e MAX_TURNS=100",
 		"-e CREATE_PR=true",
 		"-e SELF_REVIEW=false",
-		"-e AUTH_MODE=api_key",
 		"-e PR_TITLE=",
 		"-e CLAUDE_MD=",
 		"-e 'CUSTOM_VAR'=",
@@ -169,72 +167,8 @@ func TestBuildEnvFlags(t *testing.T) {
 	}
 }
 
-func TestBuildEnvFlags_MaxSubscription(t *testing.T) {
-	cfg := &config.Config{
-		AuthMode: config.AuthModeMaxSubscription,
-	}
-	dm := NewManager(cfg)
-
-	task := &models.Task{
-		ID:      "bf_01ABC",
-		RepoURL: "https://github.com/test/repo",
-		Prompt:  "Do something",
-	}
-
-	flags := dm.buildEnvFlags(task)
-	joined := strings.Join(flags, " ")
-
-	if strings.Contains(joined, "ANTHROPIC_API_KEY") {
-		t.Error("ANTHROPIC_API_KEY should not be set in max_subscription mode")
-	}
-	if !strings.Contains(joined, "-e AUTH_MODE=max_subscription") {
-		t.Error("AUTH_MODE should be max_subscription")
-	}
-}
-
-func TestBuildVolumeFlags(t *testing.T) {
-	tests := []struct {
-		name     string
-		authMode config.AuthMode
-		credPath string
-		want     string
-	}{
-		{
-			name:     "api_key mode",
-			authMode: config.AuthModeAPIKey,
-			want:     "",
-		},
-		{
-			name:     "max_subscription with path",
-			authMode: config.AuthModeMaxSubscription,
-			credPath: "/home/user/.claude",
-			want:     "-v /home/user/.claude:/home/agent/.claude:ro",
-		},
-		{
-			name:     "max_subscription without path",
-			authMode: config.AuthModeMaxSubscription,
-			credPath: "",
-			want:     "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{
-				AuthMode:              tt.authMode,
-				ClaudeCredentialsPath: tt.credPath,
-			}
-			dm := NewManager(cfg)
-			got := dm.buildVolumeFlags()
-			if got != tt.want {
-				t.Errorf("buildVolumeFlags() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBuildRunCommand(t *testing.T) {
 	cfg := &config.Config{
-		AuthMode:        config.AuthModeAPIKey,
 		AnthropicAPIKey: "sk-test",
 		ContainerCPUs:   2,
 		ContainerMemGB:  8,
@@ -290,7 +224,6 @@ func TestBuildRunCommand_WithEnvFile(t *testing.T) {
 
 func TestBuildRunCommand_CustomImage(t *testing.T) {
 	cfg := &config.Config{
-		AuthMode:        config.AuthModeAPIKey,
 		AnthropicAPIKey: "sk-test",
 		ContainerCPUs:   4,
 		ContainerMemGB:  16,
@@ -313,7 +246,6 @@ func TestBuildRunCommand_CustomImage(t *testing.T) {
 
 func TestBuildSecretEnvPairs(t *testing.T) {
 	cfg := &config.Config{
-		AuthMode:        config.AuthModeAPIKey,
 		AnthropicAPIKey: "sk-test-key",
 		OpenAIAPIKey:    "sk-openai-test",
 		GitHubToken:     "ghp_testtoken",
@@ -336,36 +268,8 @@ func TestBuildSecretEnvPairs(t *testing.T) {
 	}
 }
 
-func TestBuildSecretEnvPairs_MaxSubscription(t *testing.T) {
-	cfg := &config.Config{
-		AuthMode:    config.AuthModeMaxSubscription,
-		GitHubToken: "ghp_testtoken",
-	}
-	dm := NewManager(cfg)
-	task := &models.Task{ID: "bf_01ABC"}
-
-	pairs := dm.buildSecretEnvPairs(task)
-
-	for _, p := range pairs {
-		if strings.HasPrefix(p, "ANTHROPIC_API_KEY=") {
-			t.Error("ANTHROPIC_API_KEY should not be set in max_subscription mode")
-		}
-	}
-	found := false
-	for _, p := range pairs {
-		if p == "GITHUB_TOKEN=ghp_testtoken" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("GITHUB_TOKEN should still be present in max_subscription mode")
-	}
-}
-
 func TestBuildSecretEnvPairs_NoSecrets(t *testing.T) {
-	cfg := &config.Config{
-		AuthMode: config.AuthModeMaxSubscription,
-	}
+	cfg := &config.Config{}
 	dm := NewManager(cfg)
 	task := &models.Task{ID: "bf_01ABC"}
 
@@ -434,7 +338,7 @@ func TestWrapWithRemoteEnvFile(t *testing.T) {
 }
 
 func TestBuildEnvFlags_ShellEscapesKeys(t *testing.T) {
-	cfg := &config.Config{AuthMode: config.AuthModeAPIKey}
+	cfg := &config.Config{}
 	dm := NewManager(cfg)
 
 	task := &models.Task{

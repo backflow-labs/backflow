@@ -74,7 +74,6 @@ func TestCreateTask_RejectsReservedEnvVarKey(t *testing.T) {
 		"GITHUB_TOKEN",
 		"OPENAI_API_KEY",
 		"TASK_ID",
-		"AUTH_MODE",
 		"REPO_URL",
 		"PROMPT",
 		"HARNESS",

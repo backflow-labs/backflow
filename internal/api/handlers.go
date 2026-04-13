@@ -191,7 +191,6 @@ func (h *Handlers) RetryTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status":    "ok",
-		"auth_mode": string(h.config.AuthMode),
+		"status": "ok",
 	})
 }

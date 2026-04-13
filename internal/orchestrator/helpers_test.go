@@ -469,7 +469,6 @@ func newTestBus() (*notify.EventBus, *mockNotifier) {
 func newTestOrchestrator(s store.Store, bus *notify.EventBus, opts ...func(*Orchestrator)) *Orchestrator {
 	cfg := &config.Config{
 		Mode:              config.ModeLocal,
-		AuthMode:          config.AuthModeAPIKey,
 		ContainersPerInst: 4,
 		MaxUserRetries:    2,
 		PollInterval:      5 * time.Second,

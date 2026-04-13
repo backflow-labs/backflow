@@ -103,9 +103,7 @@ Suggested fix: Cap at a reasonable maximum (e.g., 500) and return 400 for values
 `requestURL()` trusts the `X-Forwarded-Host` header unconditionally when reconstructing the URL for Twilio HMAC verification. An attacker can set this header to cause the server to verify against a different URL, potentially invalidating all legitimate Twilio webhooks (DoS).
 Suggested fix: Add `BACKFLOW_SMS_WEBHOOK_URL` config for a static canonical URL; fall back to header reconstruction only when unset.
 
-**22. `internal/orchestrator/docker/docker.go:154` — [Path Injection]**
-`ClaudeCredentialsPath` is interpolated into the Docker `-v` flag without `shellEscape()`. A path containing spaces breaks the command string; a crafted path could silently mount additional host directories.
-Suggested fix: Apply `shellEscape(m.config.ClaudeCredentialsPath)` in `buildVolumeFlags()`.
+**22. Removed** — `ClaudeCredentialsPath` and `buildVolumeFlags` credential mounting were removed along with the `max_subscription` auth mode.
 
 **23. `cmd/backflow/main.go:162` — [Context Not Propagated]**
 Discord cancel/retry callbacks capture `context.Background()` rather than the HTTP request context. These operations won't be cancelled on client disconnect or server shutdown.
@@ -204,9 +202,7 @@ Suggested fix: `http.NewRequestWithContext(context.Background(), http.MethodPut,
 `envInt()` and `envFloat()` silently fall back to defaults on parse failure. A misconfigured `BACKFLOW_MAX_INSTANCES=foo` is indistinguishable from an unset variable — no log, no warning.
 Suggested fix: Add a `log.Warn()` in the parse-fail branch.
 
-**46. `internal/api/handlers.go:172` — [Health Endpoint Info Disclosure]**
-The `/health` endpoint (not behind `RestrictAPI`, accessible on the public internet) returns `{"status":"ok","auth_mode":"api_key"}`, disclosing deployment configuration to unauthenticated callers.
-Suggested fix: Return only `{"status":"ok"}`.
+**46. Resolved** — The `/health` endpoint now returns only `{"status":"ok"}` after removal of the `auth_mode` field.
 
 **47. `cmd/backflow/main.go:77` — [defer closer.Close Error Discarded]**
 `defer closer.Close()` silently drops the error. If the underlying log buffer fails to flush (e.g. disk full), data is lost with no indication.

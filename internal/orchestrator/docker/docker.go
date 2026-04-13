@@ -141,7 +141,6 @@ func (m *Manager) buildEnvFlags(task *models.Task) []string {
 		fmt.Sprintf("-e MAX_TURNS=%d", task.MaxTurns),
 		fmt.Sprintf("-e CREATE_PR=%t", task.CreatePR),
 		fmt.Sprintf("-e SELF_REVIEW=%t", task.SelfReview),
-		envFlag("AUTH_MODE", string(m.config.AuthMode)),
 	}
 
 	if task.PRTitle != "" {
@@ -170,7 +169,7 @@ func (m *Manager) buildEnvFlags(task *models.Task) []string {
 func (m *Manager) buildSecretEnvPairs(task *models.Task) []string {
 	_ = task // reserved for future per-task secrets
 	var pairs []string
-	if m.config.AuthMode == config.AuthModeAPIKey && m.config.AnthropicAPIKey != "" {
+	if m.config.AnthropicAPIKey != "" {
 		pairs = append(pairs, "ANTHROPIC_API_KEY="+m.config.AnthropicAPIKey)
 	}
 	if m.config.OpenAIAPIKey != "" {
@@ -220,12 +219,9 @@ func wrapWithRemoteEnvFile(dockerCmd string, secrets []string) string {
 	)
 }
 
-// buildVolumeFlags returns the -v flag for mounting Claude credentials when
-// using Max subscription auth, or an empty string otherwise.
+// buildVolumeFlags returns volume flags for the docker run command.
+// Currently returns empty; reserved for future use.
 func (m *Manager) buildVolumeFlags() string {
-	if m.config.AuthMode == config.AuthModeMaxSubscription && m.config.ClaudeCredentialsPath != "" {
-		return fmt.Sprintf("-v %s:/home/agent/.claude:ro", m.config.ClaudeCredentialsPath)
-	}
 	return ""
 }
 
