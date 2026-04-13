@@ -127,13 +127,6 @@ Configured per-task via the `harness` field or globally via `BACKFLOW_DEFAULT_HA
 
 PR comments include actual cost for `claude_code` (extracted from `total_cost_usd` in stream-json output). Codex CLI doesn't report cost in dollars — only raw token counts via `--json` — so cost is omitted for `codex` harness runs.
 
-## Auth modes
-
-- **`api_key`** — Anthropic API key via `ANTHROPIC_API_KEY`, concurrent agents (max_instances × containers_per_instance)
-- **`max_subscription`** — Claude Max credentials via `CLAUDE_CREDENTIALS_PATH` volume mount, serial (one agent at a time)
-
-`max_subscription` is not supported in `fargate` mode. Initial Fargate support assumes API-key auth only.
-
 ## API auth
 
 - `BACKFLOW_API_KEY` — Optional single bearer token for API and debug access in small deployments

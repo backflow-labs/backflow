@@ -4,7 +4,6 @@ set -euo pipefail
 # --- Configuration from environment ---
 PROMPT="${PROMPT:?PROMPT is required}"
 HARNESS="${HARNESS:-claude_code}"
-AUTH_MODE="${AUTH_MODE:-api_key}"
 MODEL="${MODEL:-claude-sonnet-4-6}"
 EFFORT="${EFFORT:-medium}"
 MAX_BUDGET_USD="${MAX_BUDGET_USD:-10}"
@@ -49,8 +48,8 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
     gh auth setup-git 2>/dev/null || true
 fi
 
-# --- Auth mode setup ---
-echo "==> Harness: ${HARNESS}, auth mode: ${AUTH_MODE}"
+# --- Auth setup ---
+echo "==> Harness: ${HARNESS}"
 echo "==> Model: ${MODEL}, effort: ${EFFORT}"
 if [ "$HARNESS" = "codex" ]; then
     if [ -z "${OPENAI_API_KEY:-}" ]; then
@@ -59,19 +58,8 @@ if [ "$HARNESS" = "codex" ]; then
     fi
     echo "==> Logging in to codex with API key..."
     echo "$OPENAI_API_KEY" | codex login --with-api-key
-elif [ "$AUTH_MODE" = "api_key" ]; then
-    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-        echo "ERROR: ANTHROPIC_API_KEY is required in api_key mode" >&2
-        exit 1
-    fi
-elif [ "$AUTH_MODE" = "max_subscription" ]; then
-    if [ ! -d "$HOME/.claude" ]; then
-        echo "ERROR: ~/.claude credentials not mounted (required for max_subscription mode)" >&2
-        exit 1
-    fi
-    echo "==> Using Max subscription credentials from ~/.claude"
-else
-    echo "ERROR: Unknown AUTH_MODE: ${AUTH_MODE}" >&2
+elif [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "ERROR: ANTHROPIC_API_KEY is required" >&2
     exit 1
 fi
 
@@ -271,10 +259,8 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
             --max-turns "$MAX_TURNS"
             --output-format stream-json
             --verbose
+            --max-budget-usd "$MAX_BUDGET_USD"
         )
-        if [ "$AUTH_MODE" = "api_key" ]; then
-            CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-        fi
         claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$CLAUDE_LOG"
     fi
     CLAUDE_EXIT=${PIPESTATUS[0]}
@@ -384,10 +370,8 @@ build_claude_args() {
         --max-turns "$MAX_TURNS"
         --output-format stream-json
         --verbose
+        --max-budget-usd "$MAX_BUDGET_USD"
     )
-    if [ "$AUTH_MODE" = "api_key" ]; then
-        CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
-    fi
 }
 
 build_codex_args() {
@@ -550,7 +534,6 @@ ${QUOTED_PROMPT}
     COMMENT_BODY="${COMMENT_BODY}
 | Elapsed Time | \`${ELAPSED_DISPLAY}\` |
 | Max Turns | \`${MAX_TURNS}\` |
-| Auth Mode | \`${AUTH_MODE}\` |
 | Attempts | \`${ATTEMPT}/${MAX_RETRIES}\` |"
     if [ "$SELF_REVIEW" = "true" ]; then
         COMMENT_BODY="${COMMENT_BODY}
@@ -606,10 +589,8 @@ You MUST post your review as a comment on the PR using the gh CLI. Do not just p
             --max-turns 10
             --output-format stream-json
             --verbose
+            --max-budget-usd "$REVIEW_BUDGET"
         )
-        if [ "$AUTH_MODE" = "api_key" ]; then
-            REVIEW_ARGS+=(--max-budget-usd "$REVIEW_BUDGET")
-        fi
         claude "${REVIEW_ARGS[@]}" 2>&1 | tee "$REVIEW_LOG"
     fi
     REVIEW_EXIT=${PIPESTATUS[0]}

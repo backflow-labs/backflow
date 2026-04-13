@@ -240,8 +240,6 @@ BACKFLOW_CLOUDWATCH_LOG_GROUP=/ecs/backflow
 
 Prerequisites: ECS cluster with Fargate capacity providers, task definition with `awslogs` log driver, subnets with egress, IAM roles for image pull + log delivery.
 
-`max_subscription` auth is not supported in Fargate mode.
-
 ## Code Review Agents
 
 This project includes Claude Code agent definitions (`.claude/agents/`) for automated code review.
@@ -308,8 +306,7 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BACKFLOW_MODE` | `ec2` | `ec2`, `local`, or `fargate` |
-| `BACKFLOW_AUTH_MODE` | `api_key` | `api_key` or `max_subscription` |
-| `ANTHROPIC_API_KEY` | | Required for `api_key` mode |
+| `ANTHROPIC_API_KEY` | | Required |
 | `OPENAI_API_KEY` | | Required for `codex` harness |
 | `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
 | `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
@@ -399,7 +396,3 @@ See [docs/discord-setup.md](docs/discord-setup.md) for full setup instructions.
 
 See [docs/sms-setup.md](docs/sms-setup.md) for full setup instructions including allowed sender registration and A2P 10DLC compliance.
 
-### Auth Modes
-
-- **`api_key`** (default) -- Anthropic API key, supports concurrent agents
-- **`max_subscription`** -- Claude Max credentials via `CLAUDE_CREDENTIALS_PATH`, one agent at a time, not supported in Fargate mode

@@ -80,7 +80,6 @@ _(d)_ There is no `docs/fargate-setup.md`. Discord and SMS each have dedicated s
 ### Notes
 
 - **ClientToken (ULID) is safe** — 80 bits of random entropy with `bf_` prefix; no collision or prediction risk. Correctly implemented.
-- **`max_subscription` auth correctly hard-blocked** — Config validates this with a clear startup error. CLAUDE.md documents the limitation. No action needed.
 - **API lockout is an effective compensating control for now** — `BACKFLOW_RESTRICT_API=true` substantially limits the current attack surface. Roadmap 1.2 must ensure bearer-token auth middleware is in place *before* this restriction is lifted.
 - **Multi-tenancy (Roadmap 4.1) will require synthetic instance redesign** — Per-team concurrency limits would need one synthetic instance per team and team-aware dispatch filtering. The current single-row design is a known single-tenant constraint.
 - **Roadmap 2.4 SSE design should begin now** — The Fargate-specific implementation is the most work. Early design will avoid a breaking `Runner` interface change mid-roadmap.

@@ -152,7 +152,6 @@ var reservedEnvVarKeys = map[string]bool{
 	"MAX_TURNS":         true,
 	"CREATE_PR":         true,
 	"SELF_REVIEW":       true,
-	"AUTH_MODE":         true,
 	"PR_TITLE":          true,
 	"PR_BODY":           true,
 	"CLAUDE_MD":         true,

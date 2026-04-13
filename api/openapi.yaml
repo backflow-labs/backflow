@@ -426,15 +426,11 @@ components:
 
     HealthData:
       type: object
-      required: [status, auth_mode]
+      required: [status]
       properties:
         status:
           type: string
           example: ok
-        auth_mode:
-          type: string
-          enum: [api_key, max_subscription]
-          example: api_key
 
     DebugStatsEnvelope:
       type: object

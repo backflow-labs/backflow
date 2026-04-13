@@ -247,7 +247,6 @@ func (m *Manager) buildECSEnvVars(task *models.Task) []ecstypes.KeyValuePair {
 		ecsEnvVar("MAX_TURNS", strconv.Itoa(task.MaxTurns)),
 		ecsEnvVar("CREATE_PR", strconv.FormatBool(task.CreatePR)),
 		ecsEnvVar("SELF_REVIEW", strconv.FormatBool(task.SelfReview)),
-		ecsEnvVar("AUTH_MODE", string(m.config.AuthMode)),
 	}
 
 	if task.PRTitle != "" {
@@ -263,7 +262,7 @@ func (m *Manager) buildECSEnvVars(task *models.Task) []ecstypes.KeyValuePair {
 		vars = append(vars, ecsEnvVar("TASK_CONTEXT", task.Context))
 	}
 
-	if m.config.AuthMode == config.AuthModeAPIKey {
+	if m.config.AnthropicAPIKey != "" {
 		vars = append(vars, ecsEnvVar("ANTHROPIC_API_KEY", m.config.AnthropicAPIKey))
 	}
 	if m.config.OpenAIAPIKey != "" {

@@ -98,7 +98,6 @@ func testServer(t *testing.T) http.Handler {
 	t.Cleanup(func() { s.Close() })
 
 	cfg := &config.Config{
-		AuthMode:           config.AuthModeAPIKey,
 		AnthropicAPIKey:    "sk-test",
 		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",
@@ -130,7 +129,6 @@ func testServerWithEmitter(t *testing.T) (http.Handler, store.Store, *capturingE
 	t.Cleanup(func() { s.Close() })
 
 	cfg := &config.Config{
-		AuthMode:           config.AuthModeAPIKey,
 		AnthropicAPIKey:    "sk-test",
 		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",
@@ -375,7 +373,6 @@ func TestNewTask_Integration(t *testing.T) {
 	t.Cleanup(func() { s.Close() })
 
 	cfg := &config.Config{
-		AuthMode:           config.AuthModeAPIKey,
 		AnthropicAPIKey:    "sk-test",
 		DefaultHarness:     "claude_code",
 		DefaultClaudeModel: "claude-sonnet-4-6",

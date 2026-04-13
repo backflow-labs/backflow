@@ -194,11 +194,6 @@ func TestCreateTaskRequestValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "reserved env var key AUTH_MODE",
-			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"AUTH_MODE": "none"}},
-			wantErr: true,
-		},
-		{
 			name:    "reserved env var key REPO_URL",
 			req:     CreateTaskRequest{Prompt: "Fix bug", EnvVars: map[string]string{"REPO_URL": "https://evil.com/repo"}},
 			wantErr: true,
