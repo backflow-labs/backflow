@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx" driver for database/sql
+	pgvector "github.com/pgvector/pgvector-go"
 	"github.com/pressly/goose/v3"
 	"github.com/rs/zerolog/log"
 
@@ -589,4 +590,79 @@ func scanPGInstance(row pgScanner) (*models.Instance, error) {
 	}
 
 	return &inst, nil
+}
+
+// --- Readings ---
+
+func (s *PostgresStore) CreateReading(ctx context.Context, r *models.Reading) error {
+	connections, _ := json.Marshal(r.Connections)
+	if r.Connections == nil {
+		connections = []byte("[]")
+	}
+	rawOutput := r.RawOutput
+	if rawOutput == nil {
+		rawOutput = []byte("{}")
+	}
+
+	_, err := s.q.Exec(ctx, `
+		INSERT INTO readings (
+			id, task_id, url, title, tldr,
+			tags, keywords, people, orgs,
+			novelty_verdict, connections, summary, raw_output,
+			embedding, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9,
+			$10, $11, $12, $13,
+			$14, $15
+		)`,
+		r.ID, r.TaskID, r.URL, r.Title, r.TLDR,
+		r.Tags, r.Keywords, r.People, r.Orgs,
+		r.NoveltyVerdict, connections, r.Summary, rawOutput,
+		pgvector.NewVector(r.Embedding), r.CreatedAt,
+	)
+	return err
+}
+
+func (s *PostgresStore) UpsertReading(ctx context.Context, r *models.Reading) error {
+	connections, _ := json.Marshal(r.Connections)
+	if r.Connections == nil {
+		connections = []byte("[]")
+	}
+	rawOutput := r.RawOutput
+	if rawOutput == nil {
+		rawOutput = []byte("{}")
+	}
+
+	_, err := s.q.Exec(ctx, `
+		INSERT INTO readings (
+			id, task_id, url, title, tldr,
+			tags, keywords, people, orgs,
+			novelty_verdict, connections, summary, raw_output,
+			embedding, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9,
+			$10, $11, $12, $13,
+			$14, $15
+		)
+		ON CONFLICT (url) DO UPDATE SET
+			task_id         = EXCLUDED.task_id,
+			title           = EXCLUDED.title,
+			tldr            = EXCLUDED.tldr,
+			tags            = EXCLUDED.tags,
+			keywords        = EXCLUDED.keywords,
+			people          = EXCLUDED.people,
+			orgs            = EXCLUDED.orgs,
+			novelty_verdict = EXCLUDED.novelty_verdict,
+			connections     = EXCLUDED.connections,
+			summary         = EXCLUDED.summary,
+			raw_output      = EXCLUDED.raw_output,
+			embedding       = EXCLUDED.embedding`,
+		r.ID, r.TaskID, r.URL, r.Title, r.TLDR,
+		r.Tags, r.Keywords, r.People, r.Orgs,
+		r.NoveltyVerdict, connections, r.Summary, rawOutput,
+		pgvector.NewVector(r.Embedding), r.CreatedAt,
+	)
+	return err
 }
