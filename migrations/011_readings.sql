@@ -21,7 +21,7 @@ CREATE TABLE readings (
 );
 
 CREATE UNIQUE INDEX idx_readings_url ON readings(url);
-CREATE INDEX idx_readings_embedding ON readings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_readings_embedding ON readings USING hnsw (embedding vector_cosine_ops);
 
 -- Reader API schema: the only schema exposed via Supabase PostgREST.
 -- Configure Supabase dashboard → API → Exposed schemas to include "reader" only.

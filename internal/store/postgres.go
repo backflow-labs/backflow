@@ -594,17 +594,39 @@ func scanPGInstance(row pgScanner) (*models.Instance, error) {
 
 // --- Readings ---
 
-func (s *PostgresStore) CreateReading(ctx context.Context, r *models.Reading) error {
-	connections, _ := json.Marshal(r.Connections)
-	if r.Connections == nil {
+// readingArgs prepares the common parameter list for reading insert queries.
+func readingArgs(r *models.Reading) ([]any, error) {
+	var connections []byte
+	if len(r.Connections) == 0 {
 		connections = []byte("[]")
+	} else {
+		var err error
+		connections, err = json.Marshal(r.Connections)
+		if err != nil {
+			return nil, fmt.Errorf("marshal connections: %w", err)
+		}
 	}
+
 	rawOutput := r.RawOutput
 	if rawOutput == nil {
 		rawOutput = []byte("{}")
 	}
 
-	_, err := s.q.Exec(ctx, `
+	var embedding *pgvector.Vector
+	if len(r.Embedding) > 0 {
+		v := pgvector.NewVector(r.Embedding)
+		embedding = &v
+	}
+
+	return []any{
+		r.ID, r.TaskID, r.URL, r.Title, r.TLDR,
+		r.Tags, r.Keywords, r.People, r.Orgs,
+		r.NoveltyVerdict, connections, r.Summary, rawOutput,
+		embedding, r.CreatedAt,
+	}, nil
+}
+
+const readingInsertCols = `
 		INSERT INTO readings (
 			id, task_id, url, title, tldr,
 			tags, keywords, people, orgs,
@@ -615,37 +637,23 @@ func (s *PostgresStore) CreateReading(ctx context.Context, r *models.Reading) er
 			$6, $7, $8, $9,
 			$10, $11, $12, $13,
 			$14, $15
-		)`,
-		r.ID, r.TaskID, r.URL, r.Title, r.TLDR,
-		r.Tags, r.Keywords, r.People, r.Orgs,
-		r.NoveltyVerdict, connections, r.Summary, rawOutput,
-		pgvector.NewVector(r.Embedding), r.CreatedAt,
-	)
+		)`
+
+func (s *PostgresStore) CreateReading(ctx context.Context, r *models.Reading) error {
+	args, err := readingArgs(r)
+	if err != nil {
+		return err
+	}
+	_, err = s.q.Exec(ctx, readingInsertCols, args...)
 	return err
 }
 
 func (s *PostgresStore) UpsertReading(ctx context.Context, r *models.Reading) error {
-	connections, _ := json.Marshal(r.Connections)
-	if r.Connections == nil {
-		connections = []byte("[]")
+	args, err := readingArgs(r)
+	if err != nil {
+		return err
 	}
-	rawOutput := r.RawOutput
-	if rawOutput == nil {
-		rawOutput = []byte("{}")
-	}
-
-	_, err := s.q.Exec(ctx, `
-		INSERT INTO readings (
-			id, task_id, url, title, tldr,
-			tags, keywords, people, orgs,
-			novelty_verdict, connections, summary, raw_output,
-			embedding, created_at
-		) VALUES (
-			$1, $2, $3, $4, $5,
-			$6, $7, $8, $9,
-			$10, $11, $12, $13,
-			$14, $15
-		)
+	_, err = s.q.Exec(ctx, readingInsertCols+`
 		ON CONFLICT (url) DO UPDATE SET
 			task_id         = EXCLUDED.task_id,
 			title           = EXCLUDED.title,
@@ -658,11 +666,6 @@ func (s *PostgresStore) UpsertReading(ctx context.Context, r *models.Reading) er
 			connections     = EXCLUDED.connections,
 			summary         = EXCLUDED.summary,
 			raw_output      = EXCLUDED.raw_output,
-			embedding       = EXCLUDED.embedding`,
-		r.ID, r.TaskID, r.URL, r.Title, r.TLDR,
-		r.Tags, r.Keywords, r.People, r.Orgs,
-		r.NoveltyVerdict, connections, r.Summary, rawOutput,
-		pgvector.NewVector(r.Embedding), r.CreatedAt,
-	)
+			embedding       = EXCLUDED.embedding`, args...)
 	return err
 }
