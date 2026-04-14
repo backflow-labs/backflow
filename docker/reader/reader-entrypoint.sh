@@ -167,12 +167,18 @@ if [ $HARNESS_EXIT -ne 0 ] || [ -z "$RESULT_TEXT" ]; then
     if [ -z "$RESULT_TEXT" ]; then
         ERROR_MSG="${ERROR_MSG}; no result text produced"
     fi
+    # Harness can exit 0 while still producing no usable result. Force a
+    # non-zero exit in that case so the container status reflects the failure.
+    EFFECTIVE_EXIT=$HARNESS_EXIT
+    if [ "$EFFECTIVE_EXIT" -eq 0 ]; then
+        EFFECTIVE_EXIT=1
+    fi
     empty_reading=$(jq -n --arg url "$URL" '{
         url: $url, title: "", tldr: "", tags: [], keywords: [], people: [], orgs: [],
         novelty_verdict: "", connections: [], summary_markdown: ""
     }')
-    write_reader_status "$HARNESS_EXIT" false false "" "$ERROR_MSG" "" "$COST_USD" "$ELAPSED_SEC" "" "" "read" "$empty_reading" || true
-    exit "$HARNESS_EXIT"
+    write_reader_status "$EFFECTIVE_EXIT" false false "" "$ERROR_MSG" "" "$COST_USD" "$ELAPSED_SEC" "" "" "read" "$empty_reading" || true
+    exit "$EFFECTIVE_EXIT"
 fi
 
 # --- Parse the JSON object out of the result text ---

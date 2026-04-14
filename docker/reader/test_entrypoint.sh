@@ -79,4 +79,36 @@ fail() {
     fi
 )
 
+# --- Harness exits 0 with no result text should still fail the run ---
+# Regression: HARNESS_EXIT=0 + empty RESULT_TEXT used to exit 0, masking
+# failure. Stub `claude` on PATH to print nothing but exit 0.
+(
+    stubdir=$(mktemp -d)
+    trap 'rm -rf "$stubdir"' EXIT
+    cat > "$stubdir/claude" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+    chmod +x "$stubdir/claude"
+
+    export URL="https://example.com/article"
+    export ANTHROPIC_API_KEY="dummy"
+    export HARNESS="claude_code"
+    export READER_WORKSPACE="$stubdir/workspace"
+    export PATH="$stubdir:$PATH"
+    unset OPENAI_API_KEY
+
+    if output=$("$ENTRYPOINT" 2>&1); then
+        fail "entrypoint with harness exit=0 and empty result should exit non-zero, got output: $output"
+    fi
+
+    status="$READER_WORKSPACE/status.json"
+    if [ ! -f "$status" ]; then
+        fail "entrypoint should have written status.json on failure"
+    fi
+    if ! jq -e '.complete == false and .exit_code != 0' "$status" >/dev/null; then
+        fail "status.json should report complete=false and non-zero exit_code, got: $(cat "$status")"
+    fi
+)
+
 echo "ok"
