@@ -3,7 +3,6 @@
        docker-reader-build docker-reader-build-local docker-reader-push docker-reader-deploy \
        docker-server-build docker-server-build-local docker-server-deploy \
        docker-fake-agent-build test-fake-agent test-blackbox test-schema test-soak \
-       deploy-dev \
        db-pending db-provisioning db-running db-completed db-failed db-interrupted db-cancelled db-recovering \
        setup-aws deps tunnel cloudflared-setup test-docker-status-writer test-reader-status-writer \
        test-reader-scripts copy-env overwrite-env
@@ -126,9 +125,6 @@ docker-server-build:
 
 docker-server-build-local:
 	$(DOCKER) build -t backflow-server -f docker/server/Dockerfile .
-
-deploy-dev:
-	flyctl deploy --config fly.dev.toml --remote-only
 
 docker-server-deploy:
 	@$(ENV); \
