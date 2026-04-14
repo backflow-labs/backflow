@@ -49,7 +49,7 @@ expect_stderr_contains() {
 
 # --- read-lookup.sh ---
 (
-    unset SUPABASE_URL SUPABASE_READER_KEY
+    unset SUPABASE_URL SUPABASE_ANON_KEY
     expect_stderr_contains "read-lookup missing env" "SUPABASE_URL" \
         "$DIR/read-lookup.sh" "https://example.com"
     expect_exit_nonzero "read-lookup missing env" \
@@ -58,16 +58,16 @@ expect_stderr_contains() {
 
 (
     export SUPABASE_URL=https://example.supabase.co
-    unset SUPABASE_READER_KEY
-    expect_stderr_contains "read-lookup missing reader key" "SUPABASE_READER_KEY" \
+    unset SUPABASE_ANON_KEY
+    expect_stderr_contains "read-lookup missing anon key" "SUPABASE_ANON_KEY" \
         "$DIR/read-lookup.sh" "https://example.com"
-    expect_exit_nonzero "read-lookup missing reader key" \
+    expect_exit_nonzero "read-lookup missing anon key" \
         "$DIR/read-lookup.sh" "https://example.com"
 )
 
 (
     export SUPABASE_URL=https://example.supabase.co
-    export SUPABASE_READER_KEY=dummy
+    export SUPABASE_ANON_KEY=dummy
     expect_stderr_contains "read-lookup missing url arg" "URL" \
         "$DIR/read-lookup.sh"
     expect_exit_nonzero "read-lookup missing url arg" \
@@ -76,7 +76,7 @@ expect_stderr_contains() {
 
 # --- read-similar.sh ---
 (
-    unset OPENAI_API_KEY SUPABASE_URL SUPABASE_READER_KEY
+    unset OPENAI_API_KEY SUPABASE_URL SUPABASE_ANON_KEY
     expect_stderr_contains "read-similar missing env" "OPENAI_API_KEY" \
         "$DIR/read-similar.sh" "hello"
     expect_exit_nonzero "read-similar missing env" \
@@ -85,7 +85,7 @@ expect_stderr_contains() {
 
 (
     export OPENAI_API_KEY=dummy
-    unset SUPABASE_URL SUPABASE_READER_KEY
+    unset SUPABASE_URL SUPABASE_ANON_KEY
     expect_stderr_contains "read-similar missing supabase" "SUPABASE_URL" \
         "$DIR/read-similar.sh" "hello"
     expect_exit_nonzero "read-similar missing supabase" \
@@ -95,7 +95,17 @@ expect_stderr_contains() {
 (
     export OPENAI_API_KEY=dummy
     export SUPABASE_URL=https://example.supabase.co
-    export SUPABASE_READER_KEY=dummy
+    unset SUPABASE_ANON_KEY
+    expect_stderr_contains "read-similar missing anon key" "SUPABASE_ANON_KEY" \
+        "$DIR/read-similar.sh" "hello"
+    expect_exit_nonzero "read-similar missing anon key" \
+        "$DIR/read-similar.sh" "hello"
+)
+
+(
+    export OPENAI_API_KEY=dummy
+    export SUPABASE_URL=https://example.supabase.co
+    export SUPABASE_ANON_KEY=dummy
     expect_stderr_contains "read-similar empty input" "empty" \
         bash -c "printf '' | '$DIR/read-similar.sh'"
     expect_exit_nonzero "read-similar empty input" \

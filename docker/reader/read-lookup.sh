@@ -10,8 +10,8 @@ if [ -z "${SUPABASE_URL:-}" ]; then
     exit 1
 fi
 
-if [ -z "${SUPABASE_READER_KEY:-}" ]; then
-    echo "read-lookup: SUPABASE_READER_KEY is not set" >&2
+if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+    echo "read-lookup: SUPABASE_ANON_KEY is not set" >&2
     exit 1
 fi
 
@@ -24,8 +24,8 @@ URL="$1"
 ENCODED=$(printf '%s' "$URL" | jq -sRr @uri)
 
 RESPONSE=$(curl -fsS \
-    -H "apikey: ${SUPABASE_READER_KEY}" \
-    -H "Authorization: Bearer ${SUPABASE_READER_KEY}" \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Accept-Profile: reader" \
     "${SUPABASE_URL}/rest/v1/readings?url=eq.${ENCODED}&select=id,url,title,tldr") || {
     echo "read-lookup: Supabase REST request failed" >&2
     exit 1

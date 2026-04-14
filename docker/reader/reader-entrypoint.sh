@@ -64,8 +64,8 @@ if [ "$HARNESS" = "codex" ]; then
 fi
 
 # --- Supabase + OpenAI access for helper scripts ---
-if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_READER_KEY:-}" ]; then
-    echo "WARNING: SUPABASE_URL and SUPABASE_READER_KEY are not both set; read-lookup.sh and read-similar.sh will fail." >&2
+if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+    echo "WARNING: SUPABASE_URL and SUPABASE_ANON_KEY are not both set; read-lookup.sh and read-similar.sh will fail." >&2
 fi
 if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo "WARNING: OPENAI_API_KEY is not set; read-embed.sh and read-similar.sh will fail." >&2

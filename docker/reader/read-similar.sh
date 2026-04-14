@@ -14,8 +14,8 @@ if [ -z "${SUPABASE_URL:-}" ]; then
     echo "read-similar: SUPABASE_URL is not set" >&2
     exit 1
 fi
-if [ -z "${SUPABASE_READER_KEY:-}" ]; then
-    echo "read-similar: SUPABASE_READER_KEY is not set" >&2
+if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+    echo "read-similar: SUPABASE_ANON_KEY is not set" >&2
     exit 1
 fi
 
@@ -41,9 +41,9 @@ REQUEST_BODY=$(jq -n --argjson embedding "$EMBEDDING" --argjson count "$MATCH_CO
     '{query_embedding: $embedding, match_count: $count}')
 
 RESPONSE=$(curl -fsS \
-    -H "apikey: ${SUPABASE_READER_KEY}" \
-    -H "Authorization: Bearer ${SUPABASE_READER_KEY}" \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
     -H "Content-Type: application/json" \
+    -H "Content-Profile: reader" \
     -d "$REQUEST_BODY" \
     "${SUPABASE_URL}/rest/v1/rpc/match_readings") || {
     echo "read-similar: Supabase match_readings RPC failed" >&2
