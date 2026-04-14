@@ -71,3 +71,100 @@ type capturingEmitter2 struct {
 }
 
 func (c *capturingEmitter2) Emit(e notify.Event) { c.events = append(c.events, e) }
+
+// readTestConfig returns a config suitable for testing NewReadTask: populates
+// the reader image and read-mode caps that TaskDefaults("read") reads from.
+func readTestConfig() *config.Config {
+	return &config.Config{
+		AgentImage:            "backflow-agent",
+		ReaderImage:           "backflow-reader:v1",
+		DefaultHarness:        "claude_code",
+		DefaultClaudeModel:    "claude-sonnet-4-6",
+		DefaultCodexModel:     "gpt-5.4",
+		DefaultEffort:         "medium",
+		DefaultReadMaxBudget:  0.5,
+		DefaultReadMaxRuntime: 300_000_000_000, // 300s in ns
+		DefaultReadMaxTurns:   20,
+		DefaultSaveOutput:     true,
+	}
+}
+
+func TestNewReadTask_SetsReadModeAndReaderImage(t *testing.T) {
+	cfg := readTestConfig()
+	s := &mockStore{}
+	req := &models.CreateTaskRequest{Prompt: "https://example.com/post"}
+
+	task, err := NewReadTask(context.Background(), req, s, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewReadTask: %v", err)
+	}
+	if task.TaskMode != models.TaskModeRead {
+		t.Errorf("TaskMode = %q, want %q", task.TaskMode, models.TaskModeRead)
+	}
+	if task.AgentImage != "backflow-reader:v1" {
+		t.Errorf("AgentImage = %q, want %q", task.AgentImage, "backflow-reader:v1")
+	}
+	if task.CreatePR {
+		t.Error("CreatePR = true, want false for read mode")
+	}
+	if task.Status != models.TaskStatusPending {
+		t.Errorf("Status = %q, want pending", task.Status)
+	}
+	if task.MaxBudgetUSD != 0.5 {
+		t.Errorf("MaxBudgetUSD = %v, want 0.5 (read cap)", task.MaxBudgetUSD)
+	}
+	if task.MaxRuntimeSec != 300 {
+		t.Errorf("MaxRuntimeSec = %d, want 300 (read cap)", task.MaxRuntimeSec)
+	}
+	if task.MaxTurns != 20 {
+		t.Errorf("MaxTurns = %d, want 20 (read cap)", task.MaxTurns)
+	}
+	if len(task.ID) < 4 || task.ID[:3] != "bf_" {
+		t.Errorf("ID = %q, want bf_ prefix", task.ID)
+	}
+}
+
+func TestNewReadTask_EmitsCreatedEvent(t *testing.T) {
+	cfg := readTestConfig()
+	s := &mockStore{}
+	bus := &capturingEmitter2{}
+	req := &models.CreateTaskRequest{Prompt: "https://example.com/post"}
+
+	if _, err := NewReadTask(context.Background(), req, s, cfg, bus); err != nil {
+		t.Fatalf("NewReadTask: %v", err)
+	}
+	if len(bus.events) != 1 {
+		t.Fatalf("events count = %d, want 1", len(bus.events))
+	}
+	if bus.events[0].Type != notify.EventTaskCreated {
+		t.Errorf("event type = %q, want %q", bus.events[0].Type, notify.EventTaskCreated)
+	}
+}
+
+func TestNewReadTask_StoreError_WrapsErrStoreFailure(t *testing.T) {
+	cfg := readTestConfig()
+	s := &mockStore{createErr: fmt.Errorf("connection refused")}
+	req := &models.CreateTaskRequest{Prompt: "https://example.com/post"}
+
+	_, err := NewReadTask(context.Background(), req, s, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrStoreFailure) {
+		t.Errorf("error = %v, want errors.Is(err, ErrStoreFailure)", err)
+	}
+}
+
+func TestNewReadTask_ValidationError_NotStoreFailure(t *testing.T) {
+	cfg := readTestConfig()
+	s := &mockStore{}
+	req := &models.CreateTaskRequest{Prompt: ""}
+
+	_, err := NewReadTask(context.Background(), req, s, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if errors.Is(err, ErrStoreFailure) {
+		t.Errorf("validation error should not match ErrStoreFailure, got: %v", err)
+	}
+}

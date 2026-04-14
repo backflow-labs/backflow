@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoad_MissingDatabaseURL(t *testing.T) {
@@ -296,5 +297,74 @@ func TestLoad_SMSOutboundEnabled_ExplicitFalse(t *testing.T) {
 	}
 	if cfg.SMSOutboundEnabled {
 		t.Error("SMSOutboundEnabled = true, want false (explicitly disabled)")
+	}
+}
+
+func TestLoad_ReaderConfig(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("BACKFLOW_READER_IMAGE", "backflow-reader:v1")
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_BUDGET", "0.5")
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC", "300")
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_TURNS", "20")
+	t.Setenv("SUPABASE_URL", "https://test.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "sb_publishable_test")
+	t.Setenv("BACKFLOW_ECS_READER_TASK_DEFINITION", "backflow-reader-td:3")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.ReaderImage != "backflow-reader:v1" {
+		t.Errorf("ReaderImage = %q, want %q", cfg.ReaderImage, "backflow-reader:v1")
+	}
+	if cfg.DefaultReadMaxBudget != 0.5 {
+		t.Errorf("DefaultReadMaxBudget = %v, want %v", cfg.DefaultReadMaxBudget, 0.5)
+	}
+	if cfg.DefaultReadMaxRuntime != 300*time.Second {
+		t.Errorf("DefaultReadMaxRuntime = %v, want %v", cfg.DefaultReadMaxRuntime, 300*time.Second)
+	}
+	if cfg.DefaultReadMaxTurns != 20 {
+		t.Errorf("DefaultReadMaxTurns = %d, want %d", cfg.DefaultReadMaxTurns, 20)
+	}
+	if cfg.SupabaseURL != "https://test.supabase.co" {
+		t.Errorf("SupabaseURL = %q, want %q", cfg.SupabaseURL, "https://test.supabase.co")
+	}
+	if cfg.SupabaseAnonKey != "sb_publishable_test" {
+		t.Errorf("SupabaseAnonKey = %q, want %q", cfg.SupabaseAnonKey, "sb_publishable_test")
+	}
+	if cfg.ECSReaderTaskDefinition != "backflow-reader-td:3" {
+		t.Errorf("ECSReaderTaskDefinition = %q, want %q", cfg.ECSReaderTaskDefinition, "backflow-reader-td:3")
+	}
+}
+
+func TestLoad_ReaderConfig_UnsetDefaults(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.ReaderImage != "" {
+		t.Errorf("ReaderImage = %q, want empty when unset", cfg.ReaderImage)
+	}
+	if cfg.DefaultReadMaxBudget != 0 {
+		t.Errorf("DefaultReadMaxBudget = %v, want 0 when unset", cfg.DefaultReadMaxBudget)
+	}
+	if cfg.DefaultReadMaxRuntime != 0 {
+		t.Errorf("DefaultReadMaxRuntime = %v, want 0 when unset", cfg.DefaultReadMaxRuntime)
+	}
+	if cfg.DefaultReadMaxTurns != 0 {
+		t.Errorf("DefaultReadMaxTurns = %d, want 0 when unset", cfg.DefaultReadMaxTurns)
+	}
+	if cfg.SupabaseURL != "" {
+		t.Errorf("SupabaseURL = %q, want empty when unset", cfg.SupabaseURL)
+	}
+	if cfg.SupabaseAnonKey != "" {
+		t.Errorf("SupabaseAnonKey = %q, want empty when unset", cfg.SupabaseAnonKey)
+	}
+	if cfg.ECSReaderTaskDefinition != "" {
+		t.Errorf("ECSReaderTaskDefinition = %q, want empty when unset", cfg.ECSReaderTaskDefinition)
 	}
 }
