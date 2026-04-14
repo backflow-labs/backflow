@@ -64,6 +64,18 @@ $$;
 -- Reader access is granted to the built-in Supabase `anon` role so requests
 -- authenticated with the project's publishable key (sb_publishable_...) can
 -- read through PostgREST. Writes remain blocked by RLS + lack of grants.
+-- Supabase provisions `anon` automatically; bare Postgres (e.g. test
+-- containers) does not, so create it here if missing.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
+
 GRANT USAGE ON SCHEMA reader TO anon;
 GRANT SELECT ON public.readings TO anon;
 GRANT SELECT ON reader.readings TO anon;
