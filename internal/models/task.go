@@ -54,6 +54,7 @@ type Task struct {
 	Model           string            `json:"model,omitempty"`
 	Effort          string            `json:"effort,omitempty"`
 	AgentImage      string            `json:"agent_image,omitempty"`
+	Force           bool              `json:"force,omitempty"`
 	MaxBudgetUSD    float64           `json:"max_budget_usd,omitempty"`
 	MaxRuntimeSec   int               `json:"max_runtime_sec,omitempty"`
 	MaxTurns        int               `json:"max_turns,omitempty"`

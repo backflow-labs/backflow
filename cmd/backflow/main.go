@@ -18,6 +18,7 @@ import (
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/debug"
 	"github.com/backflow-labs/backflow/internal/discord"
+	"github.com/backflow-labs/backflow/internal/embeddings"
 	"github.com/backflow-labs/backflow/internal/messaging"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
@@ -147,7 +148,12 @@ func main() {
 		spot = orchec2.NewSpotHandler(db, ec2mgr, bus)
 	}
 
-	orch := orchestrator.New(db, cfg, bus, runner, scaler, spot, s3Uploader)
+	var embedder embeddings.Embedder
+	if cfg.OpenAIAPIKey != "" {
+		embedder = embeddings.NewOpenAIEmbedder(cfg.OpenAIAPIKey, "", nil)
+	}
+
+	orch := orchestrator.New(db, cfg, bus, runner, scaler, spot, s3Uploader, embedder)
 
 	router := api.NewServer(db, cfg, orch.Docker(), bus)
 

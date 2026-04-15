@@ -195,6 +195,16 @@ func (m *Manager) InspectContainer(ctx context.Context, _, containerID string) (
 			status.RepoURL = agent.RepoURL
 			status.TargetBranch = agent.TargetBranch
 			status.TaskMode = agent.TaskMode
+			status.URL = agent.URL
+			status.Title = agent.Title
+			status.TLDR = agent.TLDR
+			status.Tags = agent.Tags
+			status.Keywords = agent.Keywords
+			status.People = agent.People
+			status.Orgs = agent.Orgs
+			status.NoveltyVerdict = agent.NoveltyVerdict
+			status.Connections = agent.Connections
+			status.SummaryMarkdown = agent.SummaryMarkdown
 			if agent.Error != "" {
 				status.Error = agent.Error
 			}

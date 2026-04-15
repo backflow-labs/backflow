@@ -2,6 +2,8 @@
 
 Agent orchestrator that runs coding agents (Claude Code or Codex) in ephemeral containers. POST a task (repo + prompt), get back a branch with commits and a PR. Three modes: EC2 spot instances, local Docker, or ECS Fargate.
 
+Also supports a `read` task mode that runs a dedicated reader image against a URL, summarizes it, embeds the TL;DR, and stores the result in a `readings` table for similarity search. See [CLAUDE.md](CLAUDE.md#reading-mode) and [docs/supabase-setup.md](docs/supabase-setup.md).
+
 ## Prerequisites
 
 - Go 1.25+
@@ -143,7 +145,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 |-------|------|-------------|
 | `repo_url` | string | **Required.** Repository URL |
 | `prompt` | string | **Required for code mode.** Agent instructions |
-| `task_mode` | string | `code` or `review`; auto-detected from PR URLs in prompt when unset |
+| `task_mode` | string | `code`, `review`, or `read`; auto-detected from PR URLs in prompt when unset |
 | `harness` | string | `codex` or `claude_code` |
 | `model` | string | Model override (per-harness; see server config) |
 | `effort` | string | `low`, `medium`, `high`, or `xhigh` |
@@ -307,12 +309,25 @@ All config via environment variables or `.env` file. See `.env.example` for the 
 |----------|---------|-------------|
 | `BACKFLOW_MODE` | `ec2` | `ec2`, `local`, or `fargate` |
 | `ANTHROPIC_API_KEY` | | Required |
-| `OPENAI_API_KEY` | | Required for `codex` harness |
+| `OPENAI_API_KEY` | | Required for `codex` harness; also required for reading-mode completion (embedding the TL;DR) |
 | `GITHUB_TOKEN` | | For cloning private repos and creating PRs |
 | `BACKFLOW_LISTEN_ADDR` | `:8080` | Server listen address |
 | `BACKFLOW_DATABASE_URL` | | PostgreSQL connection string (Supabase session pooler recommended) |
 | `BACKFLOW_POLL_INTERVAL_SEC` | `5` | Orchestrator poll interval (seconds) |
 | `BACKFLOW_S3_BUCKET` | | S3 bucket for agent output and large prompt offload |
+
+### Reading Mode
+
+| Variable | Description |
+|----------|-------------|
+| `BACKFLOW_READER_IMAGE` | Docker image used for `task_mode=read` containers |
+| `BACKFLOW_DEFAULT_READ_MAX_BUDGET` | Budget cap for reading tasks |
+| `BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC` | Runtime cap for reading tasks |
+| `BACKFLOW_DEFAULT_READ_MAX_TURNS` | Max turns for reading tasks |
+| `SUPABASE_URL` | Supabase project URL passed to reader containers |
+| `SUPABASE_ANON_KEY` | Supabase publishable key (`sb_publishable_...`) passed to reader containers for PostgREST calls |
+
+See [docs/supabase-setup.md](docs/supabase-setup.md) for the `readings` schema, `reader` PostgREST schema, and key model.
 
 ### Agent Defaults
 

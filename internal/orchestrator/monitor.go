@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/config"
@@ -142,6 +143,20 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 		result.Error = status.Error
 	}
 
+	// Reading-mode completion: embed TL;DR and write the reading row synchronously.
+	// If embedding or the DB write fails, the task itself fails.
+	var readingOpt notify.EventOption
+	if task.TaskMode == models.TaskModeRead && result.Status == models.TaskStatusCompleted {
+		opt, err := o.handleReadingCompletion(ctx, task, status)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("handleReadingCompletion: reading pipeline failed")
+			result.Status = models.TaskStatusFailed
+			result.Error = err.Error()
+		} else {
+			readingOpt = opt
+		}
+	}
+
 	if err := o.store.CompleteTask(ctx, task.ID, result); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("handleCompletion: failed to complete task in store")
 	}
@@ -150,7 +165,11 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	// Emit exactly one event per completion.
 	switch {
 	case result.Status == models.TaskStatusCompleted:
-		o.bus.Emit(notify.NewEvent(notify.EventTaskCompleted, task, notify.WithContainerStatus(status.PRURL, "", status.LogTail)))
+		opts := []notify.EventOption{notify.WithContainerStatus(status.PRURL, "", status.LogTail)}
+		if readingOpt != nil {
+			opts = append(opts, readingOpt)
+		}
+		o.bus.Emit(notify.NewEvent(notify.EventTaskCompleted, task, opts...))
 	case status.NeedsInput:
 		o.markRetryReady(ctx, task, notify.EventTaskNeedsInput, notify.WithContainerStatus("", status.Question, status.LogTail))
 	default:
@@ -158,6 +177,83 @@ func (o *Orchestrator) handleCompletion(ctx context.Context, task *models.Task, 
 	}
 
 	log.Info().Str("task_id", task.ID).Str("status", string(result.Status)).Msg("task completed")
+}
+
+// handleReadingCompletion embeds the agent's final TL;DR and writes the reading
+// row. Returns an EventOption that populates the reading fields on the
+// task.completed event. Any error here causes the task itself to fail.
+func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models.Task, status ContainerStatus) (notify.EventOption, error) {
+	if o.embedder == nil {
+		return nil, fmt.Errorf("reading completion: no embedder configured")
+	}
+	if status.URL == "" {
+		return nil, fmt.Errorf("reading completion: agent reported empty url")
+	}
+
+	vec, err := o.embedder.Embed(ctx, status.TLDR)
+	if err != nil {
+		return nil, fmt.Errorf("embed tldr: %w", err)
+	}
+
+	raw, err := json.Marshal(agentStatusFromContainer(status))
+	if err != nil {
+		return nil, fmt.Errorf("marshal raw_output: %w", err)
+	}
+
+	reading := &models.Reading{
+		ID:             "bf_" + ulid.Make().String(),
+		TaskID:         task.ID,
+		URL:            status.URL,
+		Title:          status.Title,
+		TLDR:           status.TLDR,
+		Tags:           status.Tags,
+		Keywords:       status.Keywords,
+		People:         status.People,
+		Orgs:           status.Orgs,
+		NoveltyVerdict: status.NoveltyVerdict,
+		Connections:    status.Connections,
+		Summary:        status.SummaryMarkdown,
+		RawOutput:      raw,
+		Embedding:      vec,
+		CreatedAt:      time.Now().UTC(),
+	}
+
+	if task.Force {
+		if err := o.store.UpsertReading(ctx, reading); err != nil {
+			return nil, fmt.Errorf("upsert reading: %w", err)
+		}
+	} else {
+		if err := o.store.CreateReading(ctx, reading); err != nil {
+			return nil, fmt.Errorf("create reading: %w", err)
+		}
+	}
+
+	return notify.WithReading(status.TLDR, status.NoveltyVerdict, status.Tags, status.Connections), nil
+}
+
+// agentStatusFromContainer reconstructs the reading-relevant portion of the
+// agent's status output from the parsed ContainerStatus. Used to populate the
+// reading's raw_output JSONB losslessly without depending on the original bytes.
+func agentStatusFromContainer(s ContainerStatus) AgentStatus {
+	return AgentStatus{
+		Complete:        s.Complete,
+		PRURL:           s.PRURL,
+		CostUSD:         s.CostUSD,
+		ElapsedTimeSec:  s.ElapsedTimeSec,
+		RepoURL:         s.RepoURL,
+		TargetBranch:    s.TargetBranch,
+		TaskMode:        s.TaskMode,
+		URL:             s.URL,
+		Title:           s.Title,
+		TLDR:            s.TLDR,
+		Tags:            s.Tags,
+		Keywords:        s.Keywords,
+		People:          s.People,
+		Orgs:            s.Orgs,
+		NoveltyVerdict:  s.NoveltyVerdict,
+		Connections:     s.Connections,
+		SummaryMarkdown: s.SummaryMarkdown,
+	}
 }
 
 // saveAgentOutput extracts the agent's output log from the container and uploads

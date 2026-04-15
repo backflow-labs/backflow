@@ -48,6 +48,10 @@ func (o *Orchestrator) dispatchPending(ctx context.Context) {
 // dispatch assigns a task to an available instance, starts the container,
 // and transitions the task from pending → provisioning → running.
 func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
+	if task.TaskMode == models.TaskModeRead && o.embedder == nil {
+		return fmt.Errorf("cannot dispatch read task: no embedder configured (set OPENAI_API_KEY)")
+	}
+
 	instance, err := o.findAvailableInstance(ctx)
 	if errors.Is(err, errNoCapacity) {
 		o.scaler.RequestScaleUp(ctx)

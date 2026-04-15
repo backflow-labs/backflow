@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -221,7 +222,7 @@ func TestFakeAgent(t *testing.T) {
 				if err := json.Unmarshal(logPayload, &logStatus); err != nil {
 					t.Fatalf("BACKFLOW_STATUS_JSON line failed to parse: %v\nraw: %s", err, logPayload)
 				}
-				if logStatus != agentStatus {
+				if !reflect.DeepEqual(logStatus, agentStatus) {
 					t.Errorf("BACKFLOW_STATUS_JSON status != status.json\nlog:  %+v\nfile: %+v", logStatus, agentStatus)
 				}
 			} else {

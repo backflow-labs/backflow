@@ -32,11 +32,22 @@ func WithContainerStatus(prURL, message, agentLogTail string) EventOption {
 	}
 }
 
+// WithReading sets reading-specific fields on a task completion event.
+func WithReading(tldr, noveltyVerdict string, tags []string, connections []models.Connection) EventOption {
+	return func(e *Event) {
+		e.TLDR = tldr
+		e.NoveltyVerdict = noveltyVerdict
+		e.Tags = tags
+		e.Connections = connections
+	}
+}
+
 // NewEvent constructs an Event from a task, populating core fields.
 func NewEvent(eventType EventType, task *models.Task, opts ...EventOption) Event {
 	e := Event{
 		Type:         eventType,
 		TaskID:       task.ID,
+		TaskMode:     task.TaskMode,
 		RepoURL:      task.RepoURL,
 		Prompt:       task.Prompt,
 		ReplyChannel: task.ReplyChannel,

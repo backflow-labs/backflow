@@ -4,6 +4,15 @@
 
 Backflow is a Go service that runs coding agents (Claude Code or Codex) in ephemeral containers. Tasks come in via REST API; the orchestrator provisions infrastructure, runs agents, and cleans up.
 
+Three task modes: `code` (default: clone → code → commit → PR), `review` (PR review with inline comments), and `read` (fetch a URL, summarize it via a reader agent, embed the TL;DR, store the result in the `readings` table for later similarity search).
+
+## HANDOFF.md
+
+`HANDOFF.md` at the repo root captures cross-PR tradeoffs and decisions that aren't obvious from the diff alone — what was deferred, what was unblocked for future issues, and why an alternative was rejected.
+
+- **Before writing a plan:** read `HANDOFF.md` and weigh any notes that apply to the current task. Prior decisions may constrain or inform the approach.
+- **When writing a plan:** add brief notes to `HANDOFF.md` about explicit tradeoffs decided for this change — especially any decisions the user expressed directly (e.g. "add Force now vs defer to #175"). Record the decision, the alternatives considered, and the consequence for downstream work. Keep each entry tight; this file is a ledger, not a design doc.
+
 ## Commands
 
 ```bash
@@ -68,12 +77,13 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 ### Key modules (`internal/`)
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface, `NewTask` shared task-creation helper (used by both REST handler and Discord modal), `CancelTask` and `RetryTask` shared action helpers (used by both REST handler and Discord)
-- **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
-- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations)
-- **models/** — `Task`, `Instance`, `AllowedSender`, and `DiscordInstall` structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
+- **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`, including `handleReadingCompletion` for read-mode tasks), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
+- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `CreateReading` / `UpsertReading` for the `readings` table.
+- **models/** — `Task`, `Instance`, `AllowedSender`, `DiscordInstall`, and `Reading` (+ `Connection`) structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
+- **embeddings/** — Thin `Embedder` interface (`Embed(ctx, text) ([]float32, error)`) with an `OpenAIEmbedder` HTTP client (no SDK). Used by the orchestrator to embed a reading's final TL;DR before writing the `readings` row.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
-- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `BACKFLOW_API_KEY` enables single-token API auth; otherwise `api_keys` in Postgres can back authenticated API/debug requests. `TaskDefaults(taskMode)` returns resolved defaults; `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
-- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options, `MessagingNotifier` (SMS via Twilio for reply channels)
+- **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `BACKFLOW_API_KEY` enables single-token API auth; otherwise `api_keys` in Postgres can back authenticated API/debug requests. `TaskDefaults(taskMode)` returns resolved defaults — for `read` mode it swaps in `ReaderImage` plus the `BACKFLOW_DEFAULT_READ_MAX_*` caps. `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
+- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options (including `WithReading` for read-mode completion events), `MessagingNotifier` (SMS via Twilio for reply channels). `Event` carries `TaskMode` plus optional reading fields (`TLDR`, `NoveltyVerdict`, `Tags`, `Connections`) populated only for read-task completion events.
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
 - **debug/** — `/debug/stats` handler: PID, uptime, running task count, pgxpool metrics
 
@@ -123,6 +133,30 @@ At startup, Backflow persists the install config to the `discord_installs` table
 - `BACKFLOW_SLACK_EVENTS` (comma-separated event filter)
 
 If the Slack webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
+
+## Reading mode
+
+When a task's `task_mode` is `read`, the orchestrator selects `BACKFLOW_READER_IMAGE` instead of the default agent image. The reader container fetches the URL in the prompt, drafts a summary, and emits structured JSON (url/title/tldr/tags/connections/novelty_verdict/etc.) to `status.json` (and a `BACKFLOW_STATUS_JSON:` log line for Fargate).
+
+On completion, the orchestrator's `handleReadingCompletion` helper (in `internal/orchestrator/monitor.go`) runs synchronously:
+
+1. Parses the reading-specific fields off `ContainerStatus`.
+2. Calls `embeddings.Embedder.Embed(ctx, tldr)` to embed the final TL;DR (re-embedded by the orchestrator, not reused from the agent — the agent's draft TL;DR can be refined after similarity lookup).
+3. Writes the row via `store.CreateReading`, or `store.UpsertReading` when `task.Force == true`.
+4. Emits `task.completed` with `WithReading(tldr, verdict, tags, connections)`.
+
+If the embedding API call or the DB write fails, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. If `embedder` is nil (no `OPENAI_API_KEY` configured), reading tasks fail at completion.
+
+The reading agent image and reader-side shell scripts live in `docker/reader/`; see `docs/supabase-setup.md` for the PostgREST-backed similarity-search path the agent uses during its session.
+
+Reading-mode env vars:
+
+- `BACKFLOW_READER_IMAGE` — Docker image for reading-mode containers
+- `BACKFLOW_DEFAULT_READ_MAX_BUDGET` / `BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC` / `BACKFLOW_DEFAULT_READ_MAX_TURNS` — Tighter defaults applied by `TaskDefaults("read")`
+- `OPENAI_API_KEY` — Required for the orchestrator's embeddings client (and for the reader container's `read-embed.sh`)
+- `SUPABASE_URL` / `SUPABASE_ANON_KEY` — Passed to reader containers for PostgREST similarity search (see `docs/supabase-setup.md`)
+
+The `tasks` table carries a `force` boolean column. The API input for force is not wired yet (tracked separately) — today `task.Force` is set by the orchestrator only when explicitly populated through other creation paths.
 
 ## Harnesses
 
@@ -180,7 +214,7 @@ Do not record default values for config or env vars in documentation. Defaults c
 
 ## Input validation
 
-Environment variable keys passed via the `env_vars` field must match POSIX naming rules (`^[A-Za-z_][A-Za-z0-9_]*$`) and must not override reserved system keys (e.g. `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `TASK_ID`). See `reservedEnvVarKeys` in `internal/models/task.go` for the full list. All user-supplied text fields are validated to reject null bytes (PostgreSQL text columns reject them).
+Environment variable keys passed via the `env_vars` field must match POSIX naming rules (`^[A-Za-z_][A-Za-z0-9_]*$`) and must not override reserved system keys (e.g. `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `TASK_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`). See `reservedEnvVarKeys` in `internal/models/task.go` for the full list. All user-supplied text fields are validated to reject null bytes (PostgreSQL text columns reject them).
 
 In Docker mode, secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`) are passed via `--env-file` rather than inline in the command string. In Fargate mode, reserved keys are blocked at validation time.
 
@@ -217,4 +251,4 @@ Additional docs in `docs/`:
 - `sizing.md` — EC2 instance sizing and container density guide
 - `setup-ci.md` — GitHub Actions CI/CD setup for agent image builds
 - `fly-setup.md` — Fly.io deployment setup and configuration
-- `supabase-setup.md` — Supabase project setup, reader Data API configuration, and key model
+- `supabase-setup.md` — Supabase project setup, `readings` table, `reader` schema for PostgREST, and the publishable-key model used by the reader container

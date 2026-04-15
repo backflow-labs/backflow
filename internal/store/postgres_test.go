@@ -230,6 +230,37 @@ func TestPG_TaskRoundTrip_DefaultAgentImage(t *testing.T) {
 	if got.AgentImage != "" {
 		t.Errorf("AgentImage = %q, want empty (default)", got.AgentImage)
 	}
+	if got.Force {
+		t.Errorf("Force = true, want false (default)")
+	}
+}
+
+func TestPG_CreateTask_PersistsForce(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	task := &models.Task{
+		ID:        "bf_TEST_FORCE",
+		Status:    models.TaskStatusPending,
+		TaskMode:  models.TaskModeRead,
+		Harness:   models.HarnessClaudeCode,
+		Prompt:    "https://example.com/post",
+		Force:     true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	got, err := s.GetTask(ctx, "bf_TEST_FORCE")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if !got.Force {
+		t.Errorf("Force = false, want true")
+	}
 }
 
 func TestPG_APIKeyRoundTrip(t *testing.T) {

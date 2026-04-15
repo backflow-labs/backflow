@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -428,6 +429,372 @@ func TestHandleCompletion_PropagatesInferredFields(t *testing.T) {
 	}
 	if task.TaskMode != "code" {
 		t.Errorf("TaskMode = %q, want %q", task.TaskMode, "code")
+	}
+}
+
+func TestHandleCompletion_ReadSuccess_EmbedsAndCreatesReading(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_ok",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1, 0.2, 0.3}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_ok")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:            true,
+		Complete:        true,
+		TaskMode:        models.TaskModeRead,
+		URL:             "https://example.com/post",
+		Title:           "Post title",
+		TLDR:            "short summary",
+		Tags:            []string{"ai", "systems"},
+		Keywords:        []string{"retrieval"},
+		People:          []string{"Ada"},
+		Orgs:            []string{"Example Corp"},
+		NoveltyVerdict:  "new",
+		Connections:     []models.Connection{{ReadingID: "bf_other", Reason: "same topic"}},
+		SummaryMarkdown: "# Long summary",
+	})
+	bus.Close()
+
+	// Task should be completed.
+	got, _ := s.GetTask(context.Background(), "bf_read_ok")
+	if got.Status != models.TaskStatusCompleted {
+		t.Errorf("task.Status = %q, want completed", got.Status)
+	}
+
+	// Embedder was called with the TL;DR.
+	emb.mu.Lock()
+	if len(emb.calls) != 1 || emb.calls[0] != "short summary" {
+		t.Errorf("embedder calls = %v, want [short summary]", emb.calls)
+	}
+	emb.mu.Unlock()
+
+	// CreateReading received the reading, UpsertReading was NOT called.
+	s.mu.Lock()
+	if len(s.createdReadings) != 1 {
+		t.Fatalf("createdReadings = %d, want 1", len(s.createdReadings))
+	}
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("upsertedReadings = %d, want 0 for non-force task", len(s.upsertedReadings))
+	}
+	r := s.createdReadings[0]
+	s.mu.Unlock()
+
+	if r.URL != "https://example.com/post" {
+		t.Errorf("reading.URL = %q", r.URL)
+	}
+	if r.Title != "Post title" {
+		t.Errorf("reading.Title = %q", r.Title)
+	}
+	if r.TLDR != "short summary" {
+		t.Errorf("reading.TLDR = %q", r.TLDR)
+	}
+	if r.NoveltyVerdict != "new" {
+		t.Errorf("reading.NoveltyVerdict = %q", r.NoveltyVerdict)
+	}
+	if r.TaskID != "bf_read_ok" {
+		t.Errorf("reading.TaskID = %q", r.TaskID)
+	}
+	if len(r.Embedding) != 3 || r.Embedding[0] != 0.1 {
+		t.Errorf("reading.Embedding = %v, want [0.1 0.2 0.3]", r.Embedding)
+	}
+	if len(r.Tags) != 2 {
+		t.Errorf("reading.Tags = %v", r.Tags)
+	}
+	if len(r.Connections) != 1 || r.Connections[0].ReadingID != "bf_other" {
+		t.Errorf("reading.Connections = %+v", r.Connections)
+	}
+	if len(r.RawOutput) == 0 {
+		t.Errorf("reading.RawOutput should be populated")
+	}
+	if !strings.HasPrefix(r.ID, "bf_") {
+		t.Errorf("reading.ID = %q, want bf_-prefixed ULID", r.ID)
+	}
+	if r.CreatedAt.IsZero() {
+		t.Errorf("reading.CreatedAt is zero, want non-zero")
+	}
+
+	// Emitted event should be task.completed with reading fields set.
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskCompleted {
+		t.Fatalf("events = %v, want [task.completed]", events)
+	}
+	n.mu.Lock()
+	e := n.events[0]
+	n.mu.Unlock()
+	if e.TLDR != "short summary" {
+		t.Errorf("event.TLDR = %q", e.TLDR)
+	}
+	if e.NoveltyVerdict != "new" {
+		t.Errorf("event.NoveltyVerdict = %q", e.NoveltyVerdict)
+	}
+	if len(e.Tags) != 2 {
+		t.Errorf("event.Tags = %v", e.Tags)
+	}
+	if len(e.Connections) != 1 {
+		t.Errorf("event.Connections = %+v", e.Connections)
+	}
+}
+
+func TestHandleCompletion_ReadSuccess_AssignsUniqueReadingIDs(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	for i, url := range []string{"https://example.com/a", "https://example.com/b"} {
+		id := fmt.Sprintf("bf_read_%d", i)
+		s.CreateTask(context.Background(), &models.Task{
+			ID:          id,
+			Status:      models.TaskStatusRunning,
+			TaskMode:    models.TaskModeRead,
+			Prompt:      url,
+			InstanceID:  "local",
+			ContainerID: "cont1",
+			StartedAt:   &now,
+		})
+
+		bus, _ := newTestBus()
+		emb := &mockEmbedder{vector: []float32{0.1}}
+		o := newTestOrchestrator(s, bus, withEmbedder(emb))
+		o.running = 1
+
+		task, _ := s.GetTask(context.Background(), id)
+		o.handleCompletion(context.Background(), task, ContainerStatus{
+			Done:     true,
+			Complete: true,
+			TaskMode: models.TaskModeRead,
+			URL:      url,
+			TLDR:     "summary " + url,
+		})
+		bus.Close()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.createdReadings) != 2 {
+		t.Fatalf("createdReadings = %d, want 2", len(s.createdReadings))
+	}
+	if s.createdReadings[0].ID == s.createdReadings[1].ID {
+		t.Errorf("reading IDs collided: %q == %q", s.createdReadings[0].ID, s.createdReadings[1].ID)
+	}
+	for i, r := range s.createdReadings {
+		if !strings.HasPrefix(r.ID, "bf_") {
+			t.Errorf("reading[%d].ID = %q, want bf_-prefixed", i, r.ID)
+		}
+	}
+}
+
+func TestHandleCompletion_ReadEmptyURL_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_empty_url",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_empty_url")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "",
+		TLDR:     "short summary",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_empty_url")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed", got.Status)
+	}
+	if !strings.Contains(got.Error, "url") {
+		t.Errorf("task.Error = %q, want something about url", got.Error)
+	}
+
+	s.mu.Lock()
+	if len(s.createdReadings) != 0 || len(s.upsertedReadings) != 0 {
+		t.Errorf("no reading should be written for empty URL: created=%d upserted=%d",
+			len(s.createdReadings), len(s.upsertedReadings))
+	}
+	s.mu.Unlock()
+
+	// Embedder should not be called when URL is missing.
+	emb.mu.Lock()
+	if len(emb.calls) != 0 {
+		t.Errorf("embedder calls = %v, want none for empty URL", emb.calls)
+	}
+	emb.mu.Unlock()
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
+func TestHandleCompletion_ReadStoreFailure_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	s.createReadingErr = fmt.Errorf("db write failed")
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_store_fail",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_store_fail")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "https://example.com/post",
+		TLDR:     "short summary",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_store_fail")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed", got.Status)
+	}
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
+func TestHandleCompletion_ReadEmbedFailure_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_embed_fail",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{errToFn: fmt.Errorf("openai down")}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_embed_fail")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "https://example.com/post",
+		TLDR:     "short summary",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_embed_fail")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed", got.Status)
+	}
+	if got.Error == "" {
+		t.Error("expected non-empty task.Error when embedding fails")
+	}
+
+	s.mu.Lock()
+	if len(s.createdReadings) != 0 || len(s.upsertedReadings) != 0 {
+		t.Errorf("reading written on embed failure: created=%d upserted=%d", len(s.createdReadings), len(s.upsertedReadings))
+	}
+	s.mu.Unlock()
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
+func TestHandleCompletion_ReadForce_CallsUpsertReading(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_force",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Force:       true,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, _ := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.9}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_force")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "https://example.com/post",
+		TLDR:     "updated summary",
+	})
+	bus.Close()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.createdReadings) != 0 {
+		t.Errorf("createdReadings = %d, want 0 for force task", len(s.createdReadings))
+	}
+	if len(s.upsertedReadings) != 1 {
+		t.Fatalf("upsertedReadings = %d, want 1", len(s.upsertedReadings))
+	}
+	if s.upsertedReadings[0].URL != "https://example.com/post" {
+		t.Errorf("upserted URL = %q", s.upsertedReadings[0].URL)
 	}
 }
 
