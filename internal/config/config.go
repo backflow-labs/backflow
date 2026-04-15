@@ -95,10 +95,6 @@ type Config struct {
 	SMSEvents          []string
 	SMSOutboundEnabled bool
 
-	// Slack (subscriber implementation is out of scope)
-	SlackWebhookURL string
-	SlackEvents     []string
-
 	// Discord
 	DiscordAppID        string
 	DiscordPublicKey    string
@@ -183,8 +179,6 @@ func Load() (*Config, error) {
 		S3Bucket:                os.Getenv("BACKFLOW_S3_BUCKET"),
 		GitHubToken:             os.Getenv("GITHUB_TOKEN"),
 		WebhookURL:              os.Getenv("BACKFLOW_WEBHOOK_URL"),
-		SlackWebhookURL:         os.Getenv("BACKFLOW_SLACK_WEBHOOK_URL"),
-		SlackEvents:             envCSV("BACKFLOW_SLACK_EVENTS"),
 		DiscordAppID:            os.Getenv("BACKFLOW_DISCORD_APP_ID"),
 		DiscordPublicKey:        os.Getenv("BACKFLOW_DISCORD_PUBLIC_KEY"),
 		DiscordBotToken:         os.Getenv("BACKFLOW_DISCORD_BOT_TOKEN"),

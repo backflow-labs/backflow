@@ -127,13 +127,6 @@ Optional env vars:
 
 At startup, Backflow persists the install config to the `discord_installs` table, registers the `/backflow` slash command (with `create`, `status`, `list`, `cancel`, and `retry` subcommands) via the Discord API, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` to the event bus. The `/backflow create` subcommand opens a modal dialog for task creation. The `/backflow cancel <task_id>` and `/backflow retry <task_id>` subcommands cancel or retry tasks respectively, with role-based permission enforcement via `BACKFLOW_DISCORD_ALLOWED_ROLES`. The notifier creates a channel message on the first event for each task, then posts subsequent events as replies in a per-task thread. Thread messages include Cancel buttons for active tasks and Retry buttons for failed/interrupted tasks (cancelled tasks show a Retry button only after container cleanup completes).
 
-### Slack notification stub
-
-- `BACKFLOW_SLACK_WEBHOOK_URL`
-- `BACKFLOW_SLACK_EVENTS` (comma-separated event filter)
-
-If the Slack webhook URL is set, `cmd/backflow/main.go` logs that the subscriber is not yet implemented.
-
 ## Reading mode
 
 When a task's `task_mode` is `read`, the orchestrator selects `BACKFLOW_READER_IMAGE` instead of the default agent image. The reader container fetches the URL in the prompt, drafts a summary, and emits structured JSON (url/title/tldr/tags/connections/novelty_verdict/etc.) to `status.json` (and a `BACKFLOW_STATUS_JSON:` log line for Fargate).

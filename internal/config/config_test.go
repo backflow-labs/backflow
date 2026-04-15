@@ -37,34 +37,19 @@ func TestLoad_DefaultModel(t *testing.T) {
 	if cfg.DefaultCodexModel == "" {
 		t.Error("DefaultCodexModel is empty")
 	}
-	if cfg.SlackEvents != nil {
-		t.Errorf("SlackEvents = %#v, want nil when unset", cfg.SlackEvents)
-	}
 	if cfg.DiscordEvents != nil {
 		t.Errorf("DiscordEvents = %#v, want nil when unset", cfg.DiscordEvents)
 	}
 }
 
-func TestLoad_SlackAndDiscordEvents(t *testing.T) {
+func TestLoad_DiscordEvents(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
-	t.Setenv("BACKFLOW_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/test")
-	t.Setenv("BACKFLOW_SLACK_EVENTS", "task.created, task.completed ,task.failed")
 	t.Setenv("BACKFLOW_DISCORD_EVENTS", "task.running, task.interrupted")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)
-	}
-
-	wantSlack := []string{"task.created", "task.completed", "task.failed"}
-	if len(cfg.SlackEvents) != len(wantSlack) {
-		t.Fatalf("SlackEvents length = %d, want %d", len(cfg.SlackEvents), len(wantSlack))
-	}
-	for i := range wantSlack {
-		if cfg.SlackEvents[i] != wantSlack[i] {
-			t.Fatalf("SlackEvents[%d] = %q, want %q", i, cfg.SlackEvents[i], wantSlack[i])
-		}
 	}
 
 	wantDiscord := []string{"task.running", "task.interrupted"}
