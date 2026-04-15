@@ -279,6 +279,23 @@ func Load() (*Config, error) {
 		}
 	}
 
+	if c.ReaderImage != "" {
+		switch {
+		case c.DefaultReadMaxBudget <= 0:
+			return nil, fmt.Errorf("BACKFLOW_DEFAULT_READ_MAX_BUDGET must be > 0 when BACKFLOW_READER_IMAGE is set")
+		case c.DefaultReadMaxRuntime <= 0:
+			return nil, fmt.Errorf("BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC must be > 0 when BACKFLOW_READER_IMAGE is set")
+		case c.DefaultReadMaxTurns <= 0:
+			return nil, fmt.Errorf("BACKFLOW_DEFAULT_READ_MAX_TURNS must be > 0 when BACKFLOW_READER_IMAGE is set")
+		case c.SupabaseURL == "":
+			return nil, fmt.Errorf("SUPABASE_URL is required when BACKFLOW_READER_IMAGE is set")
+		case c.SupabaseAnonKey == "":
+			return nil, fmt.Errorf("SUPABASE_ANON_KEY is required when BACKFLOW_READER_IMAGE is set")
+		case c.Mode == ModeFargate && c.ECSReaderTaskDefinition == "":
+			return nil, fmt.Errorf("BACKFLOW_ECS_READER_TASK_DEFINITION is required when BACKFLOW_READER_IMAGE is set in %s mode", ModeFargate)
+		}
+	}
+
 	return c, nil
 }
 

@@ -368,3 +368,109 @@ func TestLoad_ReaderConfig_UnsetDefaults(t *testing.T) {
 		t.Errorf("ECSReaderTaskDefinition = %q, want empty when unset", cfg.ECSReaderTaskDefinition)
 	}
 }
+
+// setReaderEnv populates every required read-mode env var. Individual
+// "missing X" tests unset one var after calling this helper.
+func setReaderEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("BACKFLOW_DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("BACKFLOW_READER_IMAGE", "backflow-reader:v1")
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_BUDGET", "0.5")
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC", "300")
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_TURNS", "20")
+	t.Setenv("SUPABASE_URL", "https://test.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "sb_publishable_test")
+}
+
+func TestLoad_ReaderImage_RequiresReadMaxBudget(t *testing.T) {
+	setReaderEnv(t)
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_BUDGET", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when BACKFLOW_DEFAULT_READ_MAX_BUDGET is unset with reader image")
+	}
+	if !strings.Contains(err.Error(), "BACKFLOW_DEFAULT_READ_MAX_BUDGET") {
+		t.Errorf("error should name the missing env var, got: %v", err)
+	}
+}
+
+func TestLoad_ReaderImage_RequiresReadMaxRuntime(t *testing.T) {
+	setReaderEnv(t)
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC is unset with reader image")
+	}
+	if !strings.Contains(err.Error(), "BACKFLOW_DEFAULT_READ_MAX_RUNTIME_SEC") {
+		t.Errorf("error should name the missing env var, got: %v", err)
+	}
+}
+
+func TestLoad_ReaderImage_RequiresReadMaxTurns(t *testing.T) {
+	setReaderEnv(t)
+	t.Setenv("BACKFLOW_DEFAULT_READ_MAX_TURNS", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when BACKFLOW_DEFAULT_READ_MAX_TURNS is unset with reader image")
+	}
+	if !strings.Contains(err.Error(), "BACKFLOW_DEFAULT_READ_MAX_TURNS") {
+		t.Errorf("error should name the missing env var, got: %v", err)
+	}
+}
+
+func TestLoad_ReaderImage_RequiresSupabaseURL(t *testing.T) {
+	setReaderEnv(t)
+	t.Setenv("SUPABASE_URL", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when SUPABASE_URL is unset with reader image")
+	}
+	if !strings.Contains(err.Error(), "SUPABASE_URL") {
+		t.Errorf("error should name the missing env var, got: %v", err)
+	}
+}
+
+func TestLoad_ReaderImage_RequiresSupabaseAnonKey(t *testing.T) {
+	setReaderEnv(t)
+	t.Setenv("SUPABASE_ANON_KEY", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when SUPABASE_ANON_KEY is unset with reader image")
+	}
+	if !strings.Contains(err.Error(), "SUPABASE_ANON_KEY") {
+		t.Errorf("error should name the missing env var, got: %v", err)
+	}
+}
+
+func TestLoad_ReaderImage_Fargate_RequiresReaderTaskDefinition(t *testing.T) {
+	setReaderEnv(t)
+	// Fargate mode with the standard required vars, reader image set, but no reader task def.
+	t.Setenv("BACKFLOW_MODE", "fargate")
+	t.Setenv("BACKFLOW_ECS_CLUSTER", "cluster")
+	t.Setenv("BACKFLOW_ECS_TASK_DEFINITION", "code-td")
+	t.Setenv("BACKFLOW_ECS_SUBNETS", "subnet-1")
+	t.Setenv("BACKFLOW_CLOUDWATCH_LOG_GROUP", "/backflow")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when BACKFLOW_ECS_READER_TASK_DEFINITION is unset in fargate mode with reader image")
+	}
+	if !strings.Contains(err.Error(), "BACKFLOW_ECS_READER_TASK_DEFINITION") {
+		t.Errorf("error should name the missing env var, got: %v", err)
+	}
+}
+
+func TestLoad_ReaderImage_NonFargate_DoesNotRequireReaderTaskDefinition(t *testing.T) {
+	setReaderEnv(t)
+	t.Setenv("BACKFLOW_MODE", "local")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+}

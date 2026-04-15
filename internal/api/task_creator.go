@@ -69,8 +69,14 @@ func NewTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, 
 
 // NewReadTask validates the request, applies read-mode defaults (reader image
 // and tighter budget/runtime/turn caps), persists the task, and emits a
-// task.created event. PR-related fields from the request are ignored — read
-// tasks never open PRs.
+// task.created event.
+//
+// Honored request fields: Prompt, Context, Model, Harness, Effort,
+// MaxBudgetUSD, MaxRuntimeSec, MaxTurns, AllowedTools, ClaudeMD, EnvVars,
+// SaveAgentOutput.
+//
+// Ignored request fields: PRTitle, PRBody, CreatePR, SelfReview — read tasks
+// never clone repos or open PRs, so these fields have no effect.
 func NewReadTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, cfg *config.Config, bus notify.Emitter) (*models.Task, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err

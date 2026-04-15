@@ -66,11 +66,11 @@ func TestNewTask_ValidationError_NotStoreFailure(t *testing.T) {
 	}
 }
 
-type capturingEmitter2 struct {
+type capturingEmitter struct {
 	events []notify.Event
 }
 
-func (c *capturingEmitter2) Emit(e notify.Event) { c.events = append(c.events, e) }
+func (c *capturingEmitter) Emit(e notify.Event) { c.events = append(c.events, e) }
 
 // readTestConfig returns a config suitable for testing NewReadTask: populates
 // the reader image and read-mode caps that TaskDefaults("read") reads from.
@@ -127,7 +127,7 @@ func TestNewReadTask_SetsReadModeAndReaderImage(t *testing.T) {
 func TestNewReadTask_EmitsCreatedEvent(t *testing.T) {
 	cfg := readTestConfig()
 	s := &mockStore{}
-	bus := &capturingEmitter2{}
+	bus := &capturingEmitter{}
 	req := &models.CreateTaskRequest{Prompt: "https://example.com/post"}
 
 	if _, err := NewReadTask(context.Background(), req, s, cfg, bus); err != nil {
@@ -166,5 +166,38 @@ func TestNewReadTask_ValidationError_NotStoreFailure(t *testing.T) {
 	}
 	if errors.Is(err, ErrStoreFailure) {
 		t.Errorf("validation error should not match ErrStoreFailure, got: %v", err)
+	}
+}
+
+// TestNewReadTask_IgnoresPRFields pins the documented contract that read
+// tasks never open PRs. A future refactor must not silently start honoring
+// PRTitle, PRBody, CreatePR, or SelfReview.
+func TestNewReadTask_IgnoresPRFields(t *testing.T) {
+	cfg := readTestConfig()
+	s := &mockStore{}
+	trueVal := true
+	req := &models.CreateTaskRequest{
+		Prompt:     "https://example.com/post",
+		PRTitle:    "ignored",
+		PRBody:     "ignored",
+		CreatePR:   &trueVal,
+		SelfReview: &trueVal,
+	}
+
+	task, err := NewReadTask(context.Background(), req, s, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewReadTask: %v", err)
+	}
+	if task.PRTitle != "" {
+		t.Errorf("PRTitle = %q, want empty (ignored for read mode)", task.PRTitle)
+	}
+	if task.PRBody != "" {
+		t.Errorf("PRBody = %q, want empty (ignored for read mode)", task.PRBody)
+	}
+	if task.CreatePR {
+		t.Error("CreatePR = true, want false (ignored for read mode)")
+	}
+	if task.SelfReview {
+		t.Error("SelfReview = true, want false (ignored for read mode)")
 	}
 }
