@@ -186,6 +186,9 @@ func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models
 	if o.embedder == nil {
 		return nil, fmt.Errorf("reading completion: no embedder configured")
 	}
+	if status.URL == "" {
+		return nil, fmt.Errorf("reading completion: agent reported empty url")
+	}
 
 	vec, err := o.embedder.Embed(ctx, status.TLDR)
 	if err != nil {

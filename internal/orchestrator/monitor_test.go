@@ -600,6 +600,65 @@ func TestHandleCompletion_ReadSuccess_AssignsUniqueReadingIDs(t *testing.T) {
 	}
 }
 
+func TestHandleCompletion_ReadEmptyURL_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_empty_url",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_empty_url")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "",
+		TLDR:     "short summary",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_empty_url")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed", got.Status)
+	}
+	if !strings.Contains(got.Error, "url") {
+		t.Errorf("task.Error = %q, want something about url", got.Error)
+	}
+
+	s.mu.Lock()
+	if len(s.createdReadings) != 0 || len(s.upsertedReadings) != 0 {
+		t.Errorf("no reading should be written for empty URL: created=%d upserted=%d",
+			len(s.createdReadings), len(s.upsertedReadings))
+	}
+	s.mu.Unlock()
+
+	// Embedder should not be called when URL is missing.
+	emb.mu.Lock()
+	if len(emb.calls) != 0 {
+		t.Errorf("embedder calls = %v, want none for empty URL", emb.calls)
+	}
+	emb.mu.Unlock()
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
 func TestHandleCompletion_ReadStoreFailure_MarksTaskFailed(t *testing.T) {
 	s := newMockStore()
 	s.createReadingErr = fmt.Errorf("db write failed")
