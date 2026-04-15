@@ -35,7 +35,7 @@ type twiMLMessage struct {
 func writeTwiML(w http.ResponseWriter, msg string) {
 	resp := twiMLResponse{}
 	if msg != "" {
-		resp.Message = &twiMLMessage{Body: msg}
+		resp.Message = &twiMLMessage{Body: msg + "\n" + UnsubscribeFooter}
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)

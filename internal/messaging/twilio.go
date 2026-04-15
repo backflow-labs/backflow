@@ -17,6 +17,7 @@ type TwilioMessenger struct {
 	accountSID string
 	authToken  string
 	fromNumber string
+	baseURL    string // overridable in tests; defaults to the Twilio API host
 	httpClient *http.Client
 }
 
@@ -25,17 +26,24 @@ func NewTwilioMessenger(accountSID, authToken, fromNumber string) *TwilioMesseng
 		accountSID: accountSID,
 		authToken:  authToken,
 		fromNumber: fromNumber,
+		baseURL:    "https://api.twilio.com",
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
 func (t *TwilioMessenger) Send(ctx context.Context, msg OutboundMessage) error {
-	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", t.accountSID)
+	apiURL := fmt.Sprintf("%s/2010-04-01/Accounts/%s/Messages.json", t.baseURL, t.accountSID)
+
+	body := msg.Body
+	if body != "" {
+		body += "\n"
+	}
+	body += UnsubscribeFooter
 
 	form := url.Values{}
 	form.Set("To", msg.Channel.Address)
 	form.Set("From", t.fromNumber)
-	form.Set("Body", msg.Body)
+	form.Set("Body", body)
 
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {

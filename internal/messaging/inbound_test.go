@@ -193,6 +193,9 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 	if strings.Contains(resp.Message.Body, "Repo:") {
 		t.Errorf("response should not contain Repo line: %q", resp.Message.Body)
 	}
+	if !strings.HasSuffix(resp.Message.Body, "\n"+UnsubscribeFooter) {
+		t.Errorf("response missing unsubscribe footer on its own line: %q", resp.Message.Body)
+	}
 }
 
 func TestInboundHandler_RejectedSender(t *testing.T) {
@@ -217,6 +220,9 @@ func TestInboundHandler_RejectedSender(t *testing.T) {
 	xml.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Message == nil || !strings.Contains(resp.Message.Body, "not authorized") {
 		t.Errorf("expected rejection message, got %v", resp.Message)
+	}
+	if resp.Message != nil && !strings.HasSuffix(resp.Message.Body, "\n"+UnsubscribeFooter) {
+		t.Errorf("rejection response missing unsubscribe footer: %q", resp.Message.Body)
 	}
 }
 

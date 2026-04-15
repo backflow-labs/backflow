@@ -9,6 +9,10 @@ const (
 	ChannelSMS ChannelType = "sms"
 )
 
+// UnsubscribeFooter is appended on a new line to every outbound SMS — both
+// REST-API sends and TwiML auto-replies — to satisfy 10DLC/TCPA compliance.
+const UnsubscribeFooter = "Reply STOP to unsubscribe"
+
 // Channel identifies a specific endpoint on a transport.
 type Channel struct {
 	Type    ChannelType `json:"type"`
