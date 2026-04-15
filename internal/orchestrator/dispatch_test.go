@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/backflow-labs/backflow/internal/models"
@@ -394,6 +395,47 @@ func TestDispatch_FindInstanceDBError(t *testing.T) {
 	// A real DB error should propagate, not be silently treated as no-capacity
 	if err == nil {
 		t.Fatal("expected error from dispatch when ListInstances fails, got nil")
+	}
+}
+
+func TestDispatch_ReadTaskWithoutEmbedder_Fails(t *testing.T) {
+	s := newMockStore()
+	s.CreateInstance(context.Background(), newLocalInstance())
+	task := &models.Task{
+		ID:       "bf_read_no_embedder",
+		Status:   models.TaskStatusPending,
+		TaskMode: models.TaskModeRead,
+		Prompt:   "https://example.com/post",
+	}
+	s.CreateTask(context.Background(), task)
+
+	bus, _ := newTestBus()
+	defer bus.Close()
+	mock := &mockDockerManager{
+		runAgentID:     "cont-should-not-run",
+		inspectResults: map[string]ContainerStatus{},
+	}
+	// No embedder configured.
+	o := newTestOrchestrator(s, bus, withDocker(mock))
+
+	task, _ = s.GetTask(context.Background(), "bf_read_no_embedder")
+	err := o.dispatch(context.Background(), task)
+	if err == nil {
+		t.Fatal("expected error from dispatch when read task has no embedder")
+	}
+	if !strings.Contains(err.Error(), "embedder") {
+		t.Errorf("error = %q, want mention of embedder", err.Error())
+	}
+
+	got, _ := s.GetTask(context.Background(), "bf_read_no_embedder")
+	if got.ContainerID != "" {
+		t.Errorf("ContainerID = %q, want empty (no container should start)", got.ContainerID)
+	}
+	if got.Status == models.TaskStatusRunning {
+		t.Errorf("task should not be running, got %q", got.Status)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
 	}
 }
 
