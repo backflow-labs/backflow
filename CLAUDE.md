@@ -15,6 +15,9 @@ make test-schema        # Schemathesis fuzz tests against OpenAPI spec (requires
 make test-blackbox      # Black-box integration test (builds fake agent, spins up server + DB)
 make test-soak          # Soak test (10 min short mode; warns before truncating tasks DB)
 make test-fake-agent    # Unit tests for the fake agent Docker image
+make test-reader-scripts         # Reader-agent shell script tests
+make test-reader-status-writer   # Reader-agent status writer test
+make test-docker-status-writer   # Agent-container status writer test
 make docker-fake-agent-build  # Build fake agent image for testing
 make deps               # go mod tidy
 make clean              # Remove bin/ directory
@@ -28,9 +31,13 @@ make docker-agent-deploy      # Full agent ECR pipeline: login, buildx, push
 make docker-server-build       # Buildx multi-platform server image (amd64+arm64)
 make docker-server-build-local # Single-architecture server build
 make docker-server-deploy      # Full server ECR pipeline: login, buildx, push
+make docker-reader-build       # Buildx multi-platform reader image (amd64+arm64)
+make docker-reader-build-local # Single-architecture reader build
+make docker-reader-push        # Tag + push reader to ECR (requires REGISTRY=<ecr-uri>)
+make docker-reader-deploy      # Full reader ECR pipeline: login, buildx, push
 make setup-aws          # Create AWS infrastructure
-make copy-env           # Copy .env from ~/dev/etc/.env to local .env
-make overwrite-env      # Copy local .env to ~/dev/etc/.env
+make restore-env        # Copy ~/dev/etc/backflow/.env → ./.env
+make backup-env         # Copy ./.env → ~/dev/etc/backflow/.env
 goose -dir migrations status # Show pending/applied migrations
 goose -dir migrations up     # Apply the next migration(s)
 goose -dir migrations down   # Roll back the last migration
