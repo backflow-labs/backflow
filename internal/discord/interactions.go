@@ -191,7 +191,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	if !ok {
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Use /%s create, /%s status, /%s list, /%s cancel, or /%s retry.", actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName)},
+			Data: MessageData{Content: fmt.Sprintf("Use /%s create, /%s status, /%s list, /%s cancel, /%s retry, or /%s read.", actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName)},
 		})
 		return
 	}
@@ -306,6 +306,8 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 			Type: ResponseTypeChannelMessage,
 			Data: MessageData{Content: fmt.Sprintf("Task %s has been cancelled.", taskID), Flags: FlagEphemeral},
 		})
+	case "read":
+		handleReadCommand(ctx, w, interaction, options, actions)
 	case "retry":
 		if !hasPermission(interaction.Member, actions.AllowedRoles) {
 			respondJSON(w, ChannelMessageResponse{
@@ -344,7 +346,7 @@ func handleApplicationCommand(ctx context.Context, w http.ResponseWriter, intera
 	default:
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
-			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /%s create, /%s status, /%s list, /%s cancel, or /%s retry.", subcommand, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName)},
+			Data: MessageData{Content: fmt.Sprintf("Unknown subcommand: %s. Use /%s create, /%s status, /%s list, /%s cancel, /%s retry, or /%s read.", subcommand, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName, actions.CommandName)},
 		})
 	}
 }
@@ -495,6 +497,24 @@ func intOption(options []CommandOption, name string) (int, error) {
 		return n, nil
 	}
 	return 0, fmt.Errorf("missing required option: %s", name)
+}
+
+// boolOption returns the bool value of the named option, or (false, false) if
+// the option is not present. A parse error returns (false, true) with the
+// second return set only when the option existed; callers that need to
+// distinguish "missing" from "present but invalid" can check ok.
+func boolOption(options []CommandOption, name string) (value, ok bool) {
+	for _, opt := range options {
+		if opt.Name != name {
+			continue
+		}
+		var b bool
+		if err := json.Unmarshal(opt.Value, &b); err != nil {
+			return false, false
+		}
+		return b, true
+	}
+	return false, false
 }
 
 const (
