@@ -103,7 +103,6 @@ func main() {
 		bus.Subscribe(notify.NewWebhookNotifier(cfg.WebhookURL, cfg.WebhookEvents))
 		log.Info().Str("url", cfg.WebhookURL).Msg("webhook notifications enabled")
 	}
-	logConfiguredNotificationChannels(cfg)
 
 	// Initialize messaging
 	var messenger messaging.Messenger
@@ -310,10 +309,4 @@ func hasActiveTasks(ctx context.Context, db store.Store) bool {
 		}
 	}
 	return false
-}
-
-func logConfiguredNotificationChannels(cfg *config.Config) {
-	if cfg.SlackWebhookURL != "" {
-		log.Info().Msg("slack notifications configured but subscriber not yet implemented")
-	}
 }

@@ -187,7 +187,7 @@ Suggested fix: Define a `TaskStore` sub-interface for the API handlers; extend t
 Suggested fix: Define a narrow `inboundStore interface { GetAllowedSender(…); CreateTask(…) }` parameter; pass a `notify.Emitter` for event emission.
 
 **42. `internal/config/config.go:28` — [Struct Field Sprawl]**
-`Config` has ~50 fields spanning AWS EC2, ECS/Fargate, Discord, SMS/Twilio, Slack, S3, GitHub, logging, database, and orchestrator concerns. `Load()` is consequently ~130 lines.
+`Config` has ~50 fields spanning AWS EC2, ECS/Fargate, Discord, SMS/Twilio, S3, GitHub, logging, database, and orchestrator concerns. `Load()` is consequently ~130 lines.
 Suggested fix: Group into embedded sub-structs (`AWSConfig`, `DiscordConfig`, `SMSConfig`) for self-documentation without changing behavior.
 
 **43. `cmd/migrate-to-postgres/main.go:300-306` — [Dead Code]** *(Merged: R1#32 + R2#45)*
