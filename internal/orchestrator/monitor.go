@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/config"
@@ -197,6 +198,7 @@ func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models
 	}
 
 	reading := &models.Reading{
+		ID:             "bf_" + ulid.Make().String(),
 		TaskID:         task.ID,
 		URL:            status.URL,
 		Title:          status.Title,
@@ -210,6 +212,7 @@ func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models
 		Summary:        status.SummaryMarkdown,
 		RawOutput:      raw,
 		Embedding:      vec,
+		CreatedAt:      time.Now().UTC(),
 	}
 
 	if task.Force {

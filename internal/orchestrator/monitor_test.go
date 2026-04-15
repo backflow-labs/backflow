@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -521,6 +522,12 @@ func TestHandleCompletion_ReadSuccess_EmbedsAndCreatesReading(t *testing.T) {
 	if len(r.RawOutput) == 0 {
 		t.Errorf("reading.RawOutput should be populated")
 	}
+	if !strings.HasPrefix(r.ID, "bf_") {
+		t.Errorf("reading.ID = %q, want bf_-prefixed ULID", r.ID)
+	}
+	if r.CreatedAt.IsZero() {
+		t.Errorf("reading.CreatedAt is zero, want non-zero")
+	}
 
 	// Emitted event should be task.completed with reading fields set.
 	events := n.eventTypes()
@@ -541,6 +548,55 @@ func TestHandleCompletion_ReadSuccess_EmbedsAndCreatesReading(t *testing.T) {
 	}
 	if len(e.Connections) != 1 {
 		t.Errorf("event.Connections = %+v", e.Connections)
+	}
+}
+
+func TestHandleCompletion_ReadSuccess_AssignsUniqueReadingIDs(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	for i, url := range []string{"https://example.com/a", "https://example.com/b"} {
+		id := fmt.Sprintf("bf_read_%d", i)
+		s.CreateTask(context.Background(), &models.Task{
+			ID:          id,
+			Status:      models.TaskStatusRunning,
+			TaskMode:    models.TaskModeRead,
+			Prompt:      url,
+			InstanceID:  "local",
+			ContainerID: "cont1",
+			StartedAt:   &now,
+		})
+
+		bus, _ := newTestBus()
+		emb := &mockEmbedder{vector: []float32{0.1}}
+		o := newTestOrchestrator(s, bus, withEmbedder(emb))
+		o.running = 1
+
+		task, _ := s.GetTask(context.Background(), id)
+		o.handleCompletion(context.Background(), task, ContainerStatus{
+			Done:     true,
+			Complete: true,
+			TaskMode: models.TaskModeRead,
+			URL:      url,
+			TLDR:     "summary " + url,
+		})
+		bus.Close()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.createdReadings) != 2 {
+		t.Fatalf("createdReadings = %d, want 2", len(s.createdReadings))
+	}
+	if s.createdReadings[0].ID == s.createdReadings[1].ID {
+		t.Errorf("reading IDs collided: %q == %q", s.createdReadings[0].ID, s.createdReadings[1].ID)
+	}
+	for i, r := range s.createdReadings {
+		if !strings.HasPrefix(r.ID, "bf_") {
+			t.Errorf("reading[%d].ID = %q, want bf_-prefixed", i, r.ID)
+		}
 	}
 }
 
