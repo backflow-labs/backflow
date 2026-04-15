@@ -12,7 +12,7 @@ Stores agent tasks submitted via the REST API.
 |--------|------|---------|-------------|
 | `id` | `TEXT` | — | **Primary key.** ULID with `bf_` prefix (e.g. `bf_01KKQW82994E87Z99QVEMBN8V0`). |
 | `status` | `TEXT` | `'pending'` | Task lifecycle state. One of: `pending`, `provisioning`, `running`, `completed`, `failed`, `interrupted`, `cancelled`, `recovering`. |
-| `task_mode` | `TEXT` | `'code'` | Task mode. `code` (default) or `review` (PR review). |
+| `task_mode` | `TEXT` | `'code'` | Task mode. One of: `code` (default), `review` (PR review), `read` (URL summarization), or `auto` (Prep stage infers code vs review). |
 | `harness` | `TEXT` | `'claude_code'` | Agent CLI harness. `claude_code` (default) or `codex`. |
 | `repo_url` | `TEXT` | — | Git repository URL to clone (required). |
 | `branch` | `TEXT` | `''` | Branch to check out before running the agent. |
@@ -43,6 +43,8 @@ Stores agent tasks submitted via the REST API.
 | `error` | `TEXT` | `''` | Error message if the task failed. |
 | `ready_for_retry` | `BOOLEAN` | `false` | Whether the task is ready for user retry. Set `true` after container cleanup completes (for failed/cancelled/interrupted tasks under the retry cap). Reset to `false` on requeue. |
 | `reply_channel` | `TEXT` | `''` | Messaging reply channel (e.g. `sms:+15551234567`). Set when task is created via SMS. |
+| `agent_image` | `TEXT` | `''` | Docker image the orchestrator used for this task's container. Populated at creation time — code/review tasks get the default agent image; read tasks get `BACKFLOW_READER_IMAGE`. Not user-settable via the API. |
+| `force` | `BOOLEAN` | `false` | For reading tasks, skip the exact-URL duplicate check and upsert the existing `readings` row on completion. Ignored for `code`/`review` tasks. |
 | `created_at` | `TIMESTAMPTZ` | `now()` | When the task was created. |
 | `updated_at` | `TIMESTAMPTZ` | `now()` | Last modification time. |
 | `started_at` | `TIMESTAMPTZ` | `NULL` | When the agent container started. Nullable. |
@@ -99,6 +101,43 @@ Stores bearer tokens used to authenticate API and debug requests.
 
 **Indexes:**
 - `idx_api_keys_expires_at` on `expires_at` — used to support expiration checks and cleanup.
+
+### `readings`
+
+Structured output of completed `task_mode=read` tasks. Populated by the orchestrator's `handleReadingCompletion` helper.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `id` | `TEXT` | — | **Primary key.** ULID with `bf_` prefix. |
+| `task_id` | `TEXT` | — | Foreign key to `tasks(id)`, `ON DELETE CASCADE`. |
+| `url` | `TEXT` | — | Source URL. `UNIQUE` index for duplicate lookups and upsert. |
+| `title` | `TEXT` | `''` | Page title as reported by the reader agent. |
+| `tldr` | `TEXT` | `''` | Short summary. The orchestrator embeds this text to populate `embedding`. |
+| `tags` | `TEXT[]` | `'{}'` | Topic tags from the agent. |
+| `keywords` | `TEXT[]` | `'{}'` | Salient keywords. |
+| `people` | `TEXT[]` | `'{}'` | People named in the article. |
+| `orgs` | `TEXT[]` | `'{}'` | Organizations named in the article. |
+| `novelty_verdict` | `TEXT` | `''` | Agent's judgment relative to existing readings (`new`, `nothing new`, etc.). |
+| `connections` | `JSONB` | `'[]'` | Array of `{reading_id, reason}` pointing at similar prior readings. |
+| `summary` | `TEXT` | `''` | Full markdown summary. |
+| `raw_output` | `JSONB` | `'{}'` | Lossless JSON of the agent's parsed `status.json`, kept for future re-normalization. |
+| `embedding` | `vector(1536)` | `NULL` | OpenAI `text-embedding-3-small` vector of the final TL;DR. Embedded by the orchestrator, not the agent. |
+| `is_available` | `BOOLEAN` | `true` | When `false`, the row is hidden from the Supabase Data API (RLS policy + RPC filter). Used for moderation / soft-delete. |
+| `created_at` | `TIMESTAMPTZ` | `now()` | When the reading was stored. |
+
+**Indexes:**
+- Unique `idx_readings_url` on `url` — duplicate detection and upsert.
+- HNSW `idx_readings_embedding` on `embedding` using `vector_cosine_ops` — similarity search.
+
+**RLS:** Enabled on this table. Policy `readings_anon_select` grants `SELECT TO anon USING (is_available = true)`. All writes go through the application role via `BACKFLOW_DATABASE_URL`.
+
+**Related objects (migration `011_readings.sql`):**
+- Schema `reader` — exposes a narrow view and RPC via Supabase PostgREST. Intended as the only schema in the Supabase Data API → Exposed schemas list.
+- View `reader.readings` (`security_invoker = true`) projecting only `id, url, title, tldr`.
+- Function `reader.match_readings(query_embedding vector(1536), match_count int)` returning `(id, title, tldr, url, similarity)` ordered by cosine similarity, executable by `anon`.
+- RLS is also enabled on `tasks`, `instances`, `allowed_senders`, `discord_installs`, `discord_task_threads`, and `api_keys` as deny-all for non-owner roles.
+
+See [supabase-setup.md](supabase-setup.md) for how the reader container authenticates to PostgREST and why there is intentionally no `SUPABASE_READER_KEY`.
 
 ## Status Lifecycles
 
