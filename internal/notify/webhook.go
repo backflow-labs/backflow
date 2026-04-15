@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,6 +29,7 @@ const (
 type Event struct {
 	Type              EventType `json:"event"`
 	TaskID            string    `json:"task_id"`
+	TaskMode          string    `json:"task_mode,omitempty"`
 	RepoURL           string    `json:"repo_url,omitempty"`
 	Prompt            string    `json:"prompt,omitempty"`
 	Message           string    `json:"message,omitempty"`
@@ -37,6 +39,12 @@ type Event struct {
 	ReadyForRetry     bool      `json:"ready_for_retry,omitempty"`
 	RetryLimitReached bool      `json:"retry_limit_reached,omitempty"`
 	Timestamp         time.Time `json:"timestamp"`
+
+	// Reading-mode fields, populated only for read-task completion events.
+	TLDR           string              `json:"tldr,omitempty"`
+	NoveltyVerdict string              `json:"novelty_verdict,omitempty"`
+	Tags           []string            `json:"tags,omitempty"`
+	Connections    []models.Connection `json:"connections,omitempty"`
 }
 
 // Emitter emits task lifecycle events.

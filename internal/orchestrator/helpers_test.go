@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/embeddings"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
@@ -32,6 +33,12 @@ type mockStore struct {
 	markReadyForRetryErr   error
 	decrementContainersErr error
 	listInstancesErr       error
+	createReadingErr       error
+	upsertReadingErr       error
+
+	// Recorded reading calls.
+	createdReadings  []models.Reading
+	upsertedReadings []models.Reading
 }
 
 func newMockStore() *mockStore {
@@ -343,9 +350,29 @@ func (s *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error 
 	return fn(s)
 }
 
-func (s *mockStore) CreateReading(context.Context, *models.Reading) error { return nil }
-func (s *mockStore) UpsertReading(context.Context, *models.Reading) error { return nil }
-func (s *mockStore) Close() error                                         { return nil }
+func (s *mockStore) CreateReading(_ context.Context, r *models.Reading) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.createReadingErr != nil {
+		return s.createReadingErr
+	}
+	cp := *r
+	s.createdReadings = append(s.createdReadings, cp)
+	return nil
+}
+
+func (s *mockStore) UpsertReading(_ context.Context, r *models.Reading) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.upsertReadingErr != nil {
+		return s.upsertReadingErr
+	}
+	cp := *r
+	s.upsertedReadings = append(s.upsertedReadings, cp)
+	return nil
+}
+
+func (s *mockStore) Close() error { return nil }
 
 // --- Mock notifier ---
 
@@ -494,6 +521,28 @@ func withDocker(d Runner) func(*Orchestrator) {
 
 func withS3(s S3Client) func(*Orchestrator) {
 	return func(o *Orchestrator) { o.s3 = s }
+}
+
+func withEmbedder(e embeddings.Embedder) func(*Orchestrator) {
+	return func(o *Orchestrator) { o.embedder = e }
+}
+
+// mockEmbedder records Embed calls and returns a fixed vector or injected error.
+type mockEmbedder struct {
+	mu      sync.Mutex
+	calls   []string
+	vector  []float32
+	errToFn error
+}
+
+func (m *mockEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, text)
+	if m.errToFn != nil {
+		return nil, m.errToFn
+	}
+	return m.vector, nil
 }
 
 // newLocalInstance creates a standard local instance for tests.

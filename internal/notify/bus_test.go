@@ -150,6 +150,35 @@ func TestNewEvent_WithContainerStatus(t *testing.T) {
 	}
 }
 
+func TestNewEvent_CopiesTaskMode(t *testing.T) {
+	task := &models.Task{ID: "bf_1", TaskMode: models.TaskModeRead}
+	event := NewEvent(EventTaskCompleted, task)
+	if event.TaskMode != models.TaskModeRead {
+		t.Errorf("TaskMode = %q, want %q", event.TaskMode, models.TaskModeRead)
+	}
+}
+
+func TestNewEvent_WithReading_PopulatesFields(t *testing.T) {
+	task := &models.Task{ID: "bf_1", TaskMode: models.TaskModeRead}
+	tags := []string{"ai", "systems"}
+	conns := []models.Connection{{ReadingID: "bf_other", Reason: "same topic"}}
+
+	event := NewEvent(EventTaskCompleted, task, WithReading("short summary", "new", tags, conns))
+
+	if event.TLDR != "short summary" {
+		t.Errorf("TLDR = %q", event.TLDR)
+	}
+	if event.NoveltyVerdict != "new" {
+		t.Errorf("NoveltyVerdict = %q", event.NoveltyVerdict)
+	}
+	if len(event.Tags) != 2 || event.Tags[0] != "ai" {
+		t.Errorf("Tags = %v", event.Tags)
+	}
+	if len(event.Connections) != 1 || event.Connections[0].ReadingID != "bf_other" {
+		t.Errorf("Connections = %+v", event.Connections)
+	}
+}
+
 // --- EventBus tests ---
 
 func TestEventBus_FanOutDelivery(t *testing.T) {

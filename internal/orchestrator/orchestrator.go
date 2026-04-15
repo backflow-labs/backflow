@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/embeddings"
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
@@ -21,13 +22,14 @@ const maxInspectFailures = 3
 // Orchestrator manages the lifecycle of tasks: dispatching them to instances,
 // monitoring their containers, handling completions, and recovering from restarts.
 type Orchestrator struct {
-	store  store.Store
-	config *config.Config
-	bus    *notify.EventBus
-	docker Runner
-	scaler Scaler
-	spot   SpotChecker
-	s3     S3Client
+	store    store.Store
+	config   *config.Config
+	bus      *notify.EventBus
+	docker   Runner
+	scaler   Scaler
+	spot     SpotChecker
+	s3       S3Client
+	embedder embeddings.Embedder
 
 	mu              sync.Mutex
 	running         int
@@ -35,7 +37,7 @@ type Orchestrator struct {
 	inspectFailures map[string]int // task ID -> consecutive inspect failure count
 }
 
-func New(s store.Store, cfg *config.Config, bus *notify.EventBus, runner Runner, scaler Scaler, spot SpotChecker, s3 S3Client) *Orchestrator {
+func New(s store.Store, cfg *config.Config, bus *notify.EventBus, runner Runner, scaler Scaler, spot SpotChecker, s3 S3Client, embedder embeddings.Embedder) *Orchestrator {
 	o := &Orchestrator{
 		store:           s,
 		config:          cfg,
@@ -44,6 +46,7 @@ func New(s store.Store, cfg *config.Config, bus *notify.EventBus, runner Runner,
 		scaler:          scaler,
 		spot:            spot,
 		s3:              s3,
+		embedder:        embedder,
 		stopCh:          make(chan struct{}),
 		inspectFailures: make(map[string]int),
 	}
