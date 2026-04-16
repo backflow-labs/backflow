@@ -95,7 +95,6 @@ func (m *mockStore) UpsertDiscordTaskThread(context.Context, *models.DiscordTask
 func (m *mockStore) GetDiscordTaskThread(context.Context, string) (*models.DiscordTaskThread, error) {
 	return nil, store.ErrNotFound
 }
-func (m *mockStore) CreateReading(context.Context, *models.Reading) error { return nil }
 func (m *mockStore) UpsertReading(context.Context, *models.Reading) error { return nil }
 func (m *mockStore) GetReadingByURL(context.Context, string) (*models.Reading, error) {
 	return nil, store.ErrNotFound

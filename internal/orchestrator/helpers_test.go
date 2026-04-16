@@ -33,12 +33,10 @@ type mockStore struct {
 	markReadyForRetryErr   error
 	decrementContainersErr error
 	listInstancesErr       error
-	createReadingErr       error
 	upsertReadingErr       error
 	getReadingByURLErr     error
 
 	// Recorded reading calls.
-	createdReadings  []models.Reading
 	upsertedReadings []models.Reading
 
 	// Pre-seeded readings for GetReadingByURL lookups, keyed by URL.
@@ -353,19 +351,6 @@ func (s *mockStore) GetDiscordTaskThread(_ context.Context, _ string) (*models.D
 
 func (s *mockStore) WithTx(_ context.Context, fn func(store.Store) error) error {
 	return fn(s)
-}
-
-func (s *mockStore) CreateReading(_ context.Context, r *models.Reading) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.createReadingErr != nil {
-		return s.createReadingErr
-	}
-	cp := *r
-	s.createdReadings = append(s.createdReadings, cp)
-	stored := cp
-	s.readingsByURL[r.URL] = &stored
-	return nil
 }
 
 func (s *mockStore) UpsertReading(_ context.Context, r *models.Reading) error {

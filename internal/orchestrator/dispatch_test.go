@@ -621,9 +621,8 @@ func TestDispatch_ReadDuplicate_NonForce_FailsWithoutContainer(t *testing.T) {
 	if len(embedder.calls) != 0 {
 		t.Errorf("embedder calls = %d, want 0", len(embedder.calls))
 	}
-	if len(s.createdReadings) != 0 || len(s.upsertedReadings) != 0 {
-		t.Errorf("reading writes happened: created=%d upserted=%d, want 0",
-			len(s.createdReadings), len(s.upsertedReadings))
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("reading writes happened: upserted=%d, want 0", len(s.upsertedReadings))
 	}
 
 	if len(n.events) != 1 {

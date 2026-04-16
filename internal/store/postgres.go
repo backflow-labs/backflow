@@ -639,15 +639,6 @@ const readingInsertCols = `
 			$14, $15
 		)`
 
-func (s *PostgresStore) CreateReading(ctx context.Context, r *models.Reading) error {
-	args, err := readingArgs(r)
-	if err != nil {
-		return err
-	}
-	_, err = s.q.Exec(ctx, readingInsertCols, args...)
-	return err
-}
-
 func (s *PostgresStore) UpsertReading(ctx context.Context, r *models.Reading) error {
 	args, err := readingArgs(r)
 	if err != nil {
