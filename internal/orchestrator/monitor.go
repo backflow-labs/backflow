@@ -269,7 +269,7 @@ func (o *Orchestrator) saveAgentOutput(ctx context.Context, task *models.Task) {
 		return
 	}
 
-	key := fmt.Sprintf("tasks/%s/agent_output.log", task.ID)
+	key := fmt.Sprintf("tasks/%s/container_output.log", task.ID)
 	url, err := o.s3.Upload(ctx, key, []byte(data))
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to upload agent output to S3")
