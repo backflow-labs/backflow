@@ -274,6 +274,39 @@ func TestBuildEnvFlags_ReadModeIncludesSupabase(t *testing.T) {
 	}
 }
 
+// TestBuildEnvFlags_ReadModePassesURL verifies that read-mode tasks receive
+// a URL env var (the reader container reads URL, not PROMPT).
+func TestBuildEnvFlags_ReadModePassesURL(t *testing.T) {
+	dm := NewManager(&config.Config{})
+	task := &models.Task{
+		ID:       "bf_01ABC",
+		TaskMode: models.TaskModeRead,
+		Prompt:   "https://example.com/article",
+	}
+
+	joined := strings.Join(dm.buildEnvFlags(task), " ")
+
+	if !strings.Contains(joined, "-e URL='https://example.com/article'") {
+		t.Errorf("flags should include URL for read-mode tasks, got: %s", joined)
+	}
+}
+
+// TestBuildEnvFlags_NonReadModeOmitsURL confirms URL is only passed for read mode.
+func TestBuildEnvFlags_NonReadModeOmitsURL(t *testing.T) {
+	dm := NewManager(&config.Config{})
+	task := &models.Task{
+		ID:       "bf_01ABC",
+		TaskMode: models.TaskModeCode,
+		Prompt:   "fix the bug",
+	}
+
+	joined := strings.Join(dm.buildEnvFlags(task), " ")
+
+	if strings.Contains(joined, "-e URL=") {
+		t.Errorf("flags should not include URL for non-read mode, got: %s", joined)
+	}
+}
+
 func TestBuildEnvFlags_NonReadModeOmitsSupabase(t *testing.T) {
 	cfg := &config.Config{
 		SupabaseURL:     "https://test.supabase.co",
