@@ -348,7 +348,11 @@ func readingCompletedContent(event Event) (string, []discord.EmbedField, int) {
 			}
 			fields = append(fields, discord.EmbedField{Name: "Connections", Value: truncate(strings.Join(lines, "\n"), maxEmbedTextLength), Inline: false})
 		}
-		return fmt.Sprintf("Task %s reading completed.", event.TaskID), fields, 0x57F287
+		desc := "New reading saved."
+		if event.Prompt != "" {
+			desc = fmt.Sprintf("New reading saved: %s", event.Prompt)
+		}
+		return desc, fields, 0x57F287
 	}
 }
 

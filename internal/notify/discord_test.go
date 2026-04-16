@@ -319,6 +319,7 @@ func TestDiscordEmbedFormatting(t *testing.T) {
 			Type:           EventTaskCompleted,
 			TaskID:         "bf_r1",
 			TaskMode:       "read",
+			Prompt:         "https://example.com/article",
 			TLDR:           "Article explains how transformers work",
 			NoveltyVerdict: "new",
 			Tags:           []string{"ml", "transformers"},
@@ -330,6 +331,10 @@ func TestDiscordEmbedFormatting(t *testing.T) {
 
 		if embed.Title != "Reading completed" {
 			t.Fatalf("Title = %q, want %q", embed.Title, "Reading completed")
+		}
+		wantDesc := "New reading saved: https://example.com/article"
+		if embed.Description != wantDesc {
+			t.Fatalf("Description = %q, want %q", embed.Description, wantDesc)
 		}
 		if embed.Color != 0x57F287 {
 			t.Fatalf("Color = %#x, want 0x57F287 (green)", embed.Color)
