@@ -1,7 +1,6 @@
 package messaging
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
@@ -19,6 +18,7 @@ import (
 	"github.com/backflow-labs/backflow/internal/config"
 	"github.com/backflow-labs/backflow/internal/discord"
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
 	"github.com/backflow-labs/backflow/internal/taskcreate"
 )
@@ -35,8 +35,6 @@ type twiMLMessage struct {
 }
 
 var readCommandURLPattern = regexp.MustCompile(`https?://\S+`)
-
-type TaskCreator func(context.Context, *models.CreateTaskRequest) (*models.Task, error)
 
 func writeTwiML(w http.ResponseWriter, msg string) {
 	resp := twiMLResponse{}
@@ -118,13 +116,11 @@ func parseReadCommand(body string) (string, bool, error) {
 	return validated, true, nil
 }
 
-func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger, createTask TaskCreator) http.HandlerFunc {
-	if createTask == nil {
-		createTask = func(ctx context.Context, req *models.CreateTaskRequest) (*models.Task, error) {
-			return taskcreate.NewTask(ctx, req, db, cfg)
-		}
-	}
-
+// InboundHandler returns an http.HandlerFunc that processes inbound SMS from
+// Twilio. Created tasks go through taskcreate.NewTask, which emits task.created
+// on the provided bus. Passing a nil bus is supported (useful in tests) — no
+// events will be emitted, but task creation otherwise works the same.
+func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger, bus notify.Emitter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			log.Warn().Err(err).Msg("sms: failed to parse form")
@@ -187,7 +183,7 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger, cre
 			req.TaskMode = &readMode
 		}
 
-		task, err := createTask(r.Context(), req)
+		task, err := taskcreate.NewTask(r.Context(), req, db, cfg, bus)
 		if err != nil {
 			log.Error().Err(err).Msg("sms: failed to create task")
 			writeTwiML(w, "Error: failed to create task.")

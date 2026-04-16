@@ -1,4 +1,4 @@
-package api
+package taskcreate
 
 import (
 	"context"
@@ -36,6 +36,12 @@ func (m *mockStore) CreateAPIKey(_ context.Context, _ *models.APIKey) error {
 	return nil
 }
 
+type capturingEmitter struct {
+	events []notify.Event
+}
+
+func (c *capturingEmitter) Emit(e notify.Event) { c.events = append(c.events, e) }
+
 func TestNewTask_StoreError_ReturnsErrStoreFailure(t *testing.T) {
 	cfg := &config.Config{}
 	s := &mockStore{createErr: fmt.Errorf("connection refused")}
@@ -68,11 +74,57 @@ func TestNewTask_ValidationError_NotStoreFailure(t *testing.T) {
 	}
 }
 
-type capturingEmitter struct {
-	events []notify.Event
+// TestNewTask_EmitsCreatedEvent pins the structural invariant: successful task
+// creation must always produce a task.created event when a bus is provided.
+// Previous refactors split emission between NewTask and callers, which led to
+// SMS-created tasks silently dropping the event.
+func TestNewTask_EmitsCreatedEvent(t *testing.T) {
+	cfg := &config.Config{}
+	s := &mockStore{}
+	bus := &capturingEmitter{}
+	req := &models.CreateTaskRequest{Prompt: "Fix bug"}
+
+	if _, err := NewTask(context.Background(), req, s, cfg, bus); err != nil {
+		t.Fatalf("NewTask: %v", err)
+	}
+	if len(bus.events) != 1 {
+		t.Fatalf("events count = %d, want 1", len(bus.events))
+	}
+	if bus.events[0].Type != notify.EventTaskCreated {
+		t.Errorf("event type = %q, want %q", bus.events[0].Type, notify.EventTaskCreated)
+	}
 }
 
-func (c *capturingEmitter) Emit(e notify.Event) { c.events = append(c.events, e) }
+// TestNewTask_NilBus_StillCreatesTask documents that a nil bus is allowed:
+// creation succeeds without emitting. Useful in boot paths and tests that
+// haven't wired the event bus.
+func TestNewTask_NilBus_StillCreatesTask(t *testing.T) {
+	cfg := &config.Config{}
+	s := &mockStore{}
+	req := &models.CreateTaskRequest{Prompt: "Fix bug"}
+
+	task, err := NewTask(context.Background(), req, s, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTask: %v", err)
+	}
+	if task == nil {
+		t.Fatal("task = nil, want non-nil")
+	}
+}
+
+// TestNewTask_StoreError_NoEmit pins that when store.CreateTask fails, no event
+// is emitted — we only emit on successful creation.
+func TestNewTask_StoreError_NoEmit(t *testing.T) {
+	cfg := &config.Config{}
+	s := &mockStore{createErr: fmt.Errorf("connection refused")}
+	bus := &capturingEmitter{}
+	req := &models.CreateTaskRequest{Prompt: "Fix bug"}
+
+	_, _ = NewTask(context.Background(), req, s, cfg, bus)
+	if len(bus.events) != 0 {
+		t.Errorf("events count = %d, want 0 (no emit on store failure)", len(bus.events))
+	}
+}
 
 // readTestConfig returns a config suitable for testing NewReadTask: populates
 // the reader image and read-mode caps that TaskDefaults("read") reads from.

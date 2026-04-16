@@ -1929,3 +1929,241 @@ func TestKillTask_StopContainerError(t *testing.T) {
 		t.Errorf("expected [task.failed], got %v", types)
 	}
 }
+
+// TestHandleCompletion_ReadEmptyTLDR_MarksTaskFailed pins the reading-mode
+// contract: a successful read must produce a non-empty TLDR. When the agent
+// returns an empty TLDR (paywall, empty page, agent crash after writing a stub
+// status.json), the orchestrator must fail the task rather than emit a silent
+// "completed" that downstream notifiers turn into the useless "Task bf_xxx
+// completed." SMS reply. This is the fix for the review gap that previously
+// let empty-summary tasks appear successful to the end user.
+func TestHandleCompletion_ReadEmptyTLDR_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_empty_tldr",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/paywalled",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_empty_tldr")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:           true,
+		Complete:       true,
+		TaskMode:       models.TaskModeRead,
+		URL:            "https://example.com/paywalled",
+		Title:          "Paywalled Article",
+		TLDR:           "", // empty: no summary available
+		NoveltyVerdict: "new",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_empty_tldr")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed (empty TLDR is a reading-task failure)", got.Status)
+	}
+	if !strings.Contains(got.Error, "empty TLDR") {
+		t.Errorf("task.Error = %q, want mention of empty TLDR", got.Error)
+	}
+	if !strings.Contains(got.Error, "https://example.com/paywalled") {
+		t.Errorf("task.Error = %q, want URL included so the user knows which article failed", got.Error)
+	}
+
+	// Embedder must not be called for an empty TLDR — we short-circuit before
+	// burning an embedding call on an empty string.
+	emb.mu.Lock()
+	if len(emb.calls) != 0 {
+		t.Errorf("embedder calls = %v, want none for empty TLDR", emb.calls)
+	}
+	emb.mu.Unlock()
+
+	// No reading row should be written for an empty TLDR.
+	s.mu.Lock()
+	if len(s.upsertedReadings) != 0 || len(s.createdReadings) != 0 {
+		t.Errorf("no reading should be written for empty TLDR: upserted=%d created=%d",
+			len(s.upsertedReadings), len(s.createdReadings))
+	}
+	s.mu.Unlock()
+
+	// task.failed is emitted so SMS / Discord / webhook all see it uniformly.
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
+// TestHandleCompletion_ReadWhitespaceOnlyTLDR_MarksTaskFailed pins that a TLDR
+// consisting only of whitespace is treated identically to an empty TLDR. Agents
+// occasionally emit a single newline or a space when they have nothing to say;
+// the user experience is the same, so the failure treatment must be too.
+func TestHandleCompletion_ReadWhitespaceOnlyTLDR_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_ws_tldr",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Prompt:      "https://example.com/empty",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_ws_tldr")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "https://example.com/empty",
+		TLDR:     "   \n\t  ",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_ws_tldr")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed", got.Status)
+	}
+
+	emb.mu.Lock()
+	if len(emb.calls) != 0 {
+		t.Errorf("embedder calls = %v, want none for whitespace-only TLDR", emb.calls)
+	}
+	emb.mu.Unlock()
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
+// TestHandleCompletion_ReadDuplicateEmptyTLDR_Succeeds documents the carve-out:
+// when the agent identifies a URL as a duplicate and the task is not forced,
+// an empty TLDR is acceptable. "Duplicate" is a legitimate success outcome;
+// the existing reading in the DB (not this stub) carries the user-facing
+// summary. A future change may look up the existing reading to produce a
+// richer message, but failing the task here would incorrectly tell the user
+// the URL is unreadable when it has in fact already been read.
+func TestHandleCompletion_ReadDuplicateEmptyTLDR_Succeeds(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_dup_empty_tldr",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Force:       false,
+		Prompt:      "https://example.com/already-read",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_dup_empty_tldr")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:           true,
+		Complete:       true,
+		TaskMode:       models.TaskModeRead,
+		URL:            "https://example.com/already-read",
+		TLDR:           "", // duplicate short-circuit allows empty
+		NoveltyVerdict: "duplicate",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_dup_empty_tldr")
+	if got.Status != models.TaskStatusCompleted {
+		t.Errorf("task.Status = %q, want completed (duplicate with empty TLDR is a legitimate outcome)", got.Status)
+	}
+
+	// No embedding, no DB write: the duplicate short-circuit avoids both.
+	emb.mu.Lock()
+	if len(emb.calls) != 0 {
+		t.Errorf("embedder calls = %v, want none for duplicate short-circuit", emb.calls)
+	}
+	emb.mu.Unlock()
+	s.mu.Lock()
+	if len(s.upsertedReadings) != 0 || len(s.createdReadings) != 0 {
+		t.Errorf("duplicate short-circuit should not write: upserted=%d created=%d",
+			len(s.upsertedReadings), len(s.createdReadings))
+	}
+	s.mu.Unlock()
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskCompleted {
+		t.Errorf("events = %v, want [task.completed]", events)
+	}
+}
+
+// TestHandleCompletion_ReadForcedDuplicateEmptyTLDR_MarksTaskFailed pins that
+// the empty-TLDR check DOES apply when a duplicate is force-refreshed: the user
+// explicitly asked for a re-read, so producing no TLDR is a failure, not a
+// harmless skip.
+func TestHandleCompletion_ReadForcedDuplicateEmptyTLDR_MarksTaskFailed(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_force_dup_empty",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Force:       true,
+		Prompt:      "https://example.com/refresh-me",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_force_dup_empty")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:           true,
+		Complete:       true,
+		TaskMode:       models.TaskModeRead,
+		URL:            "https://example.com/refresh-me",
+		TLDR:           "",
+		NoveltyVerdict: "duplicate",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_force_dup_empty")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed (forced re-read with empty TLDR is a failure)", got.Status)
+	}
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
