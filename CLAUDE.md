@@ -78,7 +78,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface, `NewTask` shared task-creation helper (used by both REST handler and Discord modal), `CancelTask` and `RetryTask` shared action helpers (used by both REST handler and Discord)
 - **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`, including `handleReadingCompletion` for read-mode tasks), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
-- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `CreateReading` / `UpsertReading` for the `readings` table.
+- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `CreateReading` / `UpsertReading` / `GetReadingByURL` for the `readings` table.
 - **models/** — `Task`, `Instance`, `AllowedSender`, `DiscordInstall`, and `Reading` (+ `Connection`) structs with status enums. `Task.AgentImage` records which Docker image the orchestrator used (read tasks get `ReaderImage`, others get the default agent image). `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **embeddings/** — Thin `Embedder` interface (`Embed(ctx, text) ([]float32, error)`) with an `OpenAIEmbedder` HTTP client (no SDK). Used by the orchestrator to embed a reading's final TL;DR before writing the `readings` row.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow read <url> [force]` for reading-mode task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
@@ -134,11 +134,13 @@ When a task's `task_mode` is `read`, the orchestrator selects `BACKFLOW_READER_I
 On completion, the orchestrator's `handleReadingCompletion` helper (in `internal/orchestrator/monitor.go`) runs synchronously:
 
 1. Parses the reading-specific fields off `ContainerStatus`.
-2. Calls `embeddings.Embedder.Embed(ctx, tldr)` to embed the final TL;DR (re-embedded by the orchestrator, not reused from the agent — the agent's draft TL;DR can be refined after similarity lookup).
-3. Writes the row via `store.CreateReading`, or `store.UpsertReading` when `task.Force == true`.
-4. Emits `task.completed` with `WithReading(tldr, verdict, tags, connections)`.
+2. If the agent's `novelty_verdict` is `"duplicate"` and `!task.Force`, short-circuits with no write.
+3. Otherwise, when `!task.Force`, calls `store.GetReadingByURL(ctx, url)` as an independent duplicate check. The agent's verdict is advisory — if the URL already exists, the task fails with a "reading already exists" error rather than overwriting. This guards against the agent misclassifying a previously-read URL as `"novel"`.
+4. Calls `embeddings.Embedder.Embed(ctx, tldr)` to embed the final TL;DR (re-embedded by the orchestrator, not reused from the agent — the agent's draft TL;DR can be refined after similarity lookup).
+5. Writes the row via `store.CreateReading` when `!task.Force`, or `store.UpsertReading` when `task.Force == true`.
+6. Emits `task.completed` with `WithReading(tldr, verdict, tags, connections)`.
 
-If the embedding API call or the DB write fails, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. If `embedder` is nil (no `OPENAI_API_KEY` configured), reading tasks fail at completion.
+If the embedding API call, DB lookup, or DB write fails, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. If `embedder` is nil (no `OPENAI_API_KEY` configured), reading tasks fail at completion.
 
 The reading agent image and reader-side shell scripts live in `docker/reader/`:
 

@@ -35,16 +35,21 @@ type mockStore struct {
 	listInstancesErr       error
 	createReadingErr       error
 	upsertReadingErr       error
+	getReadingByURLErr     error
 
 	// Recorded reading calls.
 	createdReadings  []models.Reading
 	upsertedReadings []models.Reading
+
+	// Pre-seeded readings for GetReadingByURL lookups, keyed by URL.
+	readingsByURL map[string]*models.Reading
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		tasks:     make(map[string]*models.Task),
-		instances: make(map[string]*models.Instance),
+		tasks:         make(map[string]*models.Task),
+		instances:     make(map[string]*models.Instance),
+		readingsByURL: make(map[string]*models.Reading),
 	}
 }
 
@@ -358,6 +363,8 @@ func (s *mockStore) CreateReading(_ context.Context, r *models.Reading) error {
 	}
 	cp := *r
 	s.createdReadings = append(s.createdReadings, cp)
+	stored := cp
+	s.readingsByURL[r.URL] = &stored
 	return nil
 }
 
@@ -369,7 +376,23 @@ func (s *mockStore) UpsertReading(_ context.Context, r *models.Reading) error {
 	}
 	cp := *r
 	s.upsertedReadings = append(s.upsertedReadings, cp)
+	stored := cp
+	s.readingsByURL[r.URL] = &stored
 	return nil
+}
+
+func (s *mockStore) GetReadingByURL(_ context.Context, url string) (*models.Reading, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.getReadingByURLErr != nil {
+		return nil, s.getReadingByURLErr
+	}
+	r, ok := s.readingsByURL[url]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	cp := *r
+	return &cp, nil
 }
 
 func (s *mockStore) Close() error { return nil }

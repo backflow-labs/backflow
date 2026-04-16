@@ -1318,6 +1318,64 @@ func TestPG_UpsertReading_Update(t *testing.T) {
 	}
 }
 
+func TestPG_GetReadingByURL(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	task := pgTestTask(t, s)
+
+	embedding := make([]float32, 1536)
+	embedding[0] = 0.42
+
+	seeded := &models.Reading{
+		ID:             "bf_READ_LOOKUP",
+		TaskID:         task.ID,
+		URL:            "https://example.com/lookup",
+		Title:          "Lookup Target",
+		TLDR:           "exact-url lookup",
+		Tags:           []string{"lookup"},
+		Keywords:       []string{},
+		People:         []string{},
+		Orgs:           []string{},
+		NoveltyVerdict: "novel",
+		Connections:    []models.Connection{},
+		Summary:        "",
+		RawOutput:      []byte(`{}`),
+		Embedding:      embedding,
+		CreatedAt:      now,
+	}
+	if err := s.CreateReading(ctx, seeded); err != nil {
+		t.Fatalf("CreateReading: %v", err)
+	}
+
+	// Hit: exact URL match returns the seeded row.
+	got, err := s.GetReadingByURL(ctx, "https://example.com/lookup")
+	if err != nil {
+		t.Fatalf("GetReadingByURL (hit): %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetReadingByURL: returned nil reading for hit")
+	}
+	if got.ID != seeded.ID {
+		t.Errorf("ID = %q, want %q", got.ID, seeded.ID)
+	}
+	if got.URL != seeded.URL {
+		t.Errorf("URL = %q, want %q", got.URL, seeded.URL)
+	}
+	if got.Title != seeded.Title {
+		t.Errorf("Title = %q, want %q", got.Title, seeded.Title)
+	}
+	if got.TLDR != seeded.TLDR {
+		t.Errorf("TLDR = %q, want %q", got.TLDR, seeded.TLDR)
+	}
+
+	// Miss: unknown URL returns ErrNotFound.
+	_, err = s.GetReadingByURL(ctx, "https://example.com/does-not-exist")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetReadingByURL (miss) err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestPG_MatchReadings_SimilarityOrdering(t *testing.T) {
 	s := testPostgresStore(t)
 	ctx := context.Background()

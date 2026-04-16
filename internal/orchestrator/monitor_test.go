@@ -484,12 +484,15 @@ func TestHandleCompletion_ReadSuccess_EmbedsAndCreatesReading(t *testing.T) {
 	}
 	emb.mu.Unlock()
 
-	// UpsertReading received the reading (always upsert, regardless of force).
+	// CreateReading received the reading (non-forced success path: insert only).
 	s.mu.Lock()
-	if len(s.upsertedReadings) != 1 {
-		t.Fatalf("upsertedReadings = %d, want 1", len(s.upsertedReadings))
+	if len(s.createdReadings) != 1 {
+		t.Fatalf("createdReadings = %d, want 1", len(s.createdReadings))
 	}
-	r := s.upsertedReadings[0]
+	if len(s.upsertedReadings) != 0 {
+		t.Fatalf("upsertedReadings = %d, want 0 (non-forced inserts should use CreateReading)", len(s.upsertedReadings))
+	}
+	r := s.createdReadings[0]
 	s.mu.Unlock()
 
 	if r.URL != "https://example.com/post" {
@@ -584,13 +587,13 @@ func TestHandleCompletion_ReadSuccess_AssignsUniqueReadingIDs(t *testing.T) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.upsertedReadings) != 2 {
-		t.Fatalf("upsertedReadings = %d, want 2", len(s.upsertedReadings))
+	if len(s.createdReadings) != 2 {
+		t.Fatalf("createdReadings = %d, want 2", len(s.createdReadings))
 	}
-	if s.upsertedReadings[0].ID == s.upsertedReadings[1].ID {
-		t.Errorf("reading IDs collided: %q == %q", s.upsertedReadings[0].ID, s.upsertedReadings[1].ID)
+	if s.createdReadings[0].ID == s.createdReadings[1].ID {
+		t.Errorf("reading IDs collided: %q == %q", s.createdReadings[0].ID, s.createdReadings[1].ID)
 	}
-	for i, r := range s.upsertedReadings {
+	for i, r := range s.createdReadings {
 		if !strings.HasPrefix(r.ID, "bf_") {
 			t.Errorf("reading[%d].ID = %q, want bf_-prefixed", i, r.ID)
 		}
@@ -760,7 +763,7 @@ func TestHandleCompletion_ReadDuplicate_Force_StillWrites(t *testing.T) {
 
 func TestHandleCompletion_ReadStoreFailure_MarksTaskFailed(t *testing.T) {
 	s := newMockStore()
-	s.upsertReadingErr = fmt.Errorf("db write failed")
+	s.createReadingErr = fmt.Errorf("db write failed")
 	now := time.Now().UTC()
 
 	s.CreateInstance(context.Background(), newLocalInstance())
@@ -891,6 +894,144 @@ func TestHandleCompletion_ReadForce_CallsUpsertReading(t *testing.T) {
 	}
 	if s.upsertedReadings[0].URL != "https://example.com/post" {
 		t.Errorf("upserted URL = %q", s.upsertedReadings[0].URL)
+	}
+	if len(s.createdReadings) != 0 {
+		t.Errorf("createdReadings = %d, want 0 (forced writes should go through UpsertReading)", len(s.createdReadings))
+	}
+}
+
+// TestHandleCompletion_ReadExistingURL_NonForce_FailsTask covers the bug where
+// the agent misclassifies a previously-read URL as "novel". The orchestrator
+// must independently check the DB for the URL and fail the task rather than
+// overwriting the existing reading row.
+func TestHandleCompletion_ReadExistingURL_NonForce_FailsTask(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	// Seed an existing reading for this URL.
+	s.readingsByURL["https://example.com/post"] = &models.Reading{
+		ID:             "bf_existing",
+		TaskID:         "bf_prev",
+		URL:            "https://example.com/post",
+		Title:          "Existing",
+		TLDR:           "already captured",
+		NoveltyVerdict: "novel",
+	}
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_dup_bug",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Force:       false,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, n := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.1}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_dup_bug")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:           true,
+		Complete:       true,
+		TaskMode:       models.TaskModeRead,
+		URL:            "https://example.com/post",
+		TLDR:           "fresh-looking summary",
+		NoveltyVerdict: "novel",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_dup_bug")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("task.Status = %q, want failed (duplicate URL, non-forced)", got.Status)
+	}
+	if got.Error == "" {
+		t.Error("expected non-empty task.Error when non-forced task re-reads existing URL")
+	}
+
+	s.mu.Lock()
+	if len(s.createdReadings) != 0 {
+		t.Errorf("createdReadings = %d, want 0 (no write when URL already exists and !Force)", len(s.createdReadings))
+	}
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("upsertedReadings = %d, want 0 (no write when URL already exists and !Force)", len(s.upsertedReadings))
+	}
+	s.mu.Unlock()
+
+	// Embedder must not be called — no need to spend money embedding a known URL.
+	emb.mu.Lock()
+	if len(emb.calls) != 0 {
+		t.Errorf("embedder calls = %v, want none when duplicate is detected pre-embed", emb.calls)
+	}
+	emb.mu.Unlock()
+
+	events := n.eventTypes()
+	if len(events) != 1 || events[0] != notify.EventTaskFailed {
+		t.Errorf("events = %v, want [task.failed]", events)
+	}
+}
+
+// TestHandleCompletion_ReadExistingURL_Force_UpsertsOverExisting verifies that
+// when Force is true, an existing URL does NOT fail the task — it proceeds
+// through the upsert path and overwrites the existing row.
+func TestHandleCompletion_ReadExistingURL_Force_UpsertsOverExisting(t *testing.T) {
+	s := newMockStore()
+	now := time.Now().UTC()
+
+	s.CreateInstance(context.Background(), newLocalInstance())
+
+	s.readingsByURL["https://example.com/post"] = &models.Reading{
+		ID:     "bf_existing",
+		TaskID: "bf_prev",
+		URL:    "https://example.com/post",
+		Title:  "Existing",
+		TLDR:   "old summary",
+	}
+
+	s.CreateTask(context.Background(), &models.Task{
+		ID:          "bf_read_force_dup",
+		Status:      models.TaskStatusRunning,
+		TaskMode:    models.TaskModeRead,
+		Force:       true,
+		Prompt:      "https://example.com/post",
+		InstanceID:  "local",
+		ContainerID: "cont1",
+		StartedAt:   &now,
+	})
+
+	bus, _ := newTestBus()
+	emb := &mockEmbedder{vector: []float32{0.9}}
+	o := newTestOrchestrator(s, bus, withEmbedder(emb))
+	o.running = 1
+
+	task, _ := s.GetTask(context.Background(), "bf_read_force_dup")
+	o.handleCompletion(context.Background(), task, ContainerStatus{
+		Done:     true,
+		Complete: true,
+		TaskMode: models.TaskModeRead,
+		URL:      "https://example.com/post",
+		TLDR:     "refreshed summary",
+	})
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_force_dup")
+	if got.Status != models.TaskStatusCompleted {
+		t.Errorf("task.Status = %q, want completed (Force=true allows overwrite)", got.Status)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.upsertedReadings) != 1 {
+		t.Fatalf("upsertedReadings = %d, want 1", len(s.upsertedReadings))
+	}
+	if s.upsertedReadings[0].TLDR != "refreshed summary" {
+		t.Errorf("upserted TLDR = %q, want refreshed summary", s.upsertedReadings[0].TLDR)
 	}
 }
 
