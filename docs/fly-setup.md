@@ -16,24 +16,16 @@ fly apps create backflow
 
 ### 2. Set secrets
 
-Set all required env vars as Fly secrets. Pull values from your `.env`:
+Sync all required env vars from `.env` using the helper script:
 
 ```bash
-fly secrets set \
-  BACKFLOW_DATABASE_URL="..." \
-  ANTHROPIC_API_KEY="..." \
-  OPENAI_API_KEY="..." \
-  GITHUB_TOKEN="..." \
-  AWS_REGION="us-east-1" \
-  BACKFLOW_ECS_CLUSTER="..." \
-  BACKFLOW_ECS_TASK_DEFINITION="..." \
-  BACKFLOW_ECS_SUBNETS="..." \
-  BACKFLOW_ECS_SECURITY_GROUPS="..." \
-  BACKFLOW_CLOUDWATCH_LOG_GROUP="..." \
-  BACKFLOW_S3_BUCKET="..."
+./scripts/fly-secrets-sync.sh            # dry-run: prints what would be set (values masked)
+./scripts/fly-secrets-sync.sh --apply    # push to Fly (triggers one redeploy)
 ```
 
-Add integration secrets as needed (Discord, SMS/Twilio).
+The script reads `.env`, filters to an explicit allowlist of keys the Fly server consumes (see the script source for the list), and pipes the result to `fly secrets import`. Keys already defined in `fly.toml`'s `[env]` (`BACKFLOW_MODE`, `BACKFLOW_RESTRICT_API`) and local-only keys (cloudflared, `BACKFLOW_LOG_FILE`, EC2-mode config, etc.) are excluded.
+
+Useful flags: `--env-file <path>` to read a non-default env file, `--app <name>` to target a different Fly app.
 
 ### 3. Set AWS credentials
 

@@ -2,13 +2,9 @@
 
 Ledger of cross-PR tradeoffs. Each entry: decision → consequence for downstream work.
 
-## #175 — REST API reading task creation
+## #199 — SMS read dispatch and task-creation consolidation
 
-- **`task_mode` allow-list: `""`, `"auto"`, `"read"`.** Explicit `"code"` / `"review"` rejected — prompt inference is still the only path. Loosen `CreateTaskRequest.Validate` if a future caller needs explicit opt-in.
-
-## #174 — Reading completion pipeline
-
-- **`Event.TaskMode` populated in `NewEvent`.** #177's Discord reading embed can branch on `event.TaskMode == "read"` without further plumbing. Reading fields (`TLDR`, `NoveltyVerdict`, `Tags`, `Connections`) are also already on the event for read-task completions.
-- **Embeddings client is single-shot, no retries.** Failures surface as task failures; higher-level retry handles transients. Add retries later inside `OpenAIEmbedder` without changing the `Embedder` interface if 429/5xx rates become an issue.
-- **`reading.raw_output` is the marshaled `AgentStatus`, not a separate agent field.** Lossless for typed fields; adding new agent output requires extending `AgentStatus` (two lines).
-- **Deferred:** Discord reading embed formatting (#177), `GetReadingByURL`/reader accessors (no consumer yet), `SUPABASE_READER_KEY` custom JWT (dead-ended on Supabase side — using publishable key via `SUPABASE_ANON_KEY`, see `docs/supabase-setup.md`).
+- **Canonical task-creation lives in `internal/taskcreate/`, not `internal/api/`.** REST, Discord, and SMS all call `taskcreate.NewTask` / `taskcreate.NewReadTask` directly. `taskcreate` takes `notify.Emitter` and emits `task.created` itself — emission is a structural invariant, not a caller obligation. If a future entry point creates tasks, route it through `taskcreate` too; don't reintroduce a wrapper that optionally emits.
+- **`MessagingNotifier` lives in `internal/messaging/`, not `internal/notify/`.** Required to break the cycle `taskcreate → notify → messaging → taskcreate`. The rule going forward: transport-specific notifiers live alongside their transport. `notify/` stays transport-agnostic.
+- **Empty-TLDR is a reading-task failure (fresh or forced).** Enforced in `handleReadingCompletion` after the duplicate short-circuit. Downstream SMS/Discord/webhook all see the same `task.failed` signal. The duplicate short-circuit is the only path where an empty TLDR is acceptable (the existing reading row carries the real content).
+- **SMS read is HTTPS-only, first-URL-wins, no `force`.** `parseReadCommand` delegates URL validation to `discord.ValidateReadURL`. If a future change moves `ValidateReadURL` out of `internal/discord/` (it's a shared business rule, not a Discord concept), update the import in `internal/messaging/inbound.go`. A `force` flag for SMS read is deferred — add it by extending `parseReadCommand` to accept a trailing `force` keyword.
