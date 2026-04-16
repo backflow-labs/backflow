@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -201,21 +200,6 @@ func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models
 		return notify.WithReading(status.TLDR, status.NoveltyVerdict, status.Tags, status.Connections), nil
 	}
 
-	// Independent DB duplicate check. The agent's self-reported novelty_verdict
-	// is advisory — it can misclassify a previously-read URL as "novel" if it
-	// skipped the lookup step. The orchestrator is the source of truth for
-	// "does this URL already exist?", so re-check here before spending an
-	// embedding API call and potentially overwriting the existing row.
-	if !task.Force {
-		existing, err := o.store.GetReadingByURL(ctx, url)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("lookup reading by url: %w", err)
-		}
-		if existing != nil {
-			return nil, fmt.Errorf("reading already exists for url %q (id=%s); resubmit with force=true to overwrite", url, existing.ID)
-		}
-	}
-
 	vec, err := o.embedder.Embed(ctx, status.TLDR)
 	if err != nil {
 		return nil, fmt.Errorf("embed tldr: %w", err)
@@ -244,18 +228,8 @@ func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models
 		CreatedAt:      time.Now().UTC(),
 	}
 
-	// Force=true intentionally overwrites any existing row (by url unique index).
-	// Force=false is guaranteed to be a new URL by the duplicate check above,
-	// so CreateReading is sufficient — and if a race snuck a row in between the
-	// check and this insert, the unique constraint will surface that as an error.
-	if task.Force {
-		if err := o.store.UpsertReading(ctx, reading); err != nil {
-			return nil, fmt.Errorf("upsert reading: %w", err)
-		}
-	} else {
-		if err := o.store.CreateReading(ctx, reading); err != nil {
-			return nil, fmt.Errorf("create reading: %w", err)
-		}
+	if err := o.store.UpsertReading(ctx, reading); err != nil {
+		return nil, fmt.Errorf("upsert reading: %w", err)
 	}
 
 	return notify.WithReading(status.TLDR, status.NoveltyVerdict, status.Tags, status.Connections), nil

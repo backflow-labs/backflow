@@ -59,6 +59,15 @@ func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
 		if o.config.Mode == config.ModeFargate && o.config.ECSReaderTaskDefinition == "" {
 			return fmt.Errorf("cannot dispatch read task: no reader task definition configured (set BACKFLOW_ECS_READER_TASK_DEFINITION)")
 		}
+		if !task.Force {
+			existing, err := o.store.GetReadingByURL(ctx, task.Prompt)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("lookup reading by url: %w", err)
+			}
+			if existing != nil {
+				return o.failReadDuplicate(ctx, task, existing)
+			}
+		}
 	}
 
 	instance, err := o.findAvailableInstance(ctx)
@@ -93,6 +102,21 @@ func (o *Orchestrator) dispatch(ctx context.Context, task *models.Task) error {
 	o.bus.Emit(notify.NewEvent(notify.EventTaskRunning, task))
 
 	log.Info().Str("task_id", task.ID).Str("container", containerID).Str("instance", instance.InstanceID).Msg("task dispatched")
+	return nil
+}
+
+// failReadDuplicate short-circuits a read-mode dispatch when the URL is
+// already present in the readings table and the task did not request Force.
+// Marks the task failed with a user-actionable message and emits task.failed
+// directly. Returns nil so dispatchPending does not treat this as a dispatch
+// error (the task is already in its terminal state and the event is emitted).
+func (o *Orchestrator) failReadDuplicate(ctx context.Context, task *models.Task, existing *models.Reading) error {
+	msg := fmt.Sprintf("reading already exists for url %q (id=%s); resubmit with force=true to overwrite", task.Prompt, existing.ID)
+	if err := o.store.UpdateTaskStatus(ctx, task.ID, models.TaskStatusFailed, msg); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Msg("failReadDuplicate: failed to mark task failed")
+	}
+	o.bus.Emit(notify.NewEvent(notify.EventTaskFailed, task, notify.WithContainerStatus("", msg, "")))
+	log.Info().Str("task_id", task.ID).Str("url", task.Prompt).Str("existing_reading_id", existing.ID).Msg("read task short-circuited: duplicate URL")
 	return nil
 }
 
