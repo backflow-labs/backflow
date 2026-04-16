@@ -79,9 +79,9 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **api/** — chi router, handlers, JSON responses, `LogFetcher` interface, `NewTask` shared task-creation helper (used by both REST handler and Discord modal), `CancelTask` and `RetryTask` shared action helpers (used by both REST handler and Discord)
 - **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`, including `handleReadingCompletion` for read-mode tasks), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `CreateReading` / `UpsertReading` for the `readings` table.
-- **models/** — `Task`, `Instance`, `AllowedSender`, `DiscordInstall`, and `Reading` (+ `Connection`) structs with status enums. `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
+- **models/** — `Task`, `Instance`, `AllowedSender`, `DiscordInstall`, and `Reading` (+ `Connection`) structs with status enums. `Task.AgentImage` records which Docker image the orchestrator used (read tasks get `ReaderImage`, others get the default agent image). `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **embeddings/** — Thin `Embedder` interface (`Embed(ctx, text) ([]float32, error)`) with an `OpenAIEmbedder` HTTP client (no SDK). Used by the orchestrator to embed a reading's final TL;DR before writing the `readings` row.
-- **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
+- **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow read <url> [force]` for reading-mode task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `BACKFLOW_API_KEY` enables single-token API auth; otherwise `api_keys` in Postgres can back authenticated API/debug requests. `TaskDefaults(taskMode)` returns resolved defaults — for `read` mode it swaps in `ReaderImage` plus the `BACKFLOW_DEFAULT_READ_MAX_*` caps. `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
 - **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options (including `WithReading` for read-mode completion events), `MessagingNotifier` (SMS via Twilio for reply channels). `Event` carries `TaskMode` plus optional reading fields (`TLDR`, `NoveltyVerdict`, `Tags`, `Connections`) populated only for read-task completion events.
 - **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
@@ -125,7 +125,7 @@ Optional env vars:
 - `BACKFLOW_DISCORD_ALLOWED_ROLES` (comma-separated role IDs for mutation authorization)
 - `BACKFLOW_DISCORD_EVENTS` (comma-separated event filter; nil = all events)
 
-At startup, Backflow persists the install config to the `discord_installs` table, registers the `/backflow` slash command (with `create`, `status`, `list`, `cancel`, and `retry` subcommands) via the Discord API, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` to the event bus. The `/backflow create` subcommand opens a modal dialog for task creation. The `/backflow cancel <task_id>` and `/backflow retry <task_id>` subcommands cancel or retry tasks respectively, with role-based permission enforcement via `BACKFLOW_DISCORD_ALLOWED_ROLES`. The notifier creates a channel message on the first event for each task, then posts subsequent events as replies in a per-task thread. Thread messages include Cancel buttons for active tasks and Retry buttons for failed/interrupted tasks (cancelled tasks show a Retry button only after container cleanup completes).
+At startup, Backflow persists the install config to the `discord_installs` table, registers the `/backflow` slash command (with `create`, `status`, `list`, `cancel`, `retry`, and `read` subcommands) via the Discord API, mounts the interaction handler at `/webhooks/discord`, and subscribes a `DiscordNotifier` to the event bus. The `/backflow create` subcommand opens a modal dialog for task creation. The `/backflow read <url> [force]` subcommand creates a `task_mode=read` task for the given URL; the optional `force` flag bypasses the exact-URL duplicate check and upserts the existing reading on completion. The `/backflow cancel <task_id>` and `/backflow retry <task_id>` subcommands cancel or retry tasks respectively. All mutation commands enforce role-based permissions via `BACKFLOW_DISCORD_ALLOWED_ROLES`. The notifier creates a channel message on the first event for each task, then posts subsequent events as replies in a per-task thread. Thread messages include Cancel buttons for active tasks and Retry buttons for failed/interrupted tasks (cancelled tasks show a Retry button only after container cleanup completes).
 
 ## Reading mode
 
@@ -140,7 +140,16 @@ On completion, the orchestrator's `handleReadingCompletion` helper (in `internal
 
 If the embedding API call or the DB write fails, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. If `embedder` is nil (no `OPENAI_API_KEY` configured), reading tasks fail at completion.
 
-The reading agent image and reader-side shell scripts live in `docker/reader/`; see `docs/supabase-setup.md` for the PostgREST-backed similarity-search path the agent uses during its session.
+The reading agent image and reader-side shell scripts live in `docker/reader/`:
+
+- `reader-entrypoint.sh` — Image entrypoint: runs the harness, extracts JSON via `reader_helpers.sh`, writes `status.json` via `status_writer.sh`, emits `BACKFLOW_STATUS_JSON:` for Fargate.
+- `read-embed.sh` — Embeds text via OpenAI `text-embedding-3-small`. Used by the agent to embed a draft TL;DR for similarity search.
+- `read-similar.sh` — Semantic similarity search: embeds input text, calls the `reader.match_readings` RPC via PostgREST.
+- `read-lookup.sh` — Exact-URL duplicate check via PostgREST.
+- `reader_helpers.sh` — JSON extraction helpers (pulls the first JSON object from the agent transcript).
+- `status_writer.sh` — Shared helper for writing `status.json` and the Fargate `BACKFLOW_STATUS_JSON:` log line.
+
+See `docs/supabase-setup.md` for the PostgREST-backed similarity-search path the agent uses during its session.
 
 Reading-mode env vars:
 
@@ -222,7 +231,7 @@ In Docker mode, secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`) 
 
 ## Database
 
-PostgreSQL via Supabase (session pooler). Migrations are managed by [goose](https://github.com/pressly/goose) and live in `migrations/`. The store implementation is in `internal/store/postgres.go` using `pgxpool`. Set `BACKFLOW_DATABASE_URL` to the Supabase session pooler connection string.
+PostgreSQL via Supabase (session pooler). Tables: `tasks`, `instances`, `allowed_senders`, `api_keys`, `readings`, `discord_installs`, `discord_task_threads`. See `docs/schema.md` for the full column-level schema. Migrations are managed by [goose](https://github.com/pressly/goose) and live in `migrations/`. The store implementation is in `internal/store/postgres.go` using `pgxpool`. Set `BACKFLOW_DATABASE_URL` to the Supabase session pooler connection string.
 
 Migration workflow:
 
