@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Backflow</title>
+  <meta name="description" content="Backflow runs coding agents in ephemeral containers. Submit tasks via API, Discord, or SMS.">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -59,7 +60,18 @@
       font-size: 0.9rem;
     }
 
-    nav a:hover { color: #1a1a1a; }
+    nav a:hover,
+    nav a:focus-visible { color: #1a1a1a; }
+
+    nav a:focus-visible,
+    footer a:focus-visible,
+    .repo-link:focus-visible {
+      outline: 2px solid #1a1a1a;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    nav a[aria-current="page"] { color: #1a1a1a; font-weight: 600; }
 
     /* Main content */
     main {
@@ -129,7 +141,8 @@
       font-size: 0.9rem;
     }
 
-    .repo-link:hover { color: #1a1a1a; }
+    .repo-link:hover,
+    .repo-link:focus-visible { color: #1a1a1a; }
 
     /* Legal pages */
     .legal h1 {
@@ -172,15 +185,16 @@
       justify-content: space-between;
       align-items: center;
       font-size: 0.85rem;
-      color: #999;
+      color: #595959;
     }
 
     footer a {
-      color: #999;
+      color: #595959;
       text-decoration: none;
     }
 
-    footer a:hover { color: #666; }
+    footer a:hover,
+    footer a:focus-visible { color: #1a1a1a; }
 
     footer .footer-links {
       display: flex;
@@ -199,8 +213,8 @@
   <div class="container">
     <a href="/" class="logo" onclick="navigate(event, '/')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="28" height="28" class="logo-icon"><defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0f172a"/><stop offset="100%" stop-color="#1e293b"/></linearGradient><linearGradient id="flow1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#06b6d4"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient><linearGradient id="flow2" x1="100%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient><linearGradient id="center" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#22d3ee"/><stop offset="50%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#c084fc"/></linearGradient><filter id="glow"><feGaussianBlur stdDeviation="6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="softglow"><feGaussianBlur stdDeviation="12" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="512" height="512" rx="80" fill="url(#bg)"/><g opacity="0.04" stroke="#94a3b8" stroke-width="1"><line x1="128" y1="0" x2="128" y2="512"/><line x1="256" y1="0" x2="256" y2="512"/><line x1="384" y1="0" x2="384" y2="512"/><line x1="0" y1="128" x2="512" y2="128"/><line x1="0" y1="256" x2="512" y2="256"/><line x1="0" y1="384" x2="512" y2="384"/></g><clipPath id="clip"><rect width="512" height="512" rx="80"/></clipPath><g clip-path="url(#clip)"><g filter="url(#glow)"><path d="M 340 148 C 270 148, 220 148, 180 148 C 130 148, 100 190, 100 256 C 100 322, 130 364, 180 364" fill="none" stroke="url(#flow1)" stroke-width="34" stroke-linecap="round"/></g><g filter="url(#glow)"><path d="M 172 364 C 242 364, 292 364, 332 364 C 382 364, 412 322, 412 256 C 412 190, 382 148, 332 148" fill="none" stroke="url(#flow2)" stroke-width="34" stroke-linecap="round"/></g><g filter="url(#softglow)" opacity="0.9"><path d="M 224 232 L 212 256 L 224 280" fill="none" stroke="url(#center)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M 288 232 L 300 256 L 288 280" fill="none" stroke="url(#center)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="270" y1="235" x2="242" y2="277" stroke="url(#center)" stroke-width="7" stroke-linecap="round"/></g></g></svg> Backflow</a>
     <div class="nav-links">
-      <a href="/privacy" onclick="navigate(event, '/privacy')">Privacy</a>
-      <a href="/terms" onclick="navigate(event, '/terms')">Terms</a>
+      <a href="/privacy" data-path="/privacy" onclick="navigate(event, '/privacy')">Privacy</a>
+      <a href="/terms" data-path="/terms" onclick="navigate(event, '/terms')">Terms</a>
     </div>
   </div>
 </nav>
@@ -260,10 +274,11 @@
     <p>If you have provided your phone number and are authorized to use Backflow, we may send you SMS messages relating to tasks you have submitted (for example, status updates when a task starts, completes, fails, or is cancelled).</p>
     <ul>
       <li><strong>Opt-in:</strong> You are added to the service only after the system operator receives your explicit consent and registers your phone number on the internal allow-list. You initiate the messaging relationship by texting in.</li>
-      <li><strong>Opt-out:</strong> You may opt out at any time by replying STOP to any message. You will receive a confirmation and will not be sent further messages.</li>
+      <li><strong>Opt-out:</strong> You may opt out at any time by replying STOP to any message. You will receive a one-time confirmation that you have been unsubscribed from Backflow task notifications and will not be sent further messages.</li>
       <li><strong>Help:</strong> Reply HELP for assistance, or contact <a href="mailto:privacy@bbell.dev">privacy@bbell.dev</a>.</li>
       <li><strong>Message frequency:</strong> Varies depending on how often you submit tasks. Typical volume is 1&ndash;10 messages per day.</li>
       <li><strong>Message and data rates may apply.</strong></li>
+      <li>Carriers are not liable for delayed or undelivered messages.</li>
     </ul>
     <p>We do not share your phone number with third parties for marketing purposes.</p>
 
@@ -338,17 +353,29 @@
   }
 
   function route() {
-    var path = location.pathname;
-    var sections = document.querySelectorAll('main section');
-    for (var i = 0; i < sections.length; i++) {
-      sections[i].classList.remove('active');
+    let path = location.pathname;
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+
+    const sections = document.querySelectorAll('main section');
+    for (const section of sections) {
+      section.classList.remove('active');
     }
 
-    var id = 'home';
+    let id = 'home';
     if (path === '/privacy') id = 'privacy';
     else if (path === '/terms') id = 'terms';
 
     document.getElementById(id).classList.add('active');
+
+    const navLinks = document.querySelectorAll('nav a[data-path]');
+    for (const link of navLinks) {
+      if (link.dataset.path === path) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
+    }
+
     window.scrollTo(0, 0);
     document.title = id === 'home' ? 'Backflow' : 'Backflow - ' + id.charAt(0).toUpperCase() + id.slice(1);
   }
