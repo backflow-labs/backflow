@@ -167,3 +167,37 @@ func TestFormatEventMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatEventMessage_ReadCompletionIncludesTLDRAndTags(t *testing.T) {
+	msg := formatEventMessage(Event{
+		Type:     EventTaskCompleted,
+		TaskMode: "read",
+		TLDR:     "Short summary",
+		Tags:     []string{"ai", "systems"},
+	})
+
+	if strings.Contains(msg, "Task ") {
+		t.Fatalf("message should not use generic task-completed copy, got %q", msg)
+	}
+	if !strings.Contains(msg, "TLDR: Short summary") {
+		t.Fatalf("message %q does not include TLDR", msg)
+	}
+	if !strings.Contains(msg, "Tags: ai, systems") {
+		t.Fatalf("message %q does not include tags", msg)
+	}
+}
+
+func TestFormatEventMessage_ReadCompletionOmitsEmptyTags(t *testing.T) {
+	msg := formatEventMessage(Event{
+		Type:     EventTaskCompleted,
+		TaskMode: "read",
+		TLDR:     "Short summary",
+	})
+
+	if !strings.Contains(msg, "TLDR: Short summary") {
+		t.Fatalf("message %q does not include TLDR", msg)
+	}
+	if strings.Contains(msg, "Tags:") {
+		t.Fatalf("message should omit empty tags, got %q", msg)
+	}
+}

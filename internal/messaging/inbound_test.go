@@ -147,7 +147,7 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -198,11 +198,97 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 	}
 }
 
+func TestInboundHandler_ReadCommandCreatesReadTask(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				Enabled:     true,
+			},
+		},
+	}
+	cfg := newTestConfig()
+	cfg.ReaderImage = "reader:latest"
+	handler := InboundHandler(db, cfg, NoopMessenger{}, nil)
+
+	w := postForm(handler, url.Values{
+		"From": {"+15551234567"},
+		"Body": {"Read https://example.com/article trailing words"},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if len(db.tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(db.tasks))
+	}
+	task := db.tasks[0]
+	if task.TaskMode != models.TaskModeRead {
+		t.Fatalf("task_mode = %q, want %q", task.TaskMode, models.TaskModeRead)
+	}
+	if task.Prompt != "https://example.com/article" {
+		t.Fatalf("prompt = %q, want first URL only", task.Prompt)
+	}
+	if task.CreatePR {
+		t.Fatal("CreatePR = true, want false for read mode")
+	}
+
+	var resp twiMLResponse
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid TwiML: %v", err)
+	}
+	if resp.Message == nil {
+		t.Fatal("expected TwiML message")
+	}
+	if !strings.Contains(resp.Message.Body, "Reading https://example.com/article...") {
+		t.Fatalf("unexpected response: %q", resp.Message.Body)
+	}
+}
+
+func TestInboundHandler_InvalidReadCommandDoesNotCreateTask(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				Enabled:     true,
+			},
+		},
+	}
+	cfg := newTestConfig()
+	cfg.ReaderImage = "reader:latest"
+	handler := InboundHandler(db, cfg, NoopMessenger{}, nil)
+
+	w := postForm(handler, url.Values{
+		"From": {"+15551234567"},
+		"Body": {"Read http://example.com/article"},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if len(db.tasks) != 0 {
+		t.Fatalf("expected no tasks, got %d", len(db.tasks))
+	}
+
+	var resp twiMLResponse
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid TwiML: %v", err)
+	}
+	if resp.Message == nil {
+		t.Fatal("expected TwiML message")
+	}
+	if !strings.Contains(resp.Message.Body, "invalid read command") {
+		t.Fatalf("unexpected response: %q", resp.Message.Body)
+	}
+}
+
 func TestInboundHandler_RejectedSender(t *testing.T) {
 	db := &mockStore{
 		senders: map[string]*models.AllowedSender{},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15559999999"},
@@ -236,7 +322,7 @@ func TestInboundHandler_DisabledSender(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -261,7 +347,7 @@ func TestInboundHandler_WithExplicitRepo(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -288,7 +374,7 @@ func TestInboundHandler_WithExplicitRepo(t *testing.T) {
 
 func TestInboundHandler_MissingFields(t *testing.T) {
 	db := &mockStore{senders: map[string]*models.AllowedSender{}}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -312,7 +398,7 @@ func TestInboundHandler_WhitespaceOnlyBody(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -338,7 +424,7 @@ func TestInboundHandler_AutoDetectsReviewMode(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -372,7 +458,7 @@ func TestInboundHandler_ReviewModePRURLOnly(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	// SMS body is just a PR URL — handler forwards it as-is, no review detection.
 	w := postForm(handler, url.Values{
@@ -406,7 +492,7 @@ func TestInboundHandler_TaskDefaults(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -492,7 +578,7 @@ func TestInboundHandler_RejectsInvalidSignature(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	// Request with no signature header — must be rejected
 	w := postUnsignedForm(handler, url.Values{
@@ -519,7 +605,7 @@ func TestInboundHandler_AcceptsValidSignature(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	// postForm signs automatically — should succeed
 	w := postForm(handler, url.Values{

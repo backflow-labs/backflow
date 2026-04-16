@@ -163,7 +163,9 @@ func main() {
 	// The auth token is required for Twilio signature validation — without it the
 	// endpoint would accept unauthenticated requests.
 	if cfg.SMSProvider != "" && cfg.TwilioAuthToken != "" {
-		router.Post("/webhooks/sms/inbound", messaging.InboundHandler(db, cfg, messenger))
+		router.Post("/webhooks/sms/inbound", messaging.InboundHandler(db, cfg, messenger, func(ctx context.Context, req *models.CreateTaskRequest) (*models.Task, error) {
+			return api.NewTask(ctx, req, db, cfg, bus)
+		}))
 		log.Info().Msg("SMS inbound webhook mounted at /webhooks/sms/inbound")
 	} else if cfg.SMSProvider != "" {
 		log.Warn().Msg("SMS inbound webhook NOT mounted: TWILIO_AUTH_TOKEN is required")

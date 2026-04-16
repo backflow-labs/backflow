@@ -82,6 +82,18 @@ func parseReplyChannel(rc string) (messaging.Channel, error) {
 func formatEventMessage(event Event) string {
 	switch event.Type {
 	case EventTaskCompleted:
+		if event.TaskMode == "read" {
+			lines := []string{}
+			if event.TLDR != "" {
+				lines = append(lines, fmt.Sprintf("TLDR: %s", event.TLDR))
+			}
+			if len(event.Tags) > 0 {
+				lines = append(lines, fmt.Sprintf("Tags: %s", strings.Join(event.Tags, ", ")))
+			}
+			if len(lines) > 0 {
+				return strings.Join(lines, "\n")
+			}
+		}
 		msg := fmt.Sprintf("Task %s completed.", event.TaskID)
 		if event.PRURL != "" {
 			msg += fmt.Sprintf("\nPR: %s", event.PRURL)

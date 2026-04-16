@@ -119,6 +119,7 @@ func (t *Task) EnvVarsJSON() string {
 type CreateTaskRequest struct {
 	Prompt          string            `json:"prompt"`
 	TaskMode        *string           `json:"task_mode,omitempty"`
+	ReplyChannel    string            `json:"-"`
 	Harness         string            `json:"harness,omitempty"`
 	Context         string            `json:"context,omitempty"`
 	Model           string            `json:"model,omitempty"`
@@ -179,7 +180,7 @@ func (r *CreateTaskRequest) Validate() error {
 	if r.Prompt == "" {
 		return fmt.Errorf("prompt is required")
 	}
-	for _, s := range []string{r.Prompt, r.Context, r.ClaudeMD, r.PRTitle, r.PRBody, r.Model, r.Harness, r.Effort} {
+	for _, s := range []string{r.Prompt, r.ReplyChannel, r.Context, r.ClaudeMD, r.PRTitle, r.PRBody, r.Model, r.Harness, r.Effort} {
 		if containsNullByte(s) {
 			return fmt.Errorf("request contains invalid null bytes")
 		}
