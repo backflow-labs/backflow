@@ -414,6 +414,26 @@ func TestDiscordEmbedFormatting(t *testing.T) {
 		}
 	})
 
+	t.Run("reading completed empty verdict", func(t *testing.T) {
+		embed := discordEmbedForEvent(Event{
+			Type:      EventTaskCompleted,
+			TaskID:    "bf_r5",
+			TaskMode:  "read",
+			TLDR:      "Overview of Go concurrency patterns",
+			Timestamp: time.Now().UTC(),
+		})
+
+		if embed.Title != "Reading completed" {
+			t.Fatalf("Title = %q, want %q", embed.Title, "Reading completed")
+		}
+		if embed.Color != 0x57F287 {
+			t.Fatalf("Color = %#x, want 0x57F287 (green)", embed.Color)
+		}
+		if containsField(embed.Fields, "Verdict", "") {
+			t.Fatal("embed should not have Verdict field when NoveltyVerdict is empty")
+		}
+	})
+
 	t.Run("reading failed shows reading-specific title", func(t *testing.T) {
 		embed := discordEmbedForEvent(Event{
 			Type:         EventTaskFailed,
