@@ -12,21 +12,29 @@ import (
 	"github.com/backflow-labs/backflow/internal/models"
 )
 
-// ValidateReadURL validates that input is a syntactically well-formed absolute
-// URL with a scheme and host. It does not check reachability, enforce a scheme
-// allowlist, or restrict domains — those are deliberately out of scope.
-// The returned string is the trimmed input on success.
+// maxReadURLLength caps the length of a URL submitted to /backflow read.
+// Keeps pathological inputs out of the task prompt and DB while leaving
+// comfortable headroom over the common 2048-byte browser limit.
+const maxReadURLLength = 8192
+
+// ValidateReadURL validates that input is a well-formed https:// URL with a
+// host and no control characters, and that it does not exceed maxReadURLLength.
+// It does not check reachability or restrict domains. The returned string is
+// the trimmed input on success.
 func ValidateReadURL(input string) (string, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return "", fmt.Errorf("url is required")
 	}
+	if len(trimmed) > maxReadURLLength {
+		return "", fmt.Errorf("url exceeds %d characters", maxReadURLLength)
+	}
 	u, err := url.Parse(trimmed)
 	if err != nil {
 		return "", fmt.Errorf("invalid url: %w", err)
 	}
-	if u.Scheme == "" {
-		return "", fmt.Errorf("url must include a scheme (e.g. https://)")
+	if u.Scheme != "https" {
+		return "", fmt.Errorf("url must use https scheme")
 	}
 	if u.Host == "" {
 		return "", fmt.Errorf("url must include a host")
@@ -74,8 +82,23 @@ func handleReadCommand(ctx context.Context, w http.ResponseWriter, interaction I
 		})
 		return
 	}
-	if _, err := actions.CreateTask(ctx, req); err != nil {
-		log.Warn().Err(err).Msg("discord: failed to create read task")
+	task, err := actions.CreateTask(ctx, req)
+	if err != nil {
+		userID := ""
+		if interaction.Member != nil && interaction.Member.User != nil {
+			userID = interaction.Member.User.ID
+		}
+		taskID := ""
+		if task != nil {
+			taskID = task.ID
+		}
+		log.Warn().
+			Err(err).
+			Str("url", validated).
+			Str("guild_id", interaction.GuildID).
+			Str("user_id", userID).
+			Str("task_id", taskID).
+			Msg("discord: failed to create read task")
 		respondJSON(w, ChannelMessageResponse{
 			Type: ResponseTypeChannelMessage,
 			Data: MessageData{Content: fmt.Sprintf("Failed to create reading task: %s", err.Error()), Flags: FlagEphemeral},

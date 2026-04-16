@@ -51,13 +51,17 @@ func TestValidateReadURL(t *testing.T) {
 	}{
 		{name: "valid https URL", input: "https://example.com", want: "https://example.com"},
 		{name: "valid URL with path, query, fragment", input: "https://example.com/a/b?x=1#frag", want: "https://example.com/a/b?x=1#frag"},
-		{name: "non-https scheme allowed", input: "ftp://example.com", want: "ftp://example.com"},
+		{name: "http scheme rejected", input: "http://example.com", wantErr: true},
+		{name: "ftp scheme rejected", input: "ftp://example.com", wantErr: true},
+		{name: "file scheme rejected", input: "file:///etc/passwd", wantErr: true},
 		{name: "trims whitespace", input: "   https://example.com  ", want: "https://example.com"},
 		{name: "empty string", input: "", wantErr: true},
 		{name: "whitespace only", input: "   ", wantErr: true},
 		{name: "bare text no scheme", input: "example.com", wantErr: true},
 		{name: "scheme without host", input: "https://", wantErr: true},
 		{name: "null byte rejected", input: "https://example.com\x00/abc", wantErr: true},
+		{name: "exceeds max length", input: "https://example.com/" + strings.Repeat("a", maxReadURLLength), wantErr: true},
+		{name: "at max length is valid", input: "https://example.com/" + strings.Repeat("a", maxReadURLLength-len("https://example.com/")), want: "https://example.com/" + strings.Repeat("a", maxReadURLLength-len("https://example.com/"))},
 	}
 
 	for _, tc := range tests {
@@ -129,8 +133,8 @@ func TestInteractionHandler_ReadCommand_InvalidURL(t *testing.T) {
 	if resp.Data.Flags != FlagEphemeral {
 		t.Errorf("flags = %d, want %d (ephemeral)", resp.Data.Flags, FlagEphemeral)
 	}
-	if !strings.Contains(strings.ToLower(resp.Data.Content), "url") {
-		t.Errorf("content = %q, want url-validation message", resp.Data.Content)
+	if !strings.HasPrefix(resp.Data.Content, "Invalid url:") {
+		t.Errorf("content = %q, want prefix %q", resp.Data.Content, "Invalid url:")
 	}
 	if len(calls) != 0 {
 		t.Errorf("CreateTask should not have been called, got %d calls", len(calls))
