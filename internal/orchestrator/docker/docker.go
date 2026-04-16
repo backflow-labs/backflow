@@ -163,8 +163,6 @@ func (m *Manager) buildEnvFlags(task *models.Task) []string {
 	}
 
 	if task.TaskMode == models.TaskModeRead {
-		// Reader container reads URL (not PROMPT).
-		flags = append(flags, envFlag("URL", shellEscape(task.Prompt)))
 		// SUPABASE_ANON_KEY is a low-privilege publishable JWT (RLS-scoped SELECT only),
 		// so it's passed via -e rather than --env-file.
 		if m.config.SupabaseURL != "" {

@@ -284,8 +284,6 @@ func (m *Manager) buildECSEnvVars(task *models.Task) []ecstypes.KeyValuePair {
 	}
 
 	if task.TaskMode == models.TaskModeRead {
-		// Reader container reads URL (not PROMPT).
-		vars = append(vars, ecsEnvVar("URL", task.Prompt))
 		if m.config.SupabaseURL != "" {
 			vars = append(vars, ecsEnvVar("SUPABASE_URL", m.config.SupabaseURL))
 		}

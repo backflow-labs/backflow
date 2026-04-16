@@ -169,41 +169,6 @@ func TestFargateBuildECSEnvVars_ReadModeIncludesSupabase(t *testing.T) {
 	}
 }
 
-func TestFargateBuildECSEnvVars_ReadModePassesURL(t *testing.T) {
-	manager := NewManager(&config.Config{}, nil)
-	task := &models.Task{
-		ID:       "bf_01ABC",
-		TaskMode: models.TaskModeRead,
-		Prompt:   "https://example.com/article",
-	}
-
-	envVars := manager.buildECSEnvVars(task)
-	got := make(map[string]string, len(envVars))
-	for _, pair := range envVars {
-		got[aws.ToString(pair.Name)] = aws.ToString(pair.Value)
-	}
-
-	if got["URL"] != "https://example.com/article" {
-		t.Errorf("URL = %q, want %q", got["URL"], "https://example.com/article")
-	}
-}
-
-func TestFargateBuildECSEnvVars_NonReadModeOmitsURL(t *testing.T) {
-	manager := NewManager(&config.Config{}, nil)
-	task := &models.Task{
-		ID:       "bf_01ABC",
-		TaskMode: models.TaskModeCode,
-		Prompt:   "fix the bug",
-	}
-
-	envVars := manager.buildECSEnvVars(task)
-	for _, pair := range envVars {
-		if aws.ToString(pair.Name) == "URL" {
-			t.Error("URL should be omitted for non-read mode")
-		}
-	}
-}
-
 func TestFargateBuildECSEnvVars_NonReadModeOmitsSupabase(t *testing.T) {
 	manager := NewManager(&config.Config{
 		SupabaseURL:     "https://test.supabase.co",
