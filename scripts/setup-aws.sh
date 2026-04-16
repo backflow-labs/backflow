@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Backflow AWS infrastructure setup
 # Creates: ECR repos (agent + reader), IAM roles, security group, S3 bucket,
-#          launch template (EC2 mode), ECS cluster + task definition (Fargate mode),
-#          and GitHub Actions OIDC provider + CI deploy role
+#          launch template (EC2 mode), ECS cluster + agent and reader task
+#          definitions (Fargate mode), and GitHub Actions OIDC provider + CI
+#          deploy role
 
 # Disable the AWS CLI v2 pager so every aws call runs non-interactively.
 export AWS_PAGER=""
@@ -20,6 +21,7 @@ LT_NAME="backflow-agent-lt"
 INSTANCE_TYPE="${BACKFLOW_INSTANCE_TYPE:-m7g.xlarge}"
 ECS_CLUSTER="backflow"
 ECS_CONTAINER_NAME="backflow-agent"
+READER_TASK_FAMILY="backflow-reader"
 CW_LOG_GROUP="/ecs/backflow"
 ECS_EXECUTION_ROLE="backflow-ecs-execution-role"
 ECS_TASK_ROLE="backflow-ecs-task-role"
@@ -554,6 +556,47 @@ TASK_DEF_ARN=$(aws ecs register-task-definition \
     --output text)
 echo "    Task definition: ${TASK_DEF_ARN}"
 
+# --- ECS Reader Task Definition ---
+# Reader-mode tasks need their own task definition because ECS's ContainerOverride
+# cannot override the container image. The container name must match the agent
+# task def's container name (${ECS_CONTAINER_NAME}) so ContainerOverride resolves
+# correctly — see internal/orchestrator/fargate/fargate.go:selectTaskDefinition.
+echo "==> Registering ECS reader task definition..."
+READER_TASK_DEF=$(cat <<TDEOF
+{
+  "family": "${READER_TASK_FAMILY}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "8192",
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE}",
+  "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/${ECS_TASK_ROLE}",
+  "containerDefinitions": [
+    {
+      "name": "${ECS_CONTAINER_NAME}",
+      "image": "${READER_ECR_URI}:latest",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${CW_LOG_GROUP}",
+          "awslogs-region": "${REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
+TDEOF
+)
+
+READER_TASK_DEF_ARN=$(aws ecs register-task-definition \
+    --cli-input-json "$READER_TASK_DEF" \
+    --region "$REGION" \
+    --query 'taskDefinition.taskDefinitionArn' \
+    --output text)
+echo "    Reader task definition: ${READER_TASK_DEF_ARN}"
+
 # =============================================================================
 # Fly.io deployment IAM user
 # =============================================================================
@@ -582,7 +625,8 @@ FLY_POLICY=$(cat <<FLYEOF
       "Resource": [
         "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${ECS_CLUSTER}",
         "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task/${ECS_CLUSTER}/*",
-        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${ECS_CONTAINER_NAME}:*"
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${ECS_CONTAINER_NAME}:*",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${READER_TASK_FAMILY}:*"
       ]
     },
     {
@@ -644,6 +688,7 @@ echo "For Fargate mode, add these to your .env:"
 echo "  BACKFLOW_MODE=fargate"
 echo "  BACKFLOW_ECS_CLUSTER=${ECS_CLUSTER}"
 echo "  BACKFLOW_ECS_TASK_DEFINITION=${ECS_CONTAINER_NAME}"
+echo "  BACKFLOW_ECS_READER_TASK_DEFINITION=${READER_TASK_FAMILY}"
 echo "  BACKFLOW_ECS_SUBNETS=${SUBNET_IDS}"
 echo "  BACKFLOW_ECS_SECURITY_GROUPS=${SG_ID}"
 echo "  BACKFLOW_CLOUDWATCH_LOG_GROUP=${CW_LOG_GROUP}"
