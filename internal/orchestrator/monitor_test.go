@@ -638,9 +638,8 @@ func TestHandleCompletion_ReadEmptyURL_MarksTaskFailed(t *testing.T) {
 	}
 
 	s.mu.Lock()
-	if len(s.createdReadings) != 0 || len(s.upsertedReadings) != 0 {
-		t.Errorf("no reading should be written for empty URL: created=%d upserted=%d",
-			len(s.createdReadings), len(s.upsertedReadings))
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("no reading should be written for empty URL: upserted=%d", len(s.upsertedReadings))
 	}
 	s.mu.Unlock()
 
@@ -841,8 +840,8 @@ func TestHandleCompletion_ReadEmbedFailure_MarksTaskFailed(t *testing.T) {
 	}
 
 	s.mu.Lock()
-	if len(s.createdReadings) != 0 || len(s.upsertedReadings) != 0 {
-		t.Errorf("reading written on embed failure: created=%d upserted=%d", len(s.createdReadings), len(s.upsertedReadings))
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("reading written on embed failure: upserted=%d", len(s.upsertedReadings))
 	}
 	s.mu.Unlock()
 
