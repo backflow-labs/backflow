@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -196,8 +197,23 @@ func (o *Orchestrator) handleReadingCompletion(ctx context.Context, task *models
 
 	// Agent confirmed the URL already exists — complete without overwriting
 	// the existing reading (which has richer content than the duplicate stub).
+	// We intentionally allow an empty TLDR here: "duplicate" is a legitimate
+	// success outcome, the existing reading carries the user-facing content,
+	// and downstream notifiers can format a "already read" message without
+	// the agent having to re-summarize. Fresh (non-duplicate) reads below
+	// must produce a non-empty TLDR.
 	if status.NoveltyVerdict == "duplicate" && !task.Force {
 		return notify.WithReading(status.TLDR, status.NoveltyVerdict, status.Tags, status.Connections), nil
+	}
+
+	// Reading-mode contract: a successful read must produce a non-empty TLDR.
+	// An empty TLDR means the agent couldn't summarize (paywall, empty page,
+	// crash after writing a stub status.json) — telling the user "completed"
+	// in that case is a lie and wastes their budget. Fail fast with a clear
+	// message so the failure notifier path surfaces it uniformly across SMS,
+	// Discord, and webhooks.
+	if strings.TrimSpace(status.TLDR) == "" {
+		return nil, fmt.Errorf("reading completion: agent returned empty TLDR for %s", url)
 	}
 
 	vec, err := o.embedder.Embed(ctx, status.TLDR)

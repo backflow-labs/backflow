@@ -77,15 +77,16 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 
 ### Key modules (`internal/`)
 
-- **api/** — chi router, handlers, JSON responses, `LogFetcher` interface, `NewTask` shared task-creation helper (used by both REST handler and Discord modal), `CancelTask` and `RetryTask` shared action helpers (used by both REST handler and Discord)
+- **api/** — chi router, HTTP handlers, JSON responses, `LogFetcher` interface. The `POST /tasks` handler calls `taskcreate.NewTask`; `CancelTask` and `RetryTask` shared action helpers are used by both REST handlers and Discord.
+- **taskcreate/** — Canonical task-creation layer (`NewTask`, `NewReadTask`, `ErrStoreFailure`). Validates the request, applies config defaults, persists the task, and (when a non-nil `notify.Emitter` is passed) emits `task.created`. All three entry points (REST, Discord, SMS) go through this package, so every successfully created task produces exactly one `task.created` event — this is a structural invariant, pinned by tests.
 - **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`, including `handleReadingCompletion` for read-mode tasks), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
 - **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `UpsertReading` / `GetReadingByURL` for the `readings` table.
 - **models/** — `Task`, `Instance`, `AllowedSender`, `DiscordInstall`, and `Reading` (+ `Connection`) structs with status enums. `Task.AgentImage` records which Docker image the orchestrator used (read tasks get `ReaderImage`, others get the default agent image). `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **embeddings/** — Thin `Embedder` interface (`Embed(ctx, text) ([]float32, error)`) with an `OpenAIEmbedder` HTTP client (no SDK). Used by the orchestrator to embed a reading's final TL;DR before writing the `readings` row.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow read <url> [force]` for reading-mode task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
 - **config/** — Env-var config (`BACKFLOW_*` prefix), three modes (`ec2`/`local`/`fargate`). `RestrictAPI` blocks all `/api/v1/*` endpoints when `BACKFLOW_RESTRICT_API=true` (used in Fly.io deployment). `BACKFLOW_API_KEY` enables single-token API auth; otherwise `api_keys` in Postgres can back authenticated API/debug requests. `TaskDefaults(taskMode)` returns resolved defaults — for `read` mode it swaps in `ReaderImage` plus the `BACKFLOW_DEFAULT_READ_MAX_*` caps. `Apply(task, overrides)` fills zero-value fields using `*bool` overrides (nil = use default, non-nil = use pointed value)
-- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options (including `WithReading` for read-mode completion events), `MessagingNotifier` (SMS via Twilio for reply channels). `Event` carries `TaskMode` plus optional reading fields (`TLDR`, `NoveltyVerdict`, `Tags`, `Connections`) populated only for read-task completion events.
-- **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS), inbound SMS webhook handler, message parsing
+- **notify/** — `Notifier` interface, `WebhookNotifier` (HTTP POST, 3 retries, event filtering), `DiscordNotifier` (lifecycle messages in channel + per-task threads), `NoopNotifier`, `EventBus` (async fan-out delivery via buffered channel), `NewEvent` constructor with `EventOption` functional options (including `WithReading` for read-mode completion events). `Event` carries `TaskMode` plus optional reading fields (`TLDR`, `NoveltyVerdict`, `Tags`, `Connections`) populated only for read-task completion events. `notify/` intentionally imports no transport packages — transport-specific notifiers live alongside their transport code (e.g. `messaging.MessagingNotifier`) to avoid an import cycle back through `taskcreate`.
+- **messaging/** — `Messenger` interface, `TwilioMessenger` (outbound SMS with retries + backoff), `InboundHandler` (Twilio-signature-verified webhook that calls `taskcreate.NewTask` directly and takes a `notify.Emitter` so event emission is the same invariant as every other create path). `parseReadCommand` extracts `Read <https-url>` from an inbound SMS body; the URL is validated by `discord.ValidateReadURL`. `MessagingNotifier` subscribes to the event bus and renders outbound SMS via `formatEventMessage` (read-mode completions render as TLDR + tags; other events use generic status copy).
 - **debug/** — `/debug/stats` handler: PID, uptime, running task count, pgxpool metrics
 
 ### Fake agent (`test/blackbox/fake-agent/`)
@@ -142,7 +143,11 @@ On completion, the orchestrator's `handleReadingCompletion` helper (in `internal
 4. Writes the row via `store.UpsertReading`.
 5. Emits `task.completed` with `WithReading(tldr, verdict, tags, connections)`.
 
-If the embedding API call or the DB write fails, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. If `embedder` is nil (no `OPENAI_API_KEY` configured), reading tasks fail at completion.
+If the embedding API call, the DB write, or the agent output fails the reading-mode contract, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. Contract failures include:
+
+- `embedder` is nil (no `OPENAI_API_KEY` configured).
+- Agent reported an empty `url` (both `status.URL` and `task.Prompt` empty).
+- Agent returned an **empty or whitespace-only TLDR** on a fresh (non-duplicate) or forced read — empty TLDR means the summary actually failed (paywall, crashed agent, parser mismatch), so surfacing it as a failure prevents the downstream SMS/Discord notifiers from sending a misleading "Task bf_xxx completed." reply for a page the user can't read. The duplicate short-circuit carves out an exception: an empty TLDR on a duplicate is acceptable because the existing reading carries the user-facing content.
 
 The reading agent image and reader-side shell scripts live in `docker/reader/`:
 
@@ -162,7 +167,7 @@ Reading-mode env vars:
 - `OPENAI_API_KEY` — Required for the orchestrator's embeddings client (and for the reader container's `read-embed.sh`)
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` — Passed to reader containers for PostgREST similarity search (see `docs/supabase-setup.md`)
 
-The `tasks` table carries a `force` boolean column. The API input for force is not wired yet (tracked separately) — today `task.Force` is set by the orchestrator only when explicitly populated through other creation paths.
+The `tasks` table carries a `force` boolean column. `CreateTaskRequest.Force` is honored across all creation paths (REST `POST /tasks`, Discord `/backflow read ... force:true`, `taskcreate.NewReadTask`). SMS read commands do not yet accept a force flag — see `HANDOFF.md` #199 for why and how to wire it.
 
 ## Harnesses
 

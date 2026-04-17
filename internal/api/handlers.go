@@ -13,6 +13,7 @@ import (
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/backflow-labs/backflow/internal/taskcreate"
 )
 
 // LogFetcher retrieves container logs for a running task.
@@ -37,9 +38,9 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	task, err := NewTask(r.Context(), &req, h.store, h.config, h.bus)
+	task, err := taskcreate.NewTask(r.Context(), &req, h.store, h.config, h.bus)
 	if err != nil {
-		if errors.Is(err, ErrStoreFailure) {
+		if errors.Is(err, taskcreate.ErrStoreFailure) {
 			writeError(w, http.StatusInternalServerError, "failed to create task")
 		} else {
 			writeError(w, http.StatusBadRequest, err.Error())

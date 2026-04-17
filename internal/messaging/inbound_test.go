@@ -149,7 +149,7 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -200,11 +200,97 @@ func TestInboundHandler_AllowedSender(t *testing.T) {
 	}
 }
 
+func TestInboundHandler_ReadCommandCreatesReadTask(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				Enabled:     true,
+			},
+		},
+	}
+	cfg := newTestConfig()
+	cfg.ReaderImage = "reader:latest"
+	handler := InboundHandler(db, cfg, NoopMessenger{}, nil)
+
+	w := postForm(handler, url.Values{
+		"From": {"+15551234567"},
+		"Body": {"Read https://example.com/article trailing words"},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if len(db.tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(db.tasks))
+	}
+	task := db.tasks[0]
+	if task.TaskMode != models.TaskModeRead {
+		t.Fatalf("task_mode = %q, want %q", task.TaskMode, models.TaskModeRead)
+	}
+	if task.Prompt != "https://example.com/article" {
+		t.Fatalf("prompt = %q, want first URL only", task.Prompt)
+	}
+	if task.CreatePR {
+		t.Fatal("CreatePR = true, want false for read mode")
+	}
+
+	var resp twiMLResponse
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid TwiML: %v", err)
+	}
+	if resp.Message == nil {
+		t.Fatal("expected TwiML message")
+	}
+	if !strings.Contains(resp.Message.Body, "Reading https://example.com/article...") {
+		t.Fatalf("unexpected response: %q", resp.Message.Body)
+	}
+}
+
+func TestInboundHandler_InvalidReadCommandDoesNotCreateTask(t *testing.T) {
+	db := &mockStore{
+		senders: map[string]*models.AllowedSender{
+			"sms:+15551234567": {
+				ChannelType: "sms",
+				Address:     "+15551234567",
+				Enabled:     true,
+			},
+		},
+	}
+	cfg := newTestConfig()
+	cfg.ReaderImage = "reader:latest"
+	handler := InboundHandler(db, cfg, NoopMessenger{}, nil)
+
+	w := postForm(handler, url.Values{
+		"From": {"+15551234567"},
+		"Body": {"Read http://example.com/article"},
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if len(db.tasks) != 0 {
+		t.Fatalf("expected no tasks, got %d", len(db.tasks))
+	}
+
+	var resp twiMLResponse
+	if err := xml.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid TwiML: %v", err)
+	}
+	if resp.Message == nil {
+		t.Fatal("expected TwiML message")
+	}
+	if !strings.Contains(resp.Message.Body, "invalid read command") {
+		t.Fatalf("unexpected response: %q", resp.Message.Body)
+	}
+}
+
 func TestInboundHandler_RejectedSender(t *testing.T) {
 	db := &mockStore{
 		senders: map[string]*models.AllowedSender{},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15559999999"},
@@ -238,7 +324,7 @@ func TestInboundHandler_DisabledSender(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -263,7 +349,7 @@ func TestInboundHandler_WithExplicitRepo(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -290,7 +376,7 @@ func TestInboundHandler_WithExplicitRepo(t *testing.T) {
 
 func TestInboundHandler_MissingFields(t *testing.T) {
 	db := &mockStore{senders: map[string]*models.AllowedSender{}}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -314,7 +400,7 @@ func TestInboundHandler_WhitespaceOnlyBody(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -340,7 +426,7 @@ func TestInboundHandler_AutoDetectsReviewMode(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -374,7 +460,7 @@ func TestInboundHandler_ReviewModePRURLOnly(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	// SMS body is just a PR URL — handler forwards it as-is, no review detection.
 	w := postForm(handler, url.Values{
@@ -408,7 +494,7 @@ func TestInboundHandler_TaskDefaults(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	w := postForm(handler, url.Values{
 		"From": {"+15551234567"},
@@ -494,7 +580,7 @@ func TestInboundHandler_RejectsInvalidSignature(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	// Request with no signature header — must be rejected
 	w := postUnsignedForm(handler, url.Values{
@@ -521,7 +607,7 @@ func TestInboundHandler_AcceptsValidSignature(t *testing.T) {
 			},
 		},
 	}
-	handler := InboundHandler(db, newTestConfig(), NoopMessenger{})
+	handler := InboundHandler(db, newTestConfig(), NoopMessenger{}, nil)
 
 	// postForm signs automatically — should succeed
 	w := postForm(handler, url.Values{
@@ -534,5 +620,259 @@ func TestInboundHandler_AcceptsValidSignature(t *testing.T) {
 	}
 	if len(db.tasks) != 1 {
 		t.Fatalf("expected 1 task, got %d", len(db.tasks))
+	}
+}
+
+// TestParseReadCommand pins the contract of parseReadCommand directly, not
+// through the handler. The return value is (url, isReadCommand, err):
+//   - isReadCommand=false means "not a read command" — caller should treat the
+//     body as a regular code/review prompt. err is always nil in this branch.
+//   - isReadCommand=true, err!=nil means "read command, but malformed" — caller
+//     should surface the error to the user.
+//   - isReadCommand=true, err=nil means "valid read command" — use url.
+func TestParseReadCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantURL      string
+		wantIsRead   bool
+		wantErr      bool
+		errSubstring string // optional: substring expected in the error message
+		urlMustEqual bool   // when true, wantURL must match exactly (default true for valid cases)
+		notRelevant  bool   // when true, wantURL is ignored (used for !isRead and err cases)
+	}{
+		// ─── Not a read command ─────────────────────────────────────
+		{
+			name:        "empty body",
+			body:        "",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+		{
+			name:        "whitespace-only body",
+			body:        "   \t  ",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+		{
+			name:        "plain code prompt",
+			body:        "Fix the login bug",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+		{
+			name:        "URL without Read prefix",
+			body:        "https://example.com/article",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+		{
+			name:        "Read not the first word",
+			body:        "Please Read https://example.com",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+		{
+			name:        "all-caps READ not accepted",
+			body:        "READ https://example.com",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+		{
+			name:        "PascalCase ReadMe not accepted",
+			body:        "ReadMe https://example.com",
+			wantIsRead:  false,
+			notRelevant: true,
+		},
+
+		// ─── Read command, valid URL ───────────────────────────────
+		{
+			name:         "capital Read with plain URL",
+			body:         "Read https://example.com",
+			wantURL:      "https://example.com",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "lowercase read with plain URL",
+			body:         "read https://example.com",
+			wantURL:      "https://example.com",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "URL with path",
+			body:         "Read https://example.com/articles/2026/go-generics",
+			wantURL:      "https://example.com/articles/2026/go-generics",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "URL with single query param",
+			body:         "Read https://example.com/a?b=c",
+			wantURL:      "https://example.com/a?b=c",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "URL with multiple query params",
+			body:         "Read https://example.com/search?q=golang&page=2&sort=date",
+			wantURL:      "https://example.com/search?q=golang&page=2&sort=date",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "URL with fragment",
+			body:         "Read https://example.com/doc#section-3",
+			wantURL:      "https://example.com/doc#section-3",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "URL with query and fragment",
+			body:         "Read https://example.com/a/b?x=1&y=2#frag",
+			wantURL:      "https://example.com/a/b?x=1&y=2#frag",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "commentary before URL is ignored",
+			body:         "Read this article https://example.com/post",
+			wantURL:      "https://example.com/post",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "commentary after URL is ignored (whitespace-separated)",
+			body:         "Read https://example.com/post please",
+			wantURL:      "https://example.com/post",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "multiple URLs — only the first is used",
+			body:         "Read https://first.example.com https://second.example.com",
+			wantURL:      "https://first.example.com",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "leading/trailing whitespace in body",
+			body:         "   Read   https://example.com/post   ",
+			wantURL:      "https://example.com/post",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			name:         "CRLF-separated commentary after URL",
+			body:         "Read https://example.com\r\n-- sent from my phone",
+			wantURL:      "https://example.com",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+
+		// ─── Read command, trailing-punctuation gotchas ─────────────
+		// These pin current behavior: the URL extractor uses \S+, so trailing
+		// punctuation glued to the URL (no space) gets captured. ValidateReadURL
+		// then accepts it because url.Parse treats trailing '.' / ')' as part
+		// of the path. This is a known limitation; fixing it belongs in
+		// ValidateReadURL or the regex, not here.
+		{
+			name:         "trailing period is captured into URL (known limitation)",
+			body:         "Read https://example.com/article.",
+			wantURL:      "https://example.com/article.",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+		{
+			// The regex `https?://\S+` starts matching at 'h', so the leading
+			// '(' is not captured. The trailing ')' is \S and IS captured.
+			name:         "trailing paren is captured into URL (known limitation)",
+			body:         "Read (https://example.com/post)",
+			wantURL:      "https://example.com/post)",
+			wantIsRead:   true,
+			urlMustEqual: true,
+		},
+
+		// ─── Read command, missing or invalid URL ──────────────────
+		{
+			name:         "Read with no URL",
+			body:         "Read this article",
+			wantIsRead:   true,
+			wantErr:      true,
+			errSubstring: "https URL",
+			notRelevant:  true,
+		},
+		{
+			name:         "Read alone",
+			body:         "Read",
+			wantIsRead:   true,
+			wantErr:      true,
+			errSubstring: "https URL",
+			notRelevant:  true,
+		},
+		{
+			name:         "Read with trailing spaces only",
+			body:         "Read   ",
+			wantIsRead:   true,
+			wantErr:      true,
+			errSubstring: "https URL",
+			notRelevant:  true,
+		},
+		{
+			name:         "Read with ftp URL (not matched by regex)",
+			body:         "Read ftp://example.com/file",
+			wantIsRead:   true,
+			wantErr:      true,
+			errSubstring: "https URL",
+			notRelevant:  true,
+		},
+		{
+			name:         "Read with http URL — matched but rejected by ValidateReadURL",
+			body:         "Read http://example.com",
+			wantIsRead:   true,
+			wantErr:      true,
+			errSubstring: "https",
+			notRelevant:  true,
+		},
+		{
+			name:        "Read with scheme but no host",
+			body:        "Read https://",
+			wantIsRead:  true,
+			wantErr:     true,
+			notRelevant: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotURL, gotIsRead, gotErr := parseReadCommand(tc.body)
+
+			if gotIsRead != tc.wantIsRead {
+				t.Errorf("isReadCommand = %v, want %v (body=%q)", gotIsRead, tc.wantIsRead, tc.body)
+			}
+
+			if tc.wantErr {
+				if gotErr == nil {
+					t.Fatalf("expected error, got nil (body=%q)", tc.body)
+				}
+				if tc.errSubstring != "" && !strings.Contains(gotErr.Error(), tc.errSubstring) {
+					t.Errorf("error = %q, want substring %q", gotErr.Error(), tc.errSubstring)
+				}
+				return
+			}
+
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v (body=%q)", gotErr, tc.body)
+			}
+
+			if tc.notRelevant {
+				return
+			}
+
+			if tc.urlMustEqual && gotURL != tc.wantURL {
+				t.Errorf("url = %q, want %q (body=%q)", gotURL, tc.wantURL, tc.body)
+			}
+		})
 	}
 }

@@ -9,16 +9,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
-	"time"
 
-	"github.com/oklog/ulid/v2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/backflow-labs/backflow/internal/config"
+	"github.com/backflow-labs/backflow/internal/discord"
 	"github.com/backflow-labs/backflow/internal/models"
+	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/backflow-labs/backflow/internal/taskcreate"
 )
 
 // twiMLResponse is a minimal TwiML envelope for replying to inbound SMS.
@@ -31,6 +33,8 @@ type twiMLMessage struct {
 	XMLName xml.Name `xml:"Message"`
 	Body    string   `xml:",chardata"`
 }
+
+var readCommandURLPattern = regexp.MustCompile(`https?://\S+`)
 
 func writeTwiML(w http.ResponseWriter, msg string) {
 	resp := twiMLResponse{}
@@ -90,7 +94,33 @@ func requestURL(r *http.Request) string {
 }
 
 // InboundHandler returns an http.HandlerFunc that processes inbound SMS from Twilio.
-func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) http.HandlerFunc {
+func parseReadCommand(body string) (string, bool, error) {
+	fields := strings.Fields(body)
+	if len(fields) == 0 {
+		return "", false, nil
+	}
+	if fields[0] != "Read" && fields[0] != "read" {
+		return "", false, nil
+	}
+
+	tail := strings.TrimSpace(strings.TrimPrefix(body, fields[0]))
+	rawURL := readCommandURLPattern.FindString(tail)
+	if rawURL == "" {
+		return "", true, fmt.Errorf("read commands must include an https URL")
+	}
+
+	validated, err := discord.ValidateReadURL(rawURL)
+	if err != nil {
+		return "", true, err
+	}
+	return validated, true, nil
+}
+
+// InboundHandler returns an http.HandlerFunc that processes inbound SMS from
+// Twilio. Created tasks go through taskcreate.NewTask, which emits task.created
+// on the provided bus. Passing a nil bus is supported (useful in tests) — no
+// events will be emitted, but task creation otherwise works the same.
+func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger, bus notify.Emitter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			log.Warn().Err(err).Msg("sms: failed to parse form")
@@ -137,25 +167,34 @@ func InboundHandler(db store.Store, cfg *config.Config, messenger Messenger) htt
 			return
 		}
 
-		now := time.Now().UTC()
-		task := &models.Task{
-			ID:           "bf_" + ulid.Make().String(),
-			Status:       models.TaskStatusPending,
-			TaskMode:     models.TaskModeAuto,
+		replyChannel := fmt.Sprintf("%s:%s", ChannelSMS, from)
+		req := &models.CreateTaskRequest{
 			Prompt:       body,
-			ReplyChannel: fmt.Sprintf("%s:%s", ChannelSMS, from),
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			ReplyChannel: replyChannel,
 		}
-		cfg.TaskDefaults(models.TaskModeAuto).Apply(task, nil)
 
-		if err := db.CreateTask(r.Context(), task); err != nil {
+		if readURL, isReadCommand, err := parseReadCommand(body); isReadCommand {
+			if err != nil {
+				writeTwiML(w, "Error: invalid read command. Use Read https://example.com/article")
+				return
+			}
+			readMode := models.TaskModeRead
+			req.Prompt = readURL
+			req.TaskMode = &readMode
+		}
+
+		task, err := taskcreate.NewTask(r.Context(), req, db, cfg, bus)
+		if err != nil {
 			log.Error().Err(err).Msg("sms: failed to create task")
 			writeTwiML(w, "Error: failed to create task.")
 			return
 		}
 
 		log.Info().Str("task_id", task.ID).Str("from", from).Msg("sms: task created")
+		if task.TaskMode == models.TaskModeRead {
+			writeTwiML(w, fmt.Sprintf("Reading %s...", task.Prompt))
+			return
+		}
 		writeTwiML(w, fmt.Sprintf("Task created: %s", task.ID))
 	}
 }

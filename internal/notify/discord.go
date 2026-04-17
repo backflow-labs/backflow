@@ -75,6 +75,15 @@ func (d *DiscordNotifier) Notify(event Event) error {
 
 func (d *DiscordNotifier) Name() string { return "discord" }
 
+// truncate shortens s to at most maxLen runes, appending "..." when truncated.
+func truncate(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
+
 func (d *DiscordNotifier) bootstrapThread(ctx context.Context, event Event) error {
 	payload := discordMessagePayload(event)
 	msg, err := d.client.CreateMessage(ctx, d.channelID, payload)

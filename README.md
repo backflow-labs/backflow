@@ -122,7 +122,17 @@ curl -X POST http://localhost:8080/api/v1/tasks \
     "prompt": "Fix the bug",
     "harness": "codex"
   }'
+
+# Reading task — summarize a URL into the readings table
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_mode": "read",
+    "prompt": "https://example.com/article"
+  }'
 ```
+
+You can also create reading tasks from Discord (`/backflow read <url> [force]`) or SMS (`Read https://example.com/article`). See [docs/discord-setup.md](docs/discord-setup.md) and [docs/sms-setup.md](docs/sms-setup.md).
 
 ## API Reference
 
@@ -163,6 +173,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
 | `allowed_tools` | []string | Restrict agent tool access |
 | `env_vars` | map | Extra env vars passed to the container (keys must be POSIX-valid; system keys like `ANTHROPIC_API_KEY` are reserved) |
 | `save_agent_output` | bool | Save agent output to S3 (omit to use server default) |
+| `force` | bool | Reading mode only: bypass the exact-URL duplicate check and upsert the existing reading row on completion. Ignored for `code`/`review` tasks. |
 
 ## Monitoring and Operations
 

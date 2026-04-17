@@ -19,6 +19,7 @@ import (
 	"github.com/backflow-labs/backflow/internal/models"
 	"github.com/backflow-labs/backflow/internal/notify"
 	"github.com/backflow-labs/backflow/internal/store"
+	"github.com/backflow-labs/backflow/internal/taskcreate"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -449,7 +450,7 @@ func TestNewTask_Integration(t *testing.T) {
 		Harness: "claude_code",
 	}
 
-	task, err := NewTask(ctx, req, s, cfg, emitter)
+	task, err := taskcreate.NewTask(ctx, req, s, cfg, emitter)
 	if err != nil {
 		t.Fatalf("NewTask returned error: %v", err)
 	}

@@ -1,4 +1,4 @@
-package api
+package taskcreate
 
 import (
 	"context"
@@ -19,9 +19,17 @@ import (
 // errors from validation errors returned by NewTask.
 var ErrStoreFailure = errors.New("failed to create task")
 
-// NewTask validates the request, applies config defaults, persists the task, and emits
-// a task.created event. Validation errors are returned as-is with user-friendly messages.
-// Store errors wrap ErrStoreFailure.
+// NewTask validates the request, applies config defaults, persists the task, and
+// (if bus is non-nil) emits a task.created event. Validation errors are returned
+// as-is with user-friendly messages; store errors wrap ErrStoreFailure.
+//
+// When req.TaskMode is "read", NewTask dispatches to NewReadTask. Callers who
+// know they want a read task can call NewReadTask directly.
+//
+// bus may be nil in tests or in boot paths that haven't wired the event bus yet.
+// In production, pass the real bus so every created task produces a task.created
+// event. Emission is a structural invariant of task creation — never skip it by
+// creating a task through some other code path.
 func NewTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, cfg *config.Config, bus notify.Emitter) (*models.Task, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -51,6 +59,7 @@ func NewTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, 
 		AllowedTools:  req.AllowedTools,
 		ClaudeMD:      req.ClaudeMD,
 		EnvVars:       req.EnvVars,
+		ReplyChannel:  req.ReplyChannel,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -73,12 +82,12 @@ func NewTask(ctx context.Context, req *models.CreateTaskRequest, s store.Store, 
 }
 
 // NewReadTask validates the request, applies read-mode defaults (reader image
-// and tighter budget/runtime/turn caps), persists the task, and emits a
-// task.created event.
+// and tighter budget/runtime/turn caps), persists the task, and (if bus is
+// non-nil) emits a task.created event.
 //
 // Honored request fields: Prompt, Context, Model, Harness, Effort,
 // MaxBudgetUSD, MaxRuntimeSec, MaxTurns, AllowedTools, ClaudeMD, EnvVars,
-// SaveAgentOutput.
+// ReplyChannel, SaveAgentOutput, Force.
 //
 // Ignored request fields: PRTitle, PRBody, CreatePR, SelfReview — read tasks
 // never clone repos or open PRs, so these fields have no effect.
@@ -112,6 +121,7 @@ func NewReadTask(ctx context.Context, req *models.CreateTaskRequest, s store.Sto
 		AllowedTools:  req.AllowedTools,
 		ClaudeMD:      req.ClaudeMD,
 		EnvVars:       req.EnvVars,
+		ReplyChannel:  req.ReplyChannel,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}

@@ -1,4 +1,4 @@
-package notify
+package messaging
 
 import (
 	"context"
@@ -8,30 +8,34 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/backflow-labs/backflow/internal/messaging"
+	"github.com/backflow-labs/backflow/internal/notify"
 )
 
 // MessagingNotifier sends SMS notifications to task creators who submitted
 // via messaging. It reads the reply channel directly from the Event.
+//
+// Lives in the messaging package (not notify) so that notify has no dependency
+// on messaging — which in turn lets taskcreate import notify without creating
+// a cycle (messaging → taskcreate → notify → messaging would cycle).
 type MessagingNotifier struct {
-	messenger messaging.Messenger
-	events    map[EventType]bool // nil = send all events
+	messenger Messenger
+	events    map[notify.EventType]bool // nil = send all events
 }
 
-func NewMessagingNotifier(m messaging.Messenger, filterEvents []string) *MessagingNotifier {
+func NewMessagingNotifier(m Messenger, filterEvents []string) *MessagingNotifier {
 	mn := &MessagingNotifier{
 		messenger: m,
 	}
 	if len(filterEvents) > 0 {
-		mn.events = make(map[EventType]bool, len(filterEvents))
+		mn.events = make(map[notify.EventType]bool, len(filterEvents))
 		for _, e := range filterEvents {
-			mn.events[EventType(e)] = true
+			mn.events[notify.EventType(e)] = true
 		}
 	}
 	return mn
 }
 
-func (m *MessagingNotifier) Notify(event Event) error {
+func (m *MessagingNotifier) Notify(event notify.Event) error {
 	// Check event filter
 	if m.events != nil && !m.events[event.Type] {
 		return nil
@@ -52,7 +56,7 @@ func (m *MessagingNotifier) Notify(event Event) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := m.messenger.Send(ctx, messaging.OutboundMessage{
+	if err := m.messenger.Send(ctx, OutboundMessage{
 		Channel: channel,
 		Body:    body,
 	}); err != nil {
@@ -67,41 +71,53 @@ func (m *MessagingNotifier) Notify(event Event) error {
 func (m *MessagingNotifier) Name() string { return "sms" }
 
 // parseReplyChannel converts "sms:+15551234567" into a Channel.
-func parseReplyChannel(rc string) (messaging.Channel, error) {
+func parseReplyChannel(rc string) (Channel, error) {
 	parts := strings.SplitN(rc, ":", 2)
 	if len(parts) != 2 || parts[1] == "" {
-		return messaging.Channel{}, fmt.Errorf("invalid reply channel format: %q", rc)
+		return Channel{}, fmt.Errorf("invalid reply channel format: %q", rc)
 	}
-	return messaging.Channel{
-		Type:    messaging.ChannelType(parts[0]),
+	return Channel{
+		Type:    ChannelType(parts[0]),
 		Address: parts[1],
 	}, nil
 }
 
 // formatEventMessage returns a concise, human-readable status message.
-func formatEventMessage(event Event) string {
+func formatEventMessage(event notify.Event) string {
 	switch event.Type {
-	case EventTaskCompleted:
+	case notify.EventTaskCompleted:
+		if event.TaskMode == "read" {
+			lines := []string{}
+			if event.TLDR != "" {
+				lines = append(lines, fmt.Sprintf("TLDR: %s", event.TLDR))
+			}
+			if len(event.Tags) > 0 {
+				lines = append(lines, fmt.Sprintf("Tags: %s", strings.Join(event.Tags, ", ")))
+			}
+			if len(lines) > 0 {
+				return strings.Join(lines, "\n")
+			}
+		}
 		msg := fmt.Sprintf("Task %s completed.", event.TaskID)
 		if event.PRURL != "" {
 			msg += fmt.Sprintf("\nPR: %s", event.PRURL)
 		}
 		return msg
-	case EventTaskFailed:
+	case notify.EventTaskFailed:
 		msg := fmt.Sprintf("Task %s failed.", event.TaskID)
 		if event.Message != "" {
 			msg += fmt.Sprintf("\n%s", truncate(event.Message, 100))
 		}
 		return msg
-	case EventTaskRunning:
+	case notify.EventTaskRunning:
 		return fmt.Sprintf("Task %s is now running.", event.TaskID)
-	case EventTaskInterrupted:
+	case notify.EventTaskInterrupted:
 		return fmt.Sprintf("Task %s was interrupted and will be retried.", event.TaskID)
-	case EventTaskRecovering:
+	case notify.EventTaskRecovering:
 		return fmt.Sprintf("Task %s is recovering.", event.TaskID)
-	case EventTaskCancelled:
+	case notify.EventTaskCancelled:
 		return fmt.Sprintf("Task %s was cancelled.", event.TaskID)
-	case EventTaskRetry:
+	case notify.EventTaskRetry:
 		return fmt.Sprintf("Task %s has been queued for retry.", event.TaskID)
 	default:
 		return fmt.Sprintf("Task %s: %s", event.TaskID, event.Type)

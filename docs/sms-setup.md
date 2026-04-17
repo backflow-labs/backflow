@@ -45,23 +45,29 @@ In the Twilio Console, set the webhook URL for your phone number's **"A Message 
 https://your-backflow-host/webhooks/sms/inbound   (POST)
 ```
 
-This endpoint receives incoming texts, authorizes the sender, parses the message for a repo URL and prompt, and creates a task.
+This endpoint receives incoming texts, authorizes the sender, and creates a task from the SMS body.
 
 ## 5. How It Works
 
 **Inbound (SMS to Task):** Text your Backflow number with a message like:
 
-- `Fix the login bug` — uses sender's default repo
-- `github.com/org/repo Fix the login bug` — explicit repo
-- `Implement the issue https://github.com/org/repo/issues/123` — issue URL infers the repo automatically
-- `https://github.com/org/repo/pull/42` — PR URL auto-detects review mode (sets `task_mode=review`, infers repo)
-- `Review https://github.com/org/repo/pull/42 for security issues` — PR URL auto-detects review mode, remaining text becomes the review prompt
+- `Fix the login bug` — creates a normal Backflow task with the raw SMS body as the prompt
+- `Read https://example.com/article` — creates a reading-mode task for the URL
+- `read https://example.com/article extra words here` — still creates a reading-mode task; Backflow uses the first URL and ignores trailing words in v1
+
+For SMS reading mode:
+
+- the command keyword must be `Read` or `read` at the start of the message
+- the URL must be `https://...`
+- only the first URL is used
+- invalid read commands return an SMS error and do not create a task
 
 The task is created with a `reply_channel` of `sms:+15559876543` so results go back to you.
 
 **Outbound (Task to SMS):** When a task reaches a matching event (e.g. `task.completed`), Backflow sends an SMS to the reply channel:
 
-- "Task bf_xxx completed. PR: https://github.com/org/repo/pull/42"
+- "TLDR: Short summary\nTags: ai, research" for completed reading-mode tasks
+- "Task bf_xxx completed. PR: https://github.com/org/repo/pull/42" for completed code-mode tasks that opened a PR
 - "Task bf_xxx failed. Some error message"
 
 ## 6. Deployment Notes
