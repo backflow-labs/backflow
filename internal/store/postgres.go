@@ -639,15 +639,6 @@ const readingInsertCols = `
 			$14, $15
 		)`
 
-func (s *PostgresStore) CreateReading(ctx context.Context, r *models.Reading) error {
-	args, err := readingArgs(r)
-	if err != nil {
-		return err
-	}
-	_, err = s.q.Exec(ctx, readingInsertCols, args...)
-	return err
-}
-
 func (s *PostgresStore) UpsertReading(ctx context.Context, r *models.Reading) error {
 	args, err := readingArgs(r)
 	if err != nil {
@@ -668,4 +659,44 @@ func (s *PostgresStore) UpsertReading(ctx context.Context, r *models.Reading) er
 			raw_output      = EXCLUDED.raw_output,
 			embedding       = EXCLUDED.embedding`, args...)
 	return err
+}
+
+// GetReadingByURL returns the reading row whose url column matches exactly.
+// Returns ErrNotFound when no row matches. The embedding column is intentionally
+// not selected — callers that need it should fetch by id with a dedicated query.
+func (s *PostgresStore) GetReadingByURL(ctx context.Context, url string) (*models.Reading, error) {
+	row := s.q.QueryRow(ctx, `
+		SELECT id, task_id, url, title, tldr,
+		       tags, keywords, people, orgs,
+		       novelty_verdict, connections, summary, raw_output,
+		       created_at
+		FROM readings
+		WHERE url = $1`, url)
+
+	var (
+		r              models.Reading
+		connectionsRaw []byte
+		rawOutput      []byte
+	)
+	err := row.Scan(
+		&r.ID, &r.TaskID, &r.URL, &r.Title, &r.TLDR,
+		&r.Tags, &r.Keywords, &r.People, &r.Orgs,
+		&r.NoveltyVerdict, &connectionsRaw, &r.Summary, &rawOutput,
+		&r.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if len(connectionsRaw) > 0 {
+		if err := json.Unmarshal(connectionsRaw, &r.Connections); err != nil {
+			return nil, fmt.Errorf("unmarshal connections: %w", err)
+		}
+	}
+	if len(rawOutput) > 0 {
+		r.RawOutput = rawOutput
+	}
+	return &r, nil
 }

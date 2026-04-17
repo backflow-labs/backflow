@@ -32,6 +32,7 @@ make deps               # go mod tidy
 make clean              # Remove bin/ directory
 make cloudflared-setup  # Create cloudflared tunnel, DNS route, and config (one-time)
 make tunnel             # Start cloudflared tunnel → $BACKFLOW_DOMAIN → localhost:8080
+make deploy-site        # Deploy site/ to Cloudflare Pages (backflow-site) via wrangler
 make db-running         # Show running tasks (also: db-pending, db-completed, db-failed, etc.)
 make docker-agent-build       # Buildx multi-platform agent image (amd64+arm64)
 make docker-agent-build-local # Single-architecture agent build
@@ -79,7 +80,7 @@ Two goroutines: chi REST API on `:8080` + polling orchestrator (5s default). Thr
 - **api/** — chi router, HTTP handlers, JSON responses, `LogFetcher` interface. The `POST /tasks` handler calls `taskcreate.NewTask`; `CancelTask` and `RetryTask` shared action helpers are used by both REST handlers and Discord.
 - **taskcreate/** — Canonical task-creation layer (`NewTask`, `NewReadTask`, `ErrStoreFailure`). Validates the request, applies config defaults, persists the task, and (when a non-nil `notify.Emitter` is passed) emits `task.created`. All three entry points (REST, Discord, SMS) go through this package, so every successfully created task produces exactly one `task.created` event — this is a structural invariant, pinned by tests.
 - **orchestrator/** — Poll loop (`orchestrator.go`), dispatch (`dispatch.go`), monitoring (`monitor.go`, including `handleReadingCompletion` for read-mode tasks), recovery (`recovery.go`), local mode (`local.go`). Subpackages: `docker/` (Docker container management via SSM or local exec), `ec2/` (EC2 lifecycle, auto-scaler, spot interruption handler), `fargate/` (ECS/Fargate runner, CloudWatch log parsing), `s3/` (agent output upload)
-- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `CreateReading` / `UpsertReading` for the `readings` table.
+- **store/** — `Store` interface + PostgreSQL (`pgxpool`, goose migrations). Includes `UpsertReading` / `GetReadingByURL` for the `readings` table.
 - **models/** — `Task`, `Instance`, `AllowedSender`, `DiscordInstall`, and `Reading` (+ `Connection`) structs with status enums. `Task.AgentImage` records which Docker image the orchestrator used (read tasks get `ReaderImage`, others get the default agent image). `FindFirstURL` / `InferReviewMode` auto-detect review mode when a prompt's first URL is a GitHub PR URL.
 - **embeddings/** — Thin `Embedder` interface (`Embed(ctx, text) ([]float32, error)`) with an `OpenAIEmbedder` HTTP client (no SDK). Used by the orchestrator to embed a reading's final TL;DR before writing the `readings` row.
 - **discord/** — Discord interaction handler (Ed25519 signature verification, PING/PONG, interaction routing, `/backflow create` modal for task creation, `/backflow read <url> [force]` for reading-mode task creation, `/backflow cancel` and `/backflow retry` commands, button click handling). `HandlerActions` struct groups callback functions and role-based authorization config.
@@ -132,12 +133,15 @@ At startup, Backflow persists the install config to the `discord_installs` table
 
 When a task's `task_mode` is `read`, the orchestrator selects `BACKFLOW_READER_IMAGE` instead of the default agent image. The reader container fetches the URL in the prompt, drafts a summary, and emits structured JSON (url/title/tldr/tags/connections/novelty_verdict/etc.) to `status.json` (and a `BACKFLOW_STATUS_JSON:` log line for Fargate).
 
+**At dispatch** (before the reader container launches), the orchestrator looks up the URL via `store.GetReadingByURL`. If the row already exists and `!task.Force`, the task is marked `failed` with `"reading already exists for url X (id=Y); resubmit with force=true to overwrite"` and no container is started. This avoids spending reader-container minutes and LLM tokens on a URL that's already captured — and means the orchestrator, not the agent, is the source of truth for duplicate detection. The in-container `read-lookup.sh` script still exists as a best-effort hint during the agent's session but is no longer authoritative. If the DB lookup itself errors, dispatch fails through the generic error path and the task is marked failed with the DB error.
+
 On completion, the orchestrator's `handleReadingCompletion` helper (in `internal/orchestrator/monitor.go`) runs synchronously:
 
 1. Parses the reading-specific fields off `ContainerStatus`.
-2. Calls `embeddings.Embedder.Embed(ctx, tldr)` to embed the final TL;DR (re-embedded by the orchestrator, not reused from the agent — the agent's draft TL;DR can be refined after similarity lookup).
-3. Writes the row via `store.UpsertReading` (every fresh read upserts; duplicate short-circuit below skips the write when the agent identifies the URL as an existing reading and the task isn't forced).
-4. Emits `task.completed` with `WithReading(tldr, verdict, tags, connections)`.
+2. If the agent's `novelty_verdict` is `"duplicate"` and `!task.Force`, short-circuits with no write (agent noticed a dup mid-run; preserve the existing row).
+3. Calls `embeddings.Embedder.Embed(ctx, tldr)` to embed the final TL;DR (re-embedded by the orchestrator, not reused from the agent — the agent's draft TL;DR can be refined after similarity lookup).
+4. Writes the row via `store.UpsertReading`.
+5. Emits `task.completed` with `WithReading(tldr, verdict, tags, connections)`.
 
 If the embedding API call, the DB write, or the agent output fails the reading-mode contract, the task is marked `failed` rather than silently `completed`, and `task.failed` is emitted. Contract failures include:
 

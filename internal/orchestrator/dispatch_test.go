@@ -554,3 +554,179 @@ func TestDispatch_RunAgentError(t *testing.T) {
 		t.Errorf("running = %d, want 0 (incrementRunning not called on failure)", o.running)
 	}
 }
+
+// TestDispatch_ReadDuplicate_NonForce_FailsWithoutContainer verifies that a
+// read-mode task for a URL already in the readings table short-circuits at
+// dispatch time: no instance reserved, no container launched, no embedding
+// call, and a task.failed event with a duplicate-URL message is emitted.
+func TestDispatch_ReadDuplicate_NonForce_FailsWithoutContainer(t *testing.T) {
+	s := newMockStore()
+	s.CreateInstance(context.Background(), newLocalInstance())
+	const url = "https://example.com/post"
+	s.readingsByURL[url] = &models.Reading{
+		ID:             "bf_existing_reading",
+		URL:            url,
+		Title:          "Previously captured",
+		TLDR:           "older tldr",
+		NoveltyVerdict: "novel",
+	}
+	task := &models.Task{
+		ID:       "bf_read_dup_noforce",
+		Status:   models.TaskStatusPending,
+		TaskMode: models.TaskModeRead,
+		Prompt:   url,
+		Force:    false,
+	}
+	s.CreateTask(context.Background(), task)
+
+	bus, n := newTestBus()
+	mock := &mockDockerManager{
+		runAgentID:     "cont-should-not-run",
+		inspectResults: map[string]ContainerStatus{},
+	}
+	embedder := &mockEmbedder{}
+	o := newTestOrchestrator(s, bus, withDocker(mock), withEmbedder(embedder))
+	o.config.ReaderImage = "backflow-reader"
+
+	task, _ = s.GetTask(context.Background(), "bf_read_dup_noforce")
+	err := o.dispatch(context.Background(), task)
+	if err != nil {
+		t.Fatalf("dispatch returned error, want nil (inline-handled): %v", err)
+	}
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_dup_noforce")
+	if got.Status != models.TaskStatusFailed {
+		t.Errorf("status = %q, want failed", got.Status)
+	}
+	if !strings.Contains(got.Error, "reading already exists") {
+		t.Errorf("task.Error = %q, want mention of 'reading already exists'", got.Error)
+	}
+	if !strings.Contains(got.Error, "bf_existing_reading") {
+		t.Errorf("task.Error = %q, want mention of existing reading id", got.Error)
+	}
+	if got.ContainerID != "" {
+		t.Errorf("ContainerID = %q, want empty (no container should launch)", got.ContainerID)
+	}
+	if got.InstanceID != "" {
+		t.Errorf("InstanceID = %q, want empty (no instance should be reserved)", got.InstanceID)
+	}
+	if o.running != 0 {
+		t.Errorf("running = %d, want 0", o.running)
+	}
+	inst, _ := s.GetInstance(context.Background(), "local")
+	if inst.RunningContainers != 0 {
+		t.Errorf("RunningContainers = %d, want 0", inst.RunningContainers)
+	}
+	if len(embedder.calls) != 0 {
+		t.Errorf("embedder calls = %d, want 0", len(embedder.calls))
+	}
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("reading writes happened: upserted=%d, want 0", len(s.upsertedReadings))
+	}
+
+	if len(n.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(n.events))
+	}
+	ev := n.events[0]
+	if ev.Type != notify.EventTaskFailed {
+		t.Errorf("event type = %q, want task.failed", ev.Type)
+	}
+	if !strings.Contains(ev.Message, "reading already exists") {
+		t.Errorf("event.Message = %q, want duplicate-URL message", ev.Message)
+	}
+	if ev.TaskMode != models.TaskModeRead {
+		t.Errorf("event.TaskMode = %q, want read", ev.TaskMode)
+	}
+}
+
+// TestDispatch_ReadDuplicate_Force_ProceedsNormally verifies that Force=true
+// bypasses the pre-dispatch duplicate check and launches the container.
+func TestDispatch_ReadDuplicate_Force_ProceedsNormally(t *testing.T) {
+	s := newMockStore()
+	s.CreateInstance(context.Background(), newLocalInstance())
+	const url = "https://example.com/post"
+	s.readingsByURL[url] = &models.Reading{
+		ID:  "bf_existing_reading",
+		URL: url,
+	}
+	task := &models.Task{
+		ID:       "bf_read_dup_force",
+		Status:   models.TaskStatusPending,
+		TaskMode: models.TaskModeRead,
+		Prompt:   url,
+		Force:    true,
+	}
+	s.CreateTask(context.Background(), task)
+
+	bus, n := newTestBus()
+	mock := &mockDockerManager{
+		runAgentID:     "cont-force",
+		inspectResults: map[string]ContainerStatus{},
+	}
+	o := newTestOrchestrator(s, bus, withDocker(mock), withEmbedder(&mockEmbedder{}))
+	o.config.ReaderImage = "backflow-reader"
+
+	task, _ = s.GetTask(context.Background(), "bf_read_dup_force")
+	err := o.dispatch(context.Background(), task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	bus.Close()
+
+	got, _ := s.GetTask(context.Background(), "bf_read_dup_force")
+	if got.Status != models.TaskStatusRunning {
+		t.Errorf("status = %q, want running (force bypasses dup check)", got.Status)
+	}
+	if got.ContainerID != "cont-force" {
+		t.Errorf("ContainerID = %q, want cont-force", got.ContainerID)
+	}
+	if o.running != 1 {
+		t.Errorf("running = %d, want 1", o.running)
+	}
+
+	types := n.eventTypes()
+	if len(types) != 1 || types[0] != notify.EventTaskRunning {
+		t.Errorf("expected [task.running], got %v", types)
+	}
+}
+
+// TestDispatch_ReadDuplicate_LookupError_ReturnsError verifies that a DB error
+// on the duplicate lookup is surfaced to dispatchPending so it marks the task
+// failed via its generic error path, rather than silently proceeding.
+func TestDispatch_ReadDuplicate_LookupError_ReturnsError(t *testing.T) {
+	s := newMockStore()
+	s.CreateInstance(context.Background(), newLocalInstance())
+	s.getReadingByURLErr = fmt.Errorf("db connection pool exhausted")
+
+	task := &models.Task{
+		ID:       "bf_read_dup_lookuperr",
+		Status:   models.TaskStatusPending,
+		TaskMode: models.TaskModeRead,
+		Prompt:   "https://example.com/post",
+		Force:    false,
+	}
+	s.CreateTask(context.Background(), task)
+
+	bus, _ := newTestBus()
+	defer bus.Close()
+	mock := &mockDockerManager{
+		runAgentID:     "cont-should-not-run",
+		inspectResults: map[string]ContainerStatus{},
+	}
+	o := newTestOrchestrator(s, bus, withDocker(mock), withEmbedder(&mockEmbedder{}))
+	o.config.ReaderImage = "backflow-reader"
+
+	task, _ = s.GetTask(context.Background(), "bf_read_dup_lookuperr")
+	err := o.dispatch(context.Background(), task)
+	if err == nil {
+		t.Fatal("expected error from dispatch when GetReadingByURL fails")
+	}
+	if !strings.Contains(err.Error(), "db connection pool exhausted") {
+		t.Errorf("error = %q, want 'db connection pool exhausted'", err.Error())
+	}
+	got, _ := s.GetTask(context.Background(), "bf_read_dup_lookuperr")
+	if got.ContainerID != "" {
+		t.Errorf("ContainerID = %q, want empty (no container should launch)", got.ContainerID)
+	}
+}

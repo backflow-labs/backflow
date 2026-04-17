@@ -1091,7 +1091,7 @@ func TestPG_GetDiscordTaskThread_NotFound(t *testing.T) {
 	}
 }
 
-func TestPG_CreateReading(t *testing.T) {
+func TestPG_UpsertReading_Insert(t *testing.T) {
 	s := testPostgresStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -1123,8 +1123,8 @@ func TestPG_CreateReading(t *testing.T) {
 		CreatedAt: now,
 	}
 
-	if err := s.CreateReading(ctx, r); err != nil {
-		t.Fatalf("CreateReading: %v", err)
+	if err := s.UpsertReading(ctx, r); err != nil {
+		t.Fatalf("UpsertReading: %v", err)
 	}
 
 	// Read back via raw SQL to verify all fields.
@@ -1193,48 +1193,6 @@ func TestPG_CreateReading(t *testing.T) {
 	}
 }
 
-func TestPG_UpsertReading_Insert(t *testing.T) {
-	s := testPostgresStore(t)
-	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	task := pgTestTask(t, s)
-
-	embedding := make([]float32, 1536)
-	embedding[0] = 0.5
-
-	r := &models.Reading{
-		ID:             "bf_READ002",
-		TaskID:         task.ID,
-		URL:            "https://example.com/new-article",
-		Title:          "New Article",
-		TLDR:           "Brand new",
-		Tags:           []string{"new"},
-		Keywords:       []string{"fresh"},
-		People:         []string{},
-		Orgs:           []string{},
-		NoveltyVerdict: "novel",
-		Connections:    []models.Connection{},
-		Summary:        "Full summary",
-		RawOutput:      []byte(`{}`),
-		Embedding:      embedding,
-		CreatedAt:      now,
-	}
-
-	if err := s.UpsertReading(ctx, r); err != nil {
-		t.Fatalf("UpsertReading (insert): %v", err)
-	}
-
-	// Verify row exists.
-	var gotTitle string
-	err := s.pool.QueryRow(ctx, "SELECT title FROM readings WHERE url = $1", r.URL).Scan(&gotTitle)
-	if err != nil {
-		t.Fatalf("query after upsert-insert: %v", err)
-	}
-	if gotTitle != "New Article" {
-		t.Errorf("Title = %q, want %q", gotTitle, "New Article")
-	}
-}
-
 func TestPG_UpsertReading_Update(t *testing.T) {
 	s := testPostgresStore(t)
 	ctx := context.Background()
@@ -1261,8 +1219,8 @@ func TestPG_UpsertReading_Update(t *testing.T) {
 		Embedding:      embedding,
 		CreatedAt:      now,
 	}
-	if err := s.CreateReading(ctx, original); err != nil {
-		t.Fatalf("CreateReading (seed): %v", err)
+	if err := s.UpsertReading(ctx, original); err != nil {
+		t.Fatalf("UpsertReading (seed): %v", err)
 	}
 
 	// Upsert with same URL but different content and a new ID (force re-read).
@@ -1318,6 +1276,64 @@ func TestPG_UpsertReading_Update(t *testing.T) {
 	}
 }
 
+func TestPG_GetReadingByURL(t *testing.T) {
+	s := testPostgresStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	task := pgTestTask(t, s)
+
+	embedding := make([]float32, 1536)
+	embedding[0] = 0.42
+
+	seeded := &models.Reading{
+		ID:             "bf_READ_LOOKUP",
+		TaskID:         task.ID,
+		URL:            "https://example.com/lookup",
+		Title:          "Lookup Target",
+		TLDR:           "exact-url lookup",
+		Tags:           []string{"lookup"},
+		Keywords:       []string{},
+		People:         []string{},
+		Orgs:           []string{},
+		NoveltyVerdict: "novel",
+		Connections:    []models.Connection{},
+		Summary:        "",
+		RawOutput:      []byte(`{}`),
+		Embedding:      embedding,
+		CreatedAt:      now,
+	}
+	if err := s.UpsertReading(ctx, seeded); err != nil {
+		t.Fatalf("UpsertReading: %v", err)
+	}
+
+	// Hit: exact URL match returns the seeded row.
+	got, err := s.GetReadingByURL(ctx, "https://example.com/lookup")
+	if err != nil {
+		t.Fatalf("GetReadingByURL (hit): %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetReadingByURL: returned nil reading for hit")
+	}
+	if got.ID != seeded.ID {
+		t.Errorf("ID = %q, want %q", got.ID, seeded.ID)
+	}
+	if got.URL != seeded.URL {
+		t.Errorf("URL = %q, want %q", got.URL, seeded.URL)
+	}
+	if got.Title != seeded.Title {
+		t.Errorf("Title = %q, want %q", got.Title, seeded.Title)
+	}
+	if got.TLDR != seeded.TLDR {
+		t.Errorf("TLDR = %q, want %q", got.TLDR, seeded.TLDR)
+	}
+
+	// Miss: unknown URL returns ErrNotFound.
+	_, err = s.GetReadingByURL(ctx, "https://example.com/does-not-exist")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetReadingByURL (miss) err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestPG_MatchReadings_SimilarityOrdering(t *testing.T) {
 	s := testPostgresStore(t)
 	ctx := context.Background()
@@ -1359,8 +1375,8 @@ func TestPG_MatchReadings_SimilarityOrdering(t *testing.T) {
 			Embedding:   makeEmbedding(rd.dim),
 			CreatedAt:   now,
 		}
-		if err := s.CreateReading(ctx, r); err != nil {
-			t.Fatalf("CreateReading %s: %v", rd.id, err)
+		if err := s.UpsertReading(ctx, r); err != nil {
+			t.Fatalf("UpsertReading %s: %v", rd.id, err)
 		}
 	}
 
