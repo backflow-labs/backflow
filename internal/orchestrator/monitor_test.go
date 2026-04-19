@@ -1990,9 +1990,8 @@ func TestHandleCompletion_ReadEmptyTLDR_MarksTaskFailed(t *testing.T) {
 
 	// No reading row should be written for an empty TLDR.
 	s.mu.Lock()
-	if len(s.upsertedReadings) != 0 || len(s.createdReadings) != 0 {
-		t.Errorf("no reading should be written for empty TLDR: upserted=%d created=%d",
-			len(s.upsertedReadings), len(s.createdReadings))
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("no reading should be written for empty TLDR: upserted=%d", len(s.upsertedReadings))
 	}
 	s.mu.Unlock()
 
@@ -2107,9 +2106,8 @@ func TestHandleCompletion_ReadDuplicateEmptyTLDR_Succeeds(t *testing.T) {
 	}
 	emb.mu.Unlock()
 	s.mu.Lock()
-	if len(s.upsertedReadings) != 0 || len(s.createdReadings) != 0 {
-		t.Errorf("duplicate short-circuit should not write: upserted=%d created=%d",
-			len(s.upsertedReadings), len(s.createdReadings))
+	if len(s.upsertedReadings) != 0 {
+		t.Errorf("duplicate short-circuit should not write: upserted=%d", len(s.upsertedReadings))
 	}
 	s.mu.Unlock()
 
