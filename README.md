@@ -223,11 +223,22 @@ To add a migration: create a new file in `migrations/` (e.g. `002_add_column.sql
 
 ## Deployment
 
-### Agent Image
+### Docker Images
+
+Three images live under `docker/`: the code/review agent (`docker/agent/`), the reader agent (`docker/reader/`), and the Backflow server itself (`docker/server/`). Each has a matching set of Make targets.
 
 ```bash
+# Code/review agent
 make docker-agent-build-local    # Single-arch local build
 make docker-agent-deploy         # Multi-arch build + push to ECR
+
+# Reader agent (task_mode=read)
+make docker-reader-build-local   # Single-arch local build
+make docker-reader-deploy        # Multi-arch build + push to ECR
+
+# Backflow server (used by Fargate / Fly deployments)
+make docker-server-build-local   # Single-arch local build
+make docker-server-deploy        # Multi-arch build + push to ECR
 ```
 
 ### AWS Setup (EC2 Mode)
